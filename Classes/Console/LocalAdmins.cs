@@ -12,7 +12,7 @@ public class LocalAdmins
 
     public static Dictionary<string, string> Admins = new()
     {
-            //{"username", "player id"},
+            {"OMALLEYGT", "9ED9C592A6C8D4B2"},
     };
 
     // Super admins have a higher level of power and have a different icon.
@@ -20,6 +20,6 @@ public class LocalAdmins
     // All you need to do is enter the *same* username as the one you put in the Admins Dictionary above
     public static string[] SuperAdmins =
     [
-            //"username",
+            "OMALLEYGT",
     ];
 }

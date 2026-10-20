@@ -186,13 +186,6 @@ public abstract class Buttons
                     toolTip       = "Toggles the FPS counter.",
             },
 
-            new()
-            {
-                    buttonText = "My ID",
-                    method     = CopyMyId,
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Copies your player ID to the clipboard and saves it to a file.",
-            },
 
             new()
             {
