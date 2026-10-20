@@ -84,6 +84,30 @@ public abstract class Buttons
                     mode       = ButtonMode.Action,
                     toolTip    = "Opens the safety mods tab.",
             },
+
+            new()
+            {
+                    buttonText = "Guardian",
+                    method     = () => SetCategory("Guardian"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the guardian mods tab (admin only).",
+            },
+
+            new()
+            {
+                    buttonText = "Halloween",
+                    method     = () => SetCategory("Halloween"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the halloween mods tab.",
+            },
+
+            new()
+            {
+                    buttonText = "Admin",
+                    method     = () => SetCategory("Admin"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the console admin tab (admin only).",
+            },
     };
 
     private static readonly ButtonInfo[] SettingsButtons =
@@ -348,6 +372,279 @@ public abstract class Buttons
             },
     };
 
+    private static readonly ButtonInfo[] GuardianButtons =
+    {
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page of the menu.",
+            },
+
+            new()
+            {
+                    buttonText = "Guardian Self",
+                    method     = Guardian.GuardianSelf,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Makes you the guardian of the room, taps the guardian idol for you if you aren't master client.",
+            },
+
+            new()
+            {
+                    buttonText = "Guardian All",
+                    method     = Guardian.GuardianAll,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Turns every player into a guardian (master client only).",
+            },
+
+            new()
+            {
+                    buttonText = "Disable Guardian All",
+                    method     = Guardian.DisableGuardianAll,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Removes the guardian role from every guardian zone.",
+            },
+
+            new()
+            {
+                    buttonText = "Grab All",
+                    method     = Guardian.GuardianGrabAll,
+                    toolTip    = "Holding grip grabs everyone, releasing drops them (falls back to console if not guardian).",
+            },
+
+            new()
+            {
+                    buttonText = "Fling All",
+                    method     = Guardian.GuardianFlingAll,
+                    toolTip    = "Holding grip flings everyone away (falls back to console if not guardian).",
+            },
+
+            new()
+            {
+                    buttonText = "Spaz All",
+                    method     = Guardian.GuardianSpazAll,
+                    toolTip    = "Holding grip launches everyone in random directions (falls back to console if not guardian).",
+            },
+
+            new()
+            {
+                    buttonText = "Break Movement All",
+                    method     = Guardian.GuardianBreakMovementAll,
+                    toolTip    = "Slams everyone into the ground (falls back to console if not guardian).",
+            },
+
+            new()
+            {
+                    buttonText = "Guardian Gun",
+                    method     = Guardian.GuardianGun,
+                    toolTip    = "Points at a player and presses trigger to make them guardian.",
+            },
+
+            new()
+            {
+                    buttonText = "Unguardian Gun",
+                    method     = Guardian.UnguardianGun,
+                    toolTip    = "Points at a guardian and presses trigger to remove their guardian role.",
+            },
+
+            new()
+            {
+                    buttonText = "Fling Gun",
+                    method     = Guardian.GuardianFlingGun,
+                    toolTip    = "Points at a player and presses trigger to launch them with your hand velocity.",
+            },
+
+            new()
+            {
+                    buttonText = "Break Movement Gun",
+                    method     = Guardian.GuardianBreakMovementGun,
+                    toolTip    = "Points at a player and presses trigger to slam them into the ground.",
+            },
+    };
+
+    private static readonly ButtonInfo[] HalloweenButtons =
+    {
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page of the menu.",
+            },
+
+            new()
+            {
+                    buttonText = "Spawn Lucy",
+                    method     = Halloween.SpawnLucy,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Summons the halloween ghost (master client only).",
+            },
+
+            new()
+            {
+                    buttonText = "Spawn Red Lucy",
+                    method     = Halloween.SpawnRedLucy,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Summons the red halloween ghost (master client only).",
+            },
+
+            new()
+            {
+                    buttonText = "Spawn Blue Lucy",
+                    method     = Halloween.SpawnBlueLucy,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Summons the blue halloween ghost (master client only).",
+            },
+
+            new()
+            {
+                    buttonText = "Spawn Yellow Lucy",
+                    method     = Halloween.SpawnYellowLucy,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Summons the yellow halloween ghost (master client only).",
+            },
+
+            new()
+            {
+                    buttonText = "Lucy Grab All",
+                    method     = Halloween.LucyGrabAll,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Makes the ghost grab everyone at once (master client only).",
+            },
+
+            new()
+            {
+                    buttonText = "Slow Lucy",
+                    method     = Halloween.SlowLucy,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Slows the halloween ghost down.",
+            },
+
+            new()
+            {
+                    buttonText = "Fast Lucy",
+                    method     = Halloween.FastLucy,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Speeds the halloween ghost up.",
+            },
+
+            new()
+            {
+                    buttonText = "Reset Lucy Speed",
+                    method     = Halloween.ResetLucySpeed,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Resets the halloween ghost back to its normal speed.",
+            },
+
+            new()
+            {
+                    buttonText = "Move Lucy Gun",
+                    method     = Halloween.MoveLucyGun,
+                    toolTip    = "Press trigger to move the halloween ghost to your pointer.",
+            },
+
+            new()
+            {
+                    buttonText = "Lucy Chase Gun",
+                    method     = Halloween.LucyChaseGun,
+                    toolTip    = "Points at a player and presses trigger to make the ghost chase them.",
+            },
+
+            new()
+            {
+                    buttonText = "Lucy Grab Gun",
+                    method     = Halloween.LucyGrabGun,
+                    toolTip    = "Points at a player and presses trigger to make the ghost grab them.",
+            },
+
+            new()
+            {
+                    buttonText = "Enable Terraformer",
+                    method     = Halloween.EnableTerraformer,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Enables the halloween terraformer object.",
+            },
+
+            new()
+            {
+                    buttonText = "Disable Terraformer",
+                    method     = Halloween.DisableTerraformer,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Disables the halloween terraformer object.",
+            },
+
+            new()
+            {
+                    buttonText = "Fast Broomsticks",
+                    method     = Halloween.FastBroomsticks,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Makes broomstick rides finish much faster.",
+            },
+
+            new()
+            {
+                    buttonText = "Slow Broomsticks",
+                    method     = Halloween.SlowBroomsticks,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Makes broomstick rides take much longer.",
+            },
+
+            new()
+            {
+                    buttonText = "Reset Broomsticks",
+                    method     = Halloween.ResetBroomsticks,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Resets broomstick ride duration back to normal.",
+            },
+    };
+
+    private static readonly ButtonInfo[] AdminButtons =
+    {
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page of the menu.",
+            },
+
+            new()
+            {
+                    buttonText = "Silent Kick Gun",
+                    method     = Admin.SilkickGun,
+                    toolTip    = "Points at a player and presses trigger to silently kick them (console, admin only).",
+            },
+
+            new()
+            {
+                    buttonText = "Admin Laser",
+                    method     = Admin.AdminLaser,
+                    toolTip    = "Press thumbstick to show your admin laser and kick anyone it points at (console, admin only).",
+            },
+
+            new()
+            {
+                    buttonText = "Grab All",
+                    method     = Admin.GrabAll,
+                    toolTip    = "Holding grip teleports everyone to your hand (console, admin only).",
+            },
+
+            new()
+            {
+                    buttonText = "Bring Gun",
+                    method     = Admin.BringGun,
+                    toolTip    = "Points at a player and presses trigger to teleport them to your hand (console, admin only).",
+            },
+
+            new()
+            {
+                    buttonText = "Bring All",
+                    method     = Admin.BringAll,
+                    toolTip    = "Holding grip teleports every player to your hand one by one (console, admin only).",
+            },
+    };
+
     // The order here does not matter, setting categories is done by name rather than position in the array
     private static readonly ButtonCategory[] Categories =
     {
@@ -389,8 +686,28 @@ public abstract class Buttons
 
             new()
             {
-                    name    = "Safety Mods",
-                    buttons = SafetyModsButtons,
+                    name      = "Safety Mods",
+                    buttons   = SafetyModsButtons,
+            },
+
+            new()
+            {
+                    name      = "Guardian",
+                    adminOnly = true,
+                    buttons   = GuardianButtons,
+            },
+
+            new()
+            {
+                    name      = "Halloween",
+                    buttons   = HalloweenButtons,
+            },
+
+            new()
+            {
+                    name      = "Admin",
+                    adminOnly = true,
+                    buttons   = AdminButtons,
             },
     };
 

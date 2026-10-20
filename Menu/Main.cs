@@ -13,6 +13,7 @@ using UnityEngine.XR;
 using static StupidTemplate.Menu.Settings;
 using static StupidTemplate.Menu.Buttons;
 using Button = StupidTemplate.Classes.Button;
+using HamburburData = StupidTemplate.Classes.Console.HamburburData;
 using Random = UnityEngine.Random;
 
 /*
@@ -130,6 +131,17 @@ public class Main : MonoBehaviour
         if (category == null)
         {
             Debug.LogError($"{Constants.Name} // Category {categoryName} does not exist.");
+
+            return;
+        }
+
+        if (category.adminOnly &&
+            !HamburburData.IsLocalAdmin &&
+            !HamburburData.IsLocalSuperAdmin)
+        {
+            NotifiLib.SendNotification(
+                    "<color=grey>[</color><color=red>ADMIN</color><color=grey>]</color> " +
+                    "This category is only available to admins.");
 
             return;
         }
