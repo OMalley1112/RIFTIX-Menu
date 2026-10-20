@@ -2,6 +2,7 @@
 using BepInEx;
 using StupidTemplate.Classes;
 using StupidTemplate.Classes.Console;
+using StupidTemplate.Menu;
 using StupidTemplate.Patches;
 
 namespace StupidTemplate;
@@ -19,6 +20,7 @@ public class Plugin : BaseUnityPlugin
         
         gameObject.AddComponent<CoroutineManager>();
         gameObject.AddComponent<HamburburData>();
+        gameObject.AddComponent<DesktopGui>();
 
         GorillaTagger.OnPlayerSpawned(
                 OnPlayerSpawned);

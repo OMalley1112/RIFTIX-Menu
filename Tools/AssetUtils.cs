@@ -9,8 +9,8 @@ namespace StupidTemplate.Tools;
 // You can do this by editing the .csproj or right-clicking on it, pressing properties and making the build action 'Embedded Resource'
 public static class StupidAssetUtils
 {
-    // Make sure this matches the name of the project/csproj file!
-    private const string ProjectName = "StupidTemplate";
+    // Matches the assembly name automatically so renames keep working
+    private static readonly string ProjectName = Assembly.GetExecutingAssembly().GetName().Name;
 
     public static Texture2D LoadTexture2D(string imageName)
     {

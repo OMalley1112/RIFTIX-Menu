@@ -792,7 +792,7 @@ public abstract class Buttons
     };
 
     // The order here does not matter, setting categories is done by name rather than position in the array
-    private static readonly ButtonCategory[] Categories =
+    public static readonly ButtonCategory[] Categories =
     {
             new()
             {
