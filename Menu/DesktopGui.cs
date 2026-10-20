@@ -15,11 +15,9 @@ public class DesktopGui : MonoBehaviour
 {
     private const float AnimSpeed = 12f;
     private const float WindowW   = 600f;
-    private const float WindowH   = 650f;
+    private const float WindowH   = 660f;
     private const float HiddenX   = -(WindowW + 24f);
     private const float VisibleX  = 12f;
-    private const float SidebarW  = 155f;
-    private const float BodyH     = 490f;
 
     private static readonly Color Accent   = new(0.616f, 0.306f, 0.867f);
     private static readonly Color TextMain = new(0.93f,  0.93f,  0.96f);
@@ -31,7 +29,7 @@ public class DesktopGui : MonoBehaviour
     private bool  stylesReady;
 
     private Vector2 modScrollPosition;
-    private string  searchQuery = "";
+    private string  searchQuery  = "";
     private int     lastDrawnTab = -1;
 
     private Rect windowRect = new(HiddenX, 24, WindowW, WindowH);
@@ -40,10 +38,11 @@ public class DesktopGui : MonoBehaviour
     private GUIStyle buttonStyle;
     private GUIStyle toggleOnStyle;
     private GUIStyle toggleOffStyle;
-    private GUIStyle tabOnStyle;
-    private GUIStyle tabOffStyle;
+    private GUIStyle chipOnStyle;
+    private GUIStyle chipOffStyle;
     private GUIStyle labelStyle;
     private GUIStyle dimLabelStyle;
+    private GUIStyle sectionStyle;
     private GUIStyle searchFieldStyle;
     private GUIStyle tooltipStyle;
     private GUIStyle fpsGreenStyle;
@@ -55,7 +54,6 @@ public class DesktopGui : MonoBehaviour
     private Texture2D buttonOffTex;
     private Texture2D buttonHoverTex;
     private Texture2D buttonOnTex;
-    private Texture2D sidebarTex;
     private Texture2D scrollbarThumbTex;
 
     private Texture2D logoTexture;
@@ -141,7 +139,15 @@ public class DesktopGui : MonoBehaviour
         if (!menuVisible)
             return;
 
-        InitializeStyles();
+        try
+        {
+            InitializeStyles();
+        }
+        catch (Exception e)
+        {
+            LogErrorOnce("styles", e);
+            return;
+        }
 
         windowRect = GUI.Window(0, windowRect, DrawWindow, "", windowStyle);
     }
@@ -158,14 +164,13 @@ public class DesktopGui : MonoBehaviour
         buttonOffTex         = CreateSolidColorTexture(new Color(0.14f, 0.13f, 0.20f, 1f));
         buttonHoverTex       = CreateSolidColorTexture(new Color(0.24f, 0.20f, 0.33f, 1f));
         buttonOnTex          = CreateSolidColorTexture(new Color(0.42f, 0.20f, 0.62f, 1f));
-        sidebarTex           = CreateSolidColorTexture(new Color(0.03f, 0.02f, 0.06f, 0.55f));
         scrollbarThumbTex    = CreateSolidColorTexture(new Color(0.42f, 0.26f, 0.60f, 1f));
 
         windowStyle = new GUIStyle(GUI.skin.window)
         {
             normal    = { textColor = Accent },
             onNormal  = { textColor = Accent },
-            padding   = new RectOffset(14, 14, 14, 12),
+            padding   = new RectOffset(14, 14, 12, 12),
             fontSize  = 13,
             fontStyle = FontStyle.Bold,
             alignment = TextAnchor.UpperLeft,
@@ -196,16 +201,14 @@ public class DesktopGui : MonoBehaviour
             hover  = { background = buttonHoverTex, textColor = Color.white },
         };
 
-        tabOnStyle = new GUIStyle(toggleOnStyle)
+        chipOnStyle = new GUIStyle(toggleOnStyle)
         {
-            alignment = TextAnchor.MiddleLeft,
-            padding   = new RectOffset(12, 6, 2, 2),
+            fontSize = 11,
         };
 
-        tabOffStyle = new GUIStyle(toggleOffStyle)
+        chipOffStyle = new GUIStyle(toggleOffStyle)
         {
-            alignment = TextAnchor.MiddleLeft,
-            padding   = new RectOffset(12, 6, 2, 2),
+            fontSize = 11,
         };
 
         labelStyle = new GUIStyle(GUI.skin.label)
@@ -218,6 +221,13 @@ public class DesktopGui : MonoBehaviour
         dimLabelStyle = new GUIStyle(labelStyle)
         {
             normal = { textColor = TextDim },
+        };
+
+        sectionStyle = new GUIStyle(labelStyle)
+        {
+            normal    = { textColor = Accent },
+            fontSize  = 13,
+            fontStyle = FontStyle.BoldAndItalic,
         };
 
         searchFieldStyle = new GUIStyle(GUI.skin.textField)
@@ -366,17 +376,6 @@ public class DesktopGui : MonoBehaviour
         GUI.DrawTextureWithTexCoords(new Rect(width - c, c, c, height - c * 2f),     roundedBackgroundTex, RightEdge);
 
         GUI.DrawTextureWithTexCoords(new Rect(c, c, width - c * 2f, height - c * 2f), roundedBackgroundTex, Center);
-
-        // sidebar tint + divider (inset so it stays inside the rounded corners)
-        GUI.DrawTexture(new Rect(3f, 8f, SidebarW - 3f, height - 16f), sidebarTex);
-
-        if (accentBarTex != null)
-        {
-            Color previous = GUI.color;
-            GUI.color = new Color(1f, 1f, 1f, 0.14f);
-            GUI.DrawTexture(new Rect(SidebarW - 1f, 10f, 1f, height - 20f), accentBarTex);
-            GUI.color = previous;
-        }
     }
 
     private void DrawAccentBar()
@@ -406,34 +405,24 @@ public class DesktopGui : MonoBehaviour
 
             DrawAccentBar();
 
-            GUILayout.Space(10);
+            GUILayout.Space(8);
 
             bool isAdmin = HamburburData.IsLocalAdmin || HamburburData.IsLocalSuperAdmin;
 
             EnsureValidTab(isAdmin);
 
-            GUILayout.BeginHorizontal(GUILayout.Height(BodyH));
-
-            DrawSidebar(isAdmin);
-            GUILayout.Space(10);
-            DrawContentPane(isAdmin);
-
-            GUILayout.EndHorizontal();
+            DrawCategoryChips(isAdmin);
 
             GUILayout.Space(8);
 
-            GUILayout.BeginHorizontal();
+            DrawContentPane(isAdmin);
 
-            searchQuery = GUILayout.TextField(searchQuery, searchFieldStyle, GUILayout.Height(24));
+            GUILayout.Space(8);
 
-            if (GUILayout.Button("X", buttonStyle, GUILayout.Width(30)))
-                searchQuery = "";
-
-            GUILayout.EndHorizontal();
+            DrawFooter();
 
             DrawHoverTooltip();
 
-            // thin top strip only — keep the Copy button and stats clickable
             GUI.DragWindow(new Rect(0, 0, windowRect.width, 34));
         }
         catch (Exception e)
@@ -446,11 +435,10 @@ public class DesktopGui : MonoBehaviour
     {
         GUILayout.BeginHorizontal();
 
-        // logo
         if (logoTexture != null)
         {
             float aspect = logoTexture.width / (float)logoTexture.height;
-            float height = 66f;
+            float height = 60f;
             float width  = height * aspect;
 
             Rect logoRect = GUILayoutUtility.GetRect(width, height, GUILayout.ExpandWidth(false));
@@ -461,42 +449,35 @@ public class DesktopGui : MonoBehaviour
         else
         {
             GUIStyle big = MakeColoredLabel(Accent);
-            big.fontSize  = 24;
+            big.fontSize  = 22;
             big.fontStyle = FontStyle.BoldAndItalic;
-            GUILayout.Label(Constants.Name, big, GUILayout.Height(60));
+            GUILayout.Label(Constants.Name, big, GUILayout.Height(56));
         }
 
-        GUILayout.Space(12);
+        GUILayout.Space(10);
 
-        // stats block, right side
         GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
         GUILayout.FlexibleSpace();
 
         GUIStyle nameStyle = MakeColoredLabel(Accent);
-        nameStyle.fontSize = 16;
+        nameStyle.fontSize  = 15;
         nameStyle.fontStyle = FontStyle.BoldAndItalic;
 
-        GUILayout.Label(Constants.Name + "  <size=10><color=#9999AA>mod menu</color></size>", nameStyle);
+        GUILayout.Label(Constants.Name, nameStyle);
 
         GUILayout.BeginHorizontal();
 
         int fps = int.TryParse(cachedFps, out int f) ? f : 0;
         GUIStyle fpsStyle = fps >= 60 ? fpsGreenStyle : fps >= 30 ? fpsYellowStyle : fpsRedStyle;
 
-        GUILayout.Label($"FPS {cachedFps}", fpsStyle);
+        GUILayout.Label($"FPS {cachedFps}",      fpsStyle);
         GUILayout.Space(10);
         GUILayout.Label($"Players {cachedPlayers}", dimLabelStyle);
         GUILayout.Space(10);
-        GUILayout.Label($"v{Constants.Version}", dimLabelStyle);
-
-        GUILayout.EndHorizontal();
-
-        GUILayout.BeginHorizontal();
-
-        GUILayout.Label($"Room {cachedRoom}", dimLabelStyle);
+        GUILayout.Label($"Room {cachedRoom}",    dimLabelStyle);
 
         if (GUILayout.Button(new GUIContent("Copy", "Copy the room name to your clipboard"), buttonStyle, GUILayout.Width(46), GUILayout.Height(19)))
-            GUIUtility.systemCopyBuffer = cachedRoom;
+            SafeCopyRoom();
 
         GUILayout.EndHorizontal();
 
@@ -520,9 +501,15 @@ public class DesktopGui : MonoBehaviour
         GUI.color = previous;
     }
 
-    private void DrawSidebar(bool isAdmin)
+    private void DrawCategoryChips(bool isAdmin)
     {
-        GUILayout.BeginVertical(GUILayout.Width(SidebarW));
+        const int   perRow = 3;
+        float       chipW  = (WindowW - 28f - 16f) / perRow;
+
+        GUILayout.BeginVertical();
+
+        int col = 0;
+        GUILayout.BeginHorizontal();
 
         for (int i = 0; i < Buttons.Categories.Length; i++)
         {
@@ -534,6 +521,13 @@ public class DesktopGui : MonoBehaviour
             if (CountVisibleButtons(category, isAdmin) == 0)
                 continue;
 
+            if (col >= perRow)
+            {
+                GUILayout.EndHorizontal();
+                GUILayout.BeginHorizontal();
+                col = 0;
+            }
+
             int enabledCount = 0;
 
             foreach (ButtonInfo button in category.buttons)
@@ -543,47 +537,53 @@ public class DesktopGui : MonoBehaviour
             string label = category.name;
 
             if (enabledCount > 0)
-                label += $"  <color=#C79BFF>{enabledCount}</color>";
+                label += $" <color=#C79BFF>{enabledCount}</color>";
 
             bool selected  = currentGuiTab == i;
-            GUIStyle style = selected ? tabOnStyle : tabOffStyle;
+            GUIStyle style = selected ? chipOnStyle : chipOffStyle;
 
-            if (GUILayout.Toggle(selected, label, style, GUILayout.Height(26), GUILayout.ExpandWidth(true)))
+            if (GUILayout.Toggle(selected, label, style, GUILayout.Width(chipW), GUILayout.Height(24)))
                 currentGuiTab = i;
+
+            col++;
         }
 
-        GUILayout.FlexibleSpace();
+        // pad the last row so chips stay aligned
+        for (; col < perRow; col++)
+            GUILayout.Space(chipW);
 
-        if (GUILayout.Button(new GUIContent("Disconnect", "Leave the current room"), buttonStyle, GUILayout.Height(24)))
-            PhotonNetwork.Disconnect();
-
-        GUILayout.Space(4);
-
-        if (GUILayout.Button(new GUIContent("Quit", "Exit the game"), buttonStyle, GUILayout.Height(24)))
-            Application.Quit();
-
-        GUILayout.Space(4);
-
-        GUILayout.Label("F11 hides this menu", dimLabelStyle);
-
+        GUILayout.EndHorizontal();
         GUILayout.EndVertical();
     }
 
     private void DrawContentPane(bool isAdmin)
     {
-        GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
-
         if (currentGuiTab != lastDrawnTab)
         {
             modScrollPosition = Vector2.zero;
             lastDrawnTab      = currentGuiTab;
         }
 
+        List<ButtonInfo> buttons = CollectVisibleButtons(isAdmin);
+
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(string.IsNullOrEmpty(searchQuery) ? Buttons.Categories[currentGuiTab].name.ToUpperInvariant() : $"SEARCH: {searchQuery.ToUpperInvariant()}", sectionStyle);
+        GUILayout.FlexibleSpace();
+        GUILayout.Label($"{buttons.Count} mods", dimLabelStyle);
+        GUILayout.EndHorizontal();
+
+        GUILayout.Space(4);
+
         modScrollPosition = GUILayout.BeginScrollView(modScrollPosition, GUILayout.ExpandHeight(true));
 
-        List<ButtonInfo> buttons = [];
+        DrawButtonGrid(buttons);
 
-        ButtonCategory category = Buttons.Categories[currentGuiTab];
+        GUILayout.EndScrollView();
+    }
+
+    private List<ButtonInfo> CollectVisibleButtons(bool isAdmin)
+    {
+        List<ButtonInfo> buttons = [];
 
         if (!string.IsNullOrEmpty(searchQuery))
         {
@@ -601,7 +601,7 @@ public class DesktopGui : MonoBehaviour
         }
         else
         {
-            foreach (ButtonInfo button in category.buttons)
+            foreach (ButtonInfo button in Buttons.Categories[currentGuiTab].buttons)
             {
                 if (IsCategoryNavButton(button))
                     continue;
@@ -613,24 +613,24 @@ public class DesktopGui : MonoBehaviour
             }
         }
 
-        GUILayout.Label(string.IsNullOrEmpty(searchQuery) ? category.name : $"Search: {searchQuery}", dimLabelStyle);
-        GUILayout.Space(4);
-
-        DrawButtonGrid(buttons);
-
-        GUILayout.EndScrollView();
-        GUILayout.EndVertical();
+        return buttons;
     }
 
     private void DrawButtonGrid(List<ButtonInfo> buttons)
     {
+        if (buttons.Count == 0)
+        {
+            GUILayout.Label("Nothing here", dimLabelStyle);
+
+            return;
+        }
+
         int i = 0;
 
         while (i < buttons.Count)
         {
             ButtonInfo first = buttons[i];
 
-            // incremental controls take a full row
             if (first.mode == ButtonMode.Incremental)
             {
                 DrawModButton(first);
@@ -669,7 +669,7 @@ public class DesktopGui : MonoBehaviour
                 bool       state    = GUILayout.Toggle(button.enabled, content, button.enabled ? toggleOnStyle : toggleOffStyle, GUILayout.Height(24), GUILayout.ExpandWidth(true));
 
                 if (state != button.enabled)
-                    Main.Toggle(button);
+                    SafeToggle(button);
 
                 break;
             }
@@ -679,12 +679,12 @@ public class DesktopGui : MonoBehaviour
                 GUILayout.BeginHorizontal();
 
                 if (GUILayout.Button(new GUIContent("-", button.toolTip), buttonStyle, GUILayout.Width(30), GUILayout.Height(24)))
-                    Main.Toggle(button, false);
+                    SafeToggle(button, false);
 
                 GUILayout.Label(button.GetDisplayText(), labelStyle, GUILayout.Height(24));
 
                 if (GUILayout.Button(new GUIContent("+", button.toolTip), buttonStyle, GUILayout.Width(30), GUILayout.Height(24)))
-                    Main.Toggle(button, true);
+                    SafeToggle(button, true);
 
                 GUILayout.EndHorizontal();
 
@@ -694,11 +694,37 @@ public class DesktopGui : MonoBehaviour
             default:
             {
                 if (GUILayout.Button(new GUIContent(button.GetDisplayText(), button.toolTip), buttonStyle, GUILayout.Height(24), GUILayout.ExpandWidth(true)))
-                    Main.Toggle(button);
+                    SafeToggle(button);
 
                 break;
             }
         }
+    }
+
+    private void DrawFooter()
+    {
+        GUILayout.BeginHorizontal();
+
+        searchQuery = GUILayout.TextField(searchQuery, searchFieldStyle, GUILayout.Height(24));
+
+        if (GUILayout.Button(new GUIContent("X", "Clear search"), buttonStyle, GUILayout.Width(30), GUILayout.Height(24)))
+            searchQuery = "";
+
+        GUILayout.Space(6);
+
+        if (GUILayout.Button(new GUIContent("Disconnect", "Leave the current room"), buttonStyle, GUILayout.Width(90), GUILayout.Height(24)))
+            SafeDisconnect();
+
+        GUILayout.Space(4);
+
+        if (GUILayout.Button(new GUIContent("Quit", "Exit the game"), buttonStyle, GUILayout.Width(60), GUILayout.Height(24)))
+            Application.Quit();
+
+        GUILayout.EndHorizontal();
+
+        GUILayout.Space(2);
+
+        GUILayout.Label("F11 toggles this menu", dimLabelStyle);
     }
 
     private void DrawHoverTooltip()
@@ -724,6 +750,44 @@ public class DesktopGui : MonoBehaviour
             tipRect.y = mousePos.y - tipRect.height - 8f;
 
         GUI.Box(tipRect, content, tooltipStyle);
+    }
+
+    // ---------- safe actions ----------
+
+    private void SafeToggle(ButtonInfo button, bool? direction = null)
+    {
+        try
+        {
+            Main.Toggle(button, direction);
+        }
+        catch (Exception e)
+        {
+            LogErrorOnce("toggle-" + button.buttonText, e);
+        }
+    }
+
+    private void SafeCopyRoom()
+    {
+        try
+        {
+            GUIUtility.systemCopyBuffer = cachedRoom;
+        }
+        catch (Exception e)
+        {
+            LogErrorOnce("copy", e);
+        }
+    }
+
+    private void SafeDisconnect()
+    {
+        try
+        {
+            PhotonNetwork.Disconnect();
+        }
+        catch (Exception e)
+        {
+            LogErrorOnce("disconnect", e);
+        }
     }
 
     // ---------- helpers ----------
