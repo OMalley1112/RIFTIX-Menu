@@ -30,6 +30,8 @@ public class DesktopGui : MonoBehaviour
     }
 
     private float windowX = HiddenX;
+    private float baseX   = VisibleX;
+    private float slideT  = 1f;
     private int   currentGuiTab;
     private GuiView view = GuiView.Home;
     private bool  menuVisible = true;
@@ -146,8 +148,16 @@ public class DesktopGui : MonoBehaviour
 
         bool hoverArea = mousePos.x < WindowW + 40f && mousePos.y < WindowH + 60f;
 
-        windowX = Mathf.Lerp(windowX, hoverArea ? VisibleX : HiddenX, Time.deltaTime * AnimSpeed);
+        // absorb last frame's drag so the slide animation never snaps the window back
+        if (slideT > 0.85f)
+            baseX = windowRect.x;
+
+        slideT    = Mathf.Lerp(slideT, hoverArea ? 1f : 0f, Time.deltaTime * AnimSpeed);
+        windowX   = Mathf.Lerp(HiddenX, baseX, slideT);
         windowRect.x = windowX;
+
+        // keep the window on screen vertically no matter where it's dragged
+        windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, Screen.height - 80f));
     }
 
     private void OnGUI()
@@ -403,6 +413,15 @@ public class DesktopGui : MonoBehaviour
         GUI.DrawTextureWithTexCoords(new Rect(width - c, c, c, height - c * 2f),     roundedBackgroundTex, RightEdge);
 
         GUI.DrawTextureWithTexCoords(new Rect(c, c, width - c * 2f, height - c * 2f), roundedBackgroundTex, Center);
+
+        // drag handle pill at top center
+        if (accentBarTex != null)
+        {
+            Color previous = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.28f);
+            GUI.DrawTexture(new Rect(width * 0.5f - 24f, 9f, 48f, 5f), accentBarTex);
+            GUI.color = previous;
+        }
     }
 
     private void DrawAccentBar()
@@ -446,7 +465,8 @@ public class DesktopGui : MonoBehaviour
 
             DrawHoverTooltip();
 
-            GUI.DragWindow(new Rect(0, 0, windowRect.width, 34));
+            // whole window is draggable: empty areas start a drag, buttons/fields still work
+            GUI.DragWindow(new Rect(0, 0, windowRect.width, windowRect.height));
         }
         catch (Exception e)
         {
