@@ -175,6 +175,7 @@ public class DesktopGui : MonoBehaviour
             alignment = TextAnchor.MiddleCenter,
             wordWrap  = true,
             fontSize  = 12,
+            richText  = true,
         };
 
         toggleOnStyle = new GUIStyle(buttonStyle)
@@ -256,10 +257,15 @@ public class DesktopGui : MonoBehaviour
 
             GUILayout.Space(6);
 
-            DrawStatRow("FPS",       cachedFps);
-            DrawStatRow("Room",      cachedRoom);
-            DrawStatRow("Players",   cachedPlayers);
-            DrawStatRow("Version",   Constants.Version);
+            int fps = int.TryParse(cachedFps, out int f) ? f : 0;
+            Color fpsColor = fps >= 60 ? new Color(0.45f, 0.90f, 0.55f)
+                            : fps >= 30 ? new Color(0.95f, 0.80f, 0.35f)
+                            : new Color(0.95f, 0.45f, 0.45f);
+
+            DrawStatRow("FPS",     cachedFps,    fpsColor);
+            DrawStatRow("Room",    cachedRoom);
+            DrawStatRow("Players", cachedPlayers);
+            DrawStatRow("Version", Constants.Version);
 
             GUILayout.FlexibleSpace();
 
@@ -281,11 +287,22 @@ public class DesktopGui : MonoBehaviour
         }
     }
 
-    private void DrawStatRow(string key, string value)
+    private void DrawStatRow(string key, string value, Color? valueColor = null)
     {
         GUILayout.BeginHorizontal();
         GUILayout.Label(key, dimLabelStyle, GUILayout.Width(70));
-        GUILayout.Label(value, labelStyle);
+
+        GUIStyle style = labelStyle;
+
+        if (valueColor != null)
+        {
+            style = new GUIStyle(labelStyle)
+            {
+                normal = { textColor = valueColor.Value },
+            };
+        }
+
+        GUILayout.Label(value, style);
         GUILayout.EndHorizontal();
     }
 
@@ -306,6 +323,8 @@ public class DesktopGui : MonoBehaviour
             GUILayout.Space(6);
 
             bool isAdmin = HamburburData.IsLocalAdmin || HamburburData.IsLocalSuperAdmin;
+
+            EnsureValidTab(isAdmin);
 
             DrawCategoryTabs(isAdmin);
 
@@ -356,8 +375,8 @@ public class DesktopGui : MonoBehaviour
 
         if (logoTexture != null)
         {
-            float maxW = 190f;
-            float maxH = 72f;
+            float maxW = 200f;
+            float maxH = 84f;
 
             float aspect = logoTexture.width / (float)logoTexture.height;
             float width  = maxH * aspect;
@@ -370,6 +389,8 @@ public class DesktopGui : MonoBehaviour
             float height = width / aspect;
 
             Rect logoRect = GUILayoutUtility.GetRect(width, height, GUILayout.ExpandWidth(false));
+
+            DrawLogoGlow(logoRect);
             GUI.DrawTexture(logoRect, logoTexture, ScaleMode.ScaleToFit, true);
         }
         else
@@ -388,6 +409,20 @@ public class DesktopGui : MonoBehaviour
         GUILayout.EndHorizontal();
     }
 
+    private void DrawLogoGlow(Rect logoRect)
+    {
+        if (logoTexture == null || Event.current.type != EventType.Repaint)
+            return;
+
+        float pad = logoRect.height * 0.22f;
+        Rect glowRect = new(logoRect.x - pad, logoRect.y - pad, logoRect.width + pad * 2f, logoRect.height + pad * 2f);
+
+        Color previous = GUI.color;
+        GUI.color = new Color(0.75f, 0.55f, 1f, 0.35f);
+        GUI.DrawTexture(glowRect, logoTexture, ScaleMode.ScaleToFit, true);
+        GUI.color = previous;
+    }
+
     private void DrawCategoryTabs(bool isAdmin)
     {
         float buttonWidth = (modsWindowRect.width - 38f) / 2f;
@@ -404,6 +439,9 @@ public class DesktopGui : MonoBehaviour
             if (category.adminOnly && !isAdmin)
                 continue;
 
+            if (CountVisibleButtons(category, isAdmin) == 0)
+                continue;
+
             if (col >= 2)
             {
                 GUILayout.EndHorizontal();
@@ -411,11 +449,21 @@ public class DesktopGui : MonoBehaviour
                 col = 0;
             }
 
-            bool selected = currentGuiTab == i;
+            int enabledCount = 0;
 
+            foreach (ButtonInfo button in category.buttons)
+                if (button.enabled)
+                    enabledCount++;
+
+            string label = category.name;
+
+            if (enabledCount > 0)
+                label += $" <color=#C79BFF>{enabledCount}</color>";
+
+            bool selected = currentGuiTab == i;
             GUIStyle style = selected ? toggleOnStyle : toggleOffStyle;
 
-            if (GUILayout.Toggle(selected, category.name, style, GUILayout.Width(buttonWidth), GUILayout.Height(22)))
+            if (GUILayout.Toggle(selected, label, style, GUILayout.Width(buttonWidth), GUILayout.Height(22)))
                 currentGuiTab = i;
 
             col++;
@@ -431,7 +479,7 @@ public class DesktopGui : MonoBehaviour
 
         foreach (ButtonInfo button in category.buttons)
         {
-            if (button.buttonText == "Return to Main")
+            if (IsCategoryNavButton(button))
                 continue;
 
             DrawModButton(button, isAdmin);
@@ -448,7 +496,7 @@ public class DesktopGui : MonoBehaviour
 
         foreach (ButtonInfo button in Buttons.AllButtons)
         {
-            if (button.buttonText == "Return to Main")
+            if (IsCategoryNavButton(button))
                 continue;
 
             if (!isAdmin && IsButtonInAdminCategory(button))
@@ -465,6 +513,36 @@ public class DesktopGui : MonoBehaviour
             GUILayout.Label("No matches", dimLabelStyle);
 
         GUILayout.EndScrollView();
+    }
+
+    private static bool IsCategoryNavButton(ButtonInfo button)
+    {
+        if (button.buttonText == "Return to Main")
+            return true;
+
+        foreach (ButtonCategory category in Buttons.Categories)
+            if (button.buttonText == category.name)
+                return true;
+
+        return false;
+    }
+
+    private static int CountVisibleButtons(ButtonCategory category, bool isAdmin)
+    {
+        int count = 0;
+
+        foreach (ButtonInfo button in category.buttons)
+        {
+            if (IsCategoryNavButton(button))
+                continue;
+
+            if (!isAdmin && IsButtonInAdminCategory(button))
+                continue;
+
+            count++;
+        }
+
+        return count;
     }
 
     private void DrawModButton(ButtonInfo button, bool isAdmin)
@@ -527,10 +605,20 @@ public class DesktopGui : MonoBehaviour
         bool isAdmin = HamburburData.IsLocalAdmin || HamburburData.IsLocalSuperAdmin;
 
         for (int i = 0; i < Buttons.Categories.Length; i++)
-            if (!Buttons.Categories[i].adminOnly || isAdmin)
+            if ((!Buttons.Categories[i].adminOnly || isAdmin) && CountVisibleButtons(Buttons.Categories[i], isAdmin) > 0)
                 return i;
 
         return 0;
+    }
+
+    private void EnsureValidTab(bool isAdmin)
+    {
+        ButtonCategory category = Buttons.Categories[currentGuiTab];
+
+        if ((!category.adminOnly || isAdmin) && CountVisibleButtons(category, isAdmin) > 0)
+            return;
+
+        currentGuiTab = FindFirstVisibleCategory();
     }
 
     private void LogErrorOnce(string key, Exception e)
