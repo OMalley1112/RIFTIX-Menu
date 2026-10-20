@@ -14,16 +14,17 @@ namespace StupidTemplate.Menu;
 public class DesktopGui : MonoBehaviour
 {
     private const float AnimSpeed = 12f;
-    private const float HiddenX   = -380f;
+    private const float WindowW   = 580f;
+    private const float WindowH   = 630f;
+    private const float HiddenX   = -(WindowW + 24f);
     private const float VisibleX  = 12f;
+    private const float SidebarW  = 155f;
 
-    private static readonly Color Accent    = new(0.616f, 0.306f, 0.867f);
-    private static readonly Color TextMain  = new(0.93f,  0.93f,  0.96f);
-    private static readonly Color TextDim   = new(0.62f,  0.60f,  0.70f);
+    private static readonly Color Accent   = new(0.616f, 0.306f, 0.867f);
+    private static readonly Color TextMain = new(0.93f,  0.93f,  0.96f);
+    private static readonly Color TextDim  = new(0.62f,  0.60f,  0.70f);
 
-    private float systemX = HiddenX;
-    private float modsX   = HiddenX;
-
+    private float windowX = HiddenX;
     private int   currentGuiTab;
     private bool  menuVisible = true;
     private bool  stylesReady;
@@ -31,13 +32,14 @@ public class DesktopGui : MonoBehaviour
     private Vector2 modScrollPosition;
     private string  searchQuery = "";
 
-    private Rect systemWindowRect = new(HiddenX, 24, 240, 210);
-    private Rect modsWindowRect   = new(HiddenX, 24, 350, 640);
+    private Rect windowRect = new(HiddenX, 24, WindowW, WindowH);
 
     private GUIStyle windowStyle;
     private GUIStyle buttonStyle;
     private GUIStyle toggleOnStyle;
     private GUIStyle toggleOffStyle;
+    private GUIStyle tabOnStyle;
+    private GUIStyle tabOffStyle;
     private GUIStyle labelStyle;
     private GUIStyle dimLabelStyle;
     private GUIStyle searchFieldStyle;
@@ -51,11 +53,11 @@ public class DesktopGui : MonoBehaviour
     private Texture2D buttonOffTex;
     private Texture2D buttonHoverTex;
     private Texture2D buttonOnTex;
+    private Texture2D sidebarTex;
     private Texture2D scrollbarThumbTex;
 
     private Texture2D logoTexture;
 
-    // Cached in Update so OnGUI never touches game APIs that can fail
     private string cachedFps     = "0";
     private string cachedRoom    = "Offline";
     private string cachedPlayers = "1";
@@ -90,7 +92,7 @@ public class DesktopGui : MonoBehaviour
             LogErrorOnce("f11", e);
         }
 
-        UpdateAnimations();
+        UpdateAnimation();
         UpdateStats();
     }
 
@@ -121,18 +123,15 @@ public class DesktopGui : MonoBehaviour
         }
     }
 
-    private void UpdateAnimations()
+    private void UpdateAnimation()
     {
         Vector2 mousePos = Mouse.current != null ? Mouse.current.position.ReadValue() : Vector2.zero;
         mousePos.y = Screen.height - mousePos.y;
 
-        bool hoverArea = mousePos.x < 640f && mousePos.y < 740f;
+        bool hoverArea = mousePos.x < WindowW + 40f && mousePos.y < WindowH + 60f;
 
-        systemX = Mathf.Lerp(systemX, hoverArea ? VisibleX : HiddenX, Time.deltaTime * AnimSpeed);
-        modsX   = Mathf.Lerp(modsX,   hoverArea ? VisibleX + 255f : HiddenX, Time.deltaTime * AnimSpeed);
-
-        systemWindowRect.x = systemX;
-        modsWindowRect.x   = modsX;
+        windowX = Mathf.Lerp(windowX, hoverArea ? VisibleX : HiddenX, Time.deltaTime * AnimSpeed);
+        windowRect.x = windowX;
     }
 
     private void OnGUI()
@@ -142,8 +141,7 @@ public class DesktopGui : MonoBehaviour
 
         InitializeStyles();
 
-        systemWindowRect = GUI.Window(0, systemWindowRect, DrawSystemWindow, "", windowStyle);
-        modsWindowRect   = GUI.Window(1, modsWindowRect,   DrawModsWindow,   "", windowStyle);
+        windowRect = GUI.Window(0, windowRect, DrawWindow, "", windowStyle);
     }
 
     // ---------- styles ----------
@@ -158,13 +156,14 @@ public class DesktopGui : MonoBehaviour
         buttonOffTex         = CreateSolidColorTexture(new Color(0.14f, 0.13f, 0.20f, 1f));
         buttonHoverTex       = CreateSolidColorTexture(new Color(0.24f, 0.20f, 0.33f, 1f));
         buttonOnTex          = CreateSolidColorTexture(new Color(0.42f, 0.20f, 0.62f, 1f));
+        sidebarTex           = CreateSolidColorTexture(new Color(0.03f, 0.02f, 0.06f, 0.55f));
         scrollbarThumbTex    = CreateSolidColorTexture(new Color(0.42f, 0.26f, 0.60f, 1f));
 
         windowStyle = new GUIStyle(GUI.skin.window)
         {
             normal    = { textColor = Accent },
             onNormal  = { textColor = Accent },
-            padding   = new RectOffset(16, 16, 16, 16),
+            padding   = new RectOffset(14, 14, 14, 12),
             fontSize  = 13,
             fontStyle = FontStyle.Bold,
             alignment = TextAnchor.UpperLeft,
@@ -193,6 +192,18 @@ public class DesktopGui : MonoBehaviour
         {
             normal = { background = buttonOffTex, textColor = new Color(TextMain.r, TextMain.g, TextMain.b, 0.8f) },
             hover  = { background = buttonHoverTex, textColor = Color.white },
+        };
+
+        tabOnStyle = new GUIStyle(toggleOnStyle)
+        {
+            alignment = TextAnchor.MiddleLeft,
+            padding   = new RectOffset(12, 6, 2, 2),
+        };
+
+        tabOffStyle = new GUIStyle(toggleOffStyle)
+        {
+            alignment = TextAnchor.MiddleLeft,
+            padding   = new RectOffset(12, 6, 2, 2),
         };
 
         labelStyle = new GUIStyle(GUI.skin.label)
@@ -230,25 +241,22 @@ public class DesktopGui : MonoBehaviour
         fpsYellowStyle = MakeColoredLabel(new Color(0.95f, 0.80f, 0.35f));
         fpsRedStyle    = MakeColoredLabel(new Color(0.95f, 0.45f, 0.45f));
 
-        // Purple scrollbar
-        GUI.skin.verticalScrollbar.normal.background          = buttonOffTex;
-        GUI.skin.verticalScrollbarThumb.normal.background     = scrollbarThumbTex;
-        GUI.skin.verticalScrollbarThumb.hover.background      = scrollbarThumbTex;
-        GUI.skin.verticalScrollbarThumb.active.background     = scrollbarThumbTex;
-        GUI.skin.verticalScrollbar.fixedWidth                 = 10f;
-        GUI.skin.verticalScrollbarThumb.fixedWidth            = 10f;
+        GUI.skin.verticalScrollbar.normal.background      = buttonOffTex;
+        GUI.skin.verticalScrollbarThumb.normal.background = scrollbarThumbTex;
+        GUI.skin.verticalScrollbarThumb.hover.background  = scrollbarThumbTex;
+        GUI.skin.verticalScrollbarThumb.active.background = scrollbarThumbTex;
+        GUI.skin.verticalScrollbar.fixedWidth             = 10f;
+        GUI.skin.verticalScrollbarThumb.fixedWidth        = 10f;
 
         stylesReady = true;
     }
 
     private GUIStyle MakeColoredLabel(Color color)
     {
-        GUIStyle style = new(labelStyle)
+        return new GUIStyle(labelStyle)
         {
             normal = { textColor = color },
         };
-
-        return style;
     }
 
     private static Texture2D CreateSolidColorTexture(Color color)
@@ -300,7 +308,6 @@ public class DesktopGui : MonoBehaviour
 
                 if (dist < -border * 0.5f)
                 {
-                    // y=0 is the bottom row; lerp so the top of the panel is lighter
                     c = Color.Lerp(fillBottom, fillTop, y / (float)(size - 1));
                     c.a = 0.97f;
                 }
@@ -310,7 +317,6 @@ public class DesktopGui : MonoBehaviour
                 }
                 else
                 {
-                    // 1px antialiased falloff outside the border
                     float fade = Mathf.Clamp01(-(dist - border * 0.5f));
                     c   = borderCol;
                     c.a = borderCol.a * fade;
@@ -326,11 +332,11 @@ public class DesktopGui : MonoBehaviour
         return texture;
     }
 
-    // ---------- window chrome ----------
+    // ---------- chrome ----------
 
-    private static readonly Rect TlCorner = new(0f,  0.75f, 0.25f, 0.25f);
+    private static readonly Rect TlCorner = new(0f,    0.75f, 0.25f, 0.25f);
     private static readonly Rect TrCorner = new(0.75f, 0.75f, 0.25f, 0.25f);
-    private static readonly Rect BlCorner = new(0f,  0f,    0.25f, 0.25f);
+    private static readonly Rect BlCorner = new(0f,    0f,    0.25f, 0.25f);
     private static readonly Rect BrCorner = new(0.75f, 0f,    0.25f, 0.25f);
     private static readonly Rect TopEdge  = new(0.25f, 0.75f, 0.5f,  0.25f);
     private static readonly Rect BotEdge  = new(0.25f, 0f,    0.5f,  0.25f);
@@ -338,27 +344,40 @@ public class DesktopGui : MonoBehaviour
     private static readonly Rect RightEdge= new(0.75f, 0.25f, 0.25f, 0.5f);
     private static readonly Rect Center   = new(0.25f, 0.25f, 0.5f,  0.5f);
 
-    private void DrawWindowBackground(float width, float height)
+    private void DrawWindowBackground()
     {
         if (Event.current.type != EventType.Repaint || roundedBackgroundTex == null)
             return;
 
+        float width  = windowRect.width;
+        float height = windowRect.height;
         const float c = 18f;
 
-        // corners
-        GUI.DrawTextureWithTexCoords(new Rect(0, 0, c, c),               roundedBackgroundTex, TlCorner);
-        GUI.DrawTextureWithTexCoords(new Rect(width - c, 0, c, c),       roundedBackgroundTex, TrCorner);
-        GUI.DrawTextureWithTexCoords(new Rect(0, height - c, c, c),      roundedBackgroundTex, BlCorner);
-        GUI.DrawTextureWithTexCoords(new Rect(width - c, height - c, c, c), roundedBackgroundTex, BrCorner);
+        GUI.DrawTextureWithTexCoords(new Rect(0, 0, c, c),                   roundedBackgroundTex, TlCorner);
+        GUI.DrawTextureWithTexCoords(new Rect(width - c, 0, c, c),           roundedBackgroundTex, TrCorner);
+        GUI.DrawTextureWithTexCoords(new Rect(0, height - c, c, c),          roundedBackgroundTex, BlCorner);
+        GUI.DrawTextureWithTexCoords(new Rect(width - c, height - c, c, c),  roundedBackgroundTex, BrCorner);
 
-        // edges
-        GUI.DrawTextureWithTexCoords(new Rect(c, 0, width - c * 2f, c),               roundedBackgroundTex, TopEdge);
-        GUI.DrawTextureWithTexCoords(new Rect(c, height - c, width - c * 2f, c),      roundedBackgroundTex, BotEdge);
-        GUI.DrawTextureWithTexCoords(new Rect(0, c, c, height - c * 2f),              roundedBackgroundTex, LeftEdge);
-        GUI.DrawTextureWithTexCoords(new Rect(width - c, c, c, height - c * 2f),      roundedBackgroundTex, RightEdge);
+        GUI.DrawTextureWithTexCoords(new Rect(c, 0, width - c * 2f, c),              roundedBackgroundTex, TopEdge);
+        GUI.DrawTextureWithTexCoords(new Rect(c, height - c, width - c * 2f, c),     roundedBackgroundTex, BotEdge);
+        GUI.DrawTextureWithTexCoords(new Rect(0, c, c, height - c * 2f),             roundedBackgroundTex, LeftEdge);
+        GUI.DrawTextureWithTexCoords(new Rect(width - c, c, c, height - c * 2f),     roundedBackgroundTex, RightEdge);
 
-        // center
         GUI.DrawTextureWithTexCoords(new Rect(c, c, width - c * 2f, height - c * 2f), roundedBackgroundTex, Center);
+
+        // sidebar tint + divider
+        float bodyTop    = 96f;
+        float bodyBottom = height - 46f;
+
+        GUI.DrawTexture(new Rect(0f, bodyTop, SidebarW, bodyBottom - bodyTop), sidebarTex);
+
+        if (accentBarTex != null)
+        {
+            Color previous = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.14f);
+            GUI.DrawTexture(new Rect(SidebarW - 1f, bodyTop, 1f, bodyBottom - bodyTop), accentBarTex);
+            GUI.color = previous;
+        }
     }
 
     private void DrawAccentBar()
@@ -374,106 +393,36 @@ public class DesktopGui : MonoBehaviour
         GUI.color = previous;
     }
 
-    // ---------- system window ----------
+    // ---------- main window ----------
 
-    private void DrawSystemWindow(int windowID)
+    private void DrawWindow(int windowID)
     {
         try
         {
-            DrawWindowBackground(systemWindowRect.width, systemWindowRect.height);
+            DrawWindowBackground();
 
             GUILayout.Space(2);
 
-            GUILayout.Label("SYSTEM", labelStyle);
+            DrawHeader();
 
             DrawAccentBar();
 
-            GUILayout.Space(8);
-
-            int fps = int.TryParse(cachedFps, out int f) ? f : 0;
-            GUIStyle fpsStyle = fps >= 60 ? fpsGreenStyle : fps >= 30 ? fpsYellowStyle : fpsRedStyle;
-
-            DrawStatRow("FPS",     cachedFps,    fpsStyle);
-            DrawRoomRow();
-            DrawStatRow("Players", cachedPlayers);
-            DrawStatRow("Version", Constants.Version);
-
-            GUILayout.FlexibleSpace();
-
-            GUILayout.BeginHorizontal();
-
-            if (GUILayout.Button("Disconnect", buttonStyle, GUILayout.Height(26)))
-                PhotonNetwork.Disconnect();
-
-            GUILayout.Space(6);
-
-            if (GUILayout.Button("Quit", buttonStyle, GUILayout.Height(26)))
-                Application.Quit();
-
-            GUILayout.EndHorizontal();
-
-            GUI.DragWindow(new Rect(0, 0, systemWindowRect.width, 30));
-        }
-        catch (Exception e)
-        {
-            LogErrorOnce("system-window", e);
-        }
-    }
-
-    private void DrawStatRow(string key, string value, GUIStyle valueStyle = null)
-    {
-        GUILayout.BeginHorizontal();
-        GUILayout.Label(key, dimLabelStyle, GUILayout.Width(70));
-        GUILayout.Label(value, valueStyle ?? labelStyle);
-        GUILayout.EndHorizontal();
-    }
-
-    private void DrawRoomRow()
-    {
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("Room", dimLabelStyle, GUILayout.Width(70));
-        GUILayout.Label(cachedRoom, labelStyle);
-
-        GUILayout.FlexibleSpace();
-
-        if (GUILayout.Button("Copy", buttonStyle, GUILayout.Width(46), GUILayout.Height(20)))
-            GUIUtility.systemCopyBuffer = cachedRoom;
-
-        GUILayout.EndHorizontal();
-    }
-
-    // ---------- mods window ----------
-
-    private void DrawModsWindow(int windowID)
-    {
-        try
-        {
-            DrawWindowBackground(modsWindowRect.width, modsWindowRect.height);
-
-            GUILayout.Space(2);
-
-            DrawLogo();
-
-            GUILayout.Space(2);
-
-            DrawAccentBar();
-
-            GUILayout.Space(8);
+            GUILayout.Space(10);
 
             bool isAdmin = HamburburData.IsLocalAdmin || HamburburData.IsLocalSuperAdmin;
 
             EnsureValidTab(isAdmin);
 
-            DrawCategoryTabs(isAdmin);
+            GUILayout.BeginHorizontal();
+
+            DrawSidebar(isAdmin);
+            GUILayout.Space(10);
+            DrawContentPane(isAdmin);
+
+            GUILayout.EndHorizontal();
 
             GUILayout.Space(8);
 
-            if (!string.IsNullOrEmpty(searchQuery))
-                DrawSearchResults(isAdmin);
-            else
-                DrawCategory(Buttons.Categories[currentGuiTab], isAdmin);
-
-            GUILayout.Space(6);
             GUILayout.BeginHorizontal();
 
             searchQuery = GUILayout.TextField(searchQuery, searchFieldStyle, GUILayout.Height(24));
@@ -485,11 +434,264 @@ public class DesktopGui : MonoBehaviour
 
             DrawHoverTooltip();
 
-            GUI.DragWindow(new Rect(0, 0, modsWindowRect.width, 30));
+            GUI.DragWindow(new Rect(0, 0, windowRect.width, 92));
         }
         catch (Exception e)
         {
-            LogErrorOnce("mods-window", e);
+            LogErrorOnce("window", e);
+        }
+    }
+
+    private void DrawHeader()
+    {
+        GUILayout.BeginHorizontal();
+
+        // logo
+        if (logoTexture != null)
+        {
+            float aspect = logoTexture.width / (float)logoTexture.height;
+            float height = 66f;
+            float width  = height * aspect;
+
+            Rect logoRect = GUILayoutUtility.GetRect(width, height, GUILayout.ExpandWidth(false));
+
+            DrawLogoGlow(logoRect);
+            GUI.DrawTexture(logoRect, logoTexture, ScaleMode.ScaleToFit, true);
+        }
+        else
+        {
+            GUIStyle big = MakeColoredLabel(Accent);
+            big.fontSize  = 24;
+            big.fontStyle = FontStyle.BoldAndItalic;
+            GUILayout.Label(Constants.Name, big, GUILayout.Height(60));
+        }
+
+        GUILayout.Space(12);
+
+        // stats block, right side
+        GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
+        GUILayout.FlexibleSpace();
+
+        GUIStyle nameStyle = MakeColoredLabel(Accent);
+        nameStyle.fontSize = 16;
+        nameStyle.fontStyle = FontStyle.BoldAndItalic;
+
+        GUILayout.Label(Constants.Name + "  <size=10><color=#9999AA>mod menu</color></size>", nameStyle);
+
+        GUILayout.BeginHorizontal();
+
+        int fps = int.TryParse(cachedFps, out int f) ? f : 0;
+        GUIStyle fpsStyle = fps >= 60 ? fpsGreenStyle : fps >= 30 ? fpsYellowStyle : fpsRedStyle;
+
+        GUILayout.Label($"FPS {cachedFps}", fpsStyle);
+        GUILayout.Space(10);
+        GUILayout.Label($"Players {cachedPlayers}", dimLabelStyle);
+        GUILayout.Space(10);
+        GUILayout.Label($"v{Constants.Version}", dimLabelStyle);
+
+        GUILayout.EndHorizontal();
+
+        GUILayout.BeginHorizontal();
+
+        GUILayout.Label($"Room {cachedRoom}", dimLabelStyle);
+
+        if (GUILayout.Button(new GUIContent("Copy", "Copy the room name to your clipboard"), buttonStyle, GUILayout.Width(46), GUILayout.Height(19)))
+            GUIUtility.systemCopyBuffer = cachedRoom;
+
+        GUILayout.EndHorizontal();
+
+        GUILayout.FlexibleSpace();
+        GUILayout.EndVertical();
+
+        GUILayout.EndHorizontal();
+    }
+
+    private void DrawLogoGlow(Rect logoRect)
+    {
+        if (logoTexture == null || Event.current.type != EventType.Repaint)
+            return;
+
+        float pad = logoRect.height * 0.22f;
+        Rect glowRect = new(logoRect.x - pad, logoRect.y - pad, logoRect.width + pad * 2f, logoRect.height + pad * 2f);
+
+        Color previous = GUI.color;
+        GUI.color = new Color(0.75f, 0.55f, 1f, 0.35f);
+        GUI.DrawTexture(glowRect, logoTexture, ScaleMode.ScaleToFit, true);
+        GUI.color = previous;
+    }
+
+    private void DrawSidebar(bool isAdmin)
+    {
+        GUILayout.BeginVertical(GUILayout.Width(SidebarW));
+
+        for (int i = 0; i < Buttons.Categories.Length; i++)
+        {
+            ButtonCategory category = Buttons.Categories[i];
+
+            if (category.adminOnly && !isAdmin)
+                continue;
+
+            if (CountVisibleButtons(category, isAdmin) == 0)
+                continue;
+
+            int enabledCount = 0;
+
+            foreach (ButtonInfo button in category.buttons)
+                if (button.enabled)
+                    enabledCount++;
+
+            string label = category.name;
+
+            if (enabledCount > 0)
+                label += $"  <color=#C79BFF>{enabledCount}</color>";
+
+            bool selected  = currentGuiTab == i;
+            GUIStyle style = selected ? tabOnStyle : tabOffStyle;
+
+            if (GUILayout.Toggle(selected, label, style, GUILayout.Height(26)))
+                currentGuiTab = i;
+        }
+
+        GUILayout.FlexibleSpace();
+
+        if (GUILayout.Button(new GUIContent("Disconnect", "Leave the current room"), buttonStyle, GUILayout.Height(24)))
+            PhotonNetwork.Disconnect();
+
+        GUILayout.Space(4);
+
+        if (GUILayout.Button(new GUIContent("Quit", "Exit the game"), buttonStyle, GUILayout.Height(24)))
+            Application.Quit();
+
+        GUILayout.Space(4);
+
+        GUILayout.Label("F11 hides this menu", dimLabelStyle);
+
+        GUILayout.EndVertical();
+    }
+
+    private void DrawContentPane(bool isAdmin)
+    {
+        GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
+
+        modScrollPosition = GUILayout.BeginScrollView(modScrollPosition);
+
+        List<ButtonInfo> buttons = [];
+
+        ButtonCategory category = Buttons.Categories[currentGuiTab];
+
+        if (!string.IsNullOrEmpty(searchQuery))
+        {
+            foreach (ButtonInfo button in Buttons.AllButtons)
+            {
+                if (IsCategoryNavButton(button))
+                    continue;
+
+                if (!isAdmin && IsButtonInAdminCategory(button))
+                    continue;
+
+                if (button.buttonText.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+                    buttons.Add(button);
+            }
+        }
+        else
+        {
+            foreach (ButtonInfo button in category.buttons)
+            {
+                if (IsCategoryNavButton(button))
+                    continue;
+
+                if (!isAdmin && IsButtonInAdminCategory(button))
+                    continue;
+
+                buttons.Add(button);
+            }
+        }
+
+        GUILayout.Label(string.IsNullOrEmpty(searchQuery) ? category.name : $"Search: {searchQuery}", dimLabelStyle);
+        GUILayout.Space(4);
+
+        DrawButtonGrid(buttons);
+
+        GUILayout.EndScrollView();
+        GUILayout.EndVertical();
+    }
+
+    private void DrawButtonGrid(List<ButtonInfo> buttons)
+    {
+        int i = 0;
+
+        while (i < buttons.Count)
+        {
+            ButtonInfo first = buttons[i];
+
+            // incremental controls take a full row
+            if (first.mode == ButtonMode.Incremental)
+            {
+                DrawModButton(first);
+                GUILayout.Space(3);
+                i++;
+                continue;
+            }
+
+            GUILayout.BeginHorizontal();
+
+            DrawModButton(first);
+
+            if (i + 1 < buttons.Count && buttons[i + 1].mode != ButtonMode.Incremental)
+            {
+                DrawModButton(buttons[i + 1]);
+                i += 2;
+            }
+            else
+            {
+                GUILayout.FlexibleSpace();
+                i++;
+            }
+
+            GUILayout.EndHorizontal();
+            GUILayout.Space(3);
+        }
+    }
+
+    private void DrawModButton(ButtonInfo button)
+    {
+        switch (button.mode)
+        {
+            case ButtonMode.Toggle:
+            {
+                GUIContent content = new(button.GetDisplayText(), button.toolTip);
+                bool       state    = GUILayout.Toggle(button.enabled, content, button.enabled ? toggleOnStyle : toggleOffStyle, GUILayout.Height(24), GUILayout.ExpandWidth(true));
+
+                if (state != button.enabled)
+                    Main.Toggle(button);
+
+                break;
+            }
+
+            case ButtonMode.Incremental:
+            {
+                GUILayout.BeginHorizontal();
+
+                if (GUILayout.Button(new GUIContent("-", button.toolTip), buttonStyle, GUILayout.Width(30), GUILayout.Height(24)))
+                    Main.Toggle(button, false);
+
+                GUILayout.Label(button.GetDisplayText(), labelStyle, GUILayout.Height(24));
+
+                if (GUILayout.Button(new GUIContent("+", button.toolTip), buttonStyle, GUILayout.Width(30), GUILayout.Height(24)))
+                    Main.Toggle(button, true);
+
+                GUILayout.EndHorizontal();
+
+                break;
+            }
+
+            default:
+            {
+                if (GUILayout.Button(new GUIContent(button.GetDisplayText(), button.toolTip), buttonStyle, GUILayout.Height(24), GUILayout.ExpandWidth(true)))
+                    Main.Toggle(button);
+
+                break;
+            }
         }
     }
 
@@ -509,7 +711,6 @@ public class DesktopGui : MonoBehaviour
 
         Rect tipRect = new(mousePos.x + 16f, mousePos.y + 16f, maxWidth, height + 12f);
 
-        // keep on screen
         if (tipRect.xMax > Screen.width)
             tipRect.x = mousePos.x - tipRect.width - 8f;
 
@@ -517,197 +718,6 @@ public class DesktopGui : MonoBehaviour
             tipRect.y = mousePos.y - tipRect.height - 8f;
 
         GUI.Box(tipRect, content, tooltipStyle);
-    }
-
-    private void DrawLogo()
-    {
-        GUILayout.BeginHorizontal();
-        GUILayout.FlexibleSpace();
-
-        if (logoTexture != null)
-        {
-            float maxW = 210f;
-            float maxH = 88f;
-
-            float aspect = logoTexture.width / (float)logoTexture.height;
-            float width  = maxH * aspect;
-
-            if (width > maxW)
-            {
-                width = maxW;
-            }
-
-            float height = width / aspect;
-
-            Rect logoRect = GUILayoutUtility.GetRect(width, height, GUILayout.ExpandWidth(false));
-
-            DrawLogoGlow(logoRect);
-            GUI.DrawTexture(logoRect, logoTexture, ScaleMode.ScaleToFit, true);
-        }
-        else
-        {
-            GUIStyle big = MakeColoredLabel(Accent);
-            big.fontSize  = 22;
-            big.fontStyle = FontStyle.BoldAndItalic;
-
-            GUILayout.Label(Constants.Name, big, GUILayout.Height(40));
-        }
-
-        GUILayout.FlexibleSpace();
-        GUILayout.EndHorizontal();
-    }
-
-    private void DrawLogoGlow(Rect logoRect)
-    {
-        if (logoTexture == null || Event.current.type != EventType.Repaint)
-            return;
-
-        float pad = logoRect.height * 0.22f;
-        Rect glowRect = new(logoRect.x - pad, logoRect.y - pad, logoRect.width + pad * 2f, logoRect.height + pad * 2f);
-
-        Color previous = GUI.color;
-        GUI.color = new Color(0.75f, 0.55f, 1f, 0.35f);
-        GUI.DrawTexture(glowRect, logoTexture, ScaleMode.ScaleToFit, true);
-        GUI.color = previous;
-    }
-
-    private void DrawCategoryTabs(bool isAdmin)
-    {
-        float buttonWidth = (modsWindowRect.width - 44f) / 2f;
-
-        GUILayout.BeginVertical();
-        GUILayout.BeginHorizontal();
-
-        int col = 0;
-
-        for (int i = 0; i < Buttons.Categories.Length; i++)
-        {
-            ButtonCategory category = Buttons.Categories[i];
-
-            if (category.adminOnly && !isAdmin)
-                continue;
-
-            if (CountVisibleButtons(category, isAdmin) == 0)
-                continue;
-
-            if (col >= 2)
-            {
-                GUILayout.EndHorizontal();
-                GUILayout.BeginHorizontal();
-                col = 0;
-            }
-
-            int enabledCount = 0;
-
-            foreach (ButtonInfo button in category.buttons)
-                if (button.enabled)
-                    enabledCount++;
-
-            string label = category.name;
-
-            if (enabledCount > 0)
-                label += $" <color=#C79BFF>{enabledCount}</color>";
-
-            bool selected  = currentGuiTab == i;
-            GUIStyle style = selected ? toggleOnStyle : toggleOffStyle;
-
-            if (GUILayout.Toggle(selected, label, style, GUILayout.Width(buttonWidth), GUILayout.Height(22)))
-                currentGuiTab = i;
-
-            col++;
-        }
-
-        GUILayout.EndHorizontal();
-        GUILayout.EndVertical();
-    }
-
-    private void DrawCategory(ButtonCategory category, bool isAdmin)
-    {
-        modScrollPosition = GUILayout.BeginScrollView(modScrollPosition);
-
-        foreach (ButtonInfo button in category.buttons)
-        {
-            if (IsCategoryNavButton(button))
-                continue;
-
-            DrawModButton(button, isAdmin);
-            GUILayout.Space(2);
-        }
-
-        GUILayout.EndScrollView();
-    }
-
-    private void DrawSearchResults(bool isAdmin)
-    {
-        modScrollPosition = GUILayout.BeginScrollView(modScrollPosition);
-
-        int shown = 0;
-
-        foreach (ButtonInfo button in Buttons.AllButtons)
-        {
-            if (IsCategoryNavButton(button))
-                continue;
-
-            if (!isAdmin && IsButtonInAdminCategory(button))
-                continue;
-
-            if (!button.buttonText.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            DrawModButton(button, isAdmin);
-            GUILayout.Space(2);
-            shown++;
-        }
-
-        if (shown == 0)
-            GUILayout.Label("No matches", dimLabelStyle);
-
-        GUILayout.EndScrollView();
-    }
-
-    private void DrawModButton(ButtonInfo button, bool isAdmin)
-    {
-        if (!isAdmin && IsButtonInAdminCategory(button))
-            return;
-
-        switch (button.mode)
-        {
-            case ButtonMode.Toggle:
-            {
-                GUIContent content = new(button.GetDisplayText(), button.toolTip);
-                bool       state    = GUILayout.Toggle(button.enabled, content, button.enabled ? toggleOnStyle : toggleOffStyle, GUILayout.Height(24));
-
-                if (state != button.enabled)
-                    Main.Toggle(button);
-
-                break;
-            }
-
-            case ButtonMode.Incremental:
-            {
-                GUILayout.BeginHorizontal();
-
-                if (GUILayout.Button(new GUIContent("-", button.toolTip), buttonStyle, GUILayout.Width(28), GUILayout.Height(24)))
-                    Main.Toggle(button, false);
-
-                GUILayout.Label(button.GetDisplayText(), labelStyle, GUILayout.Height(24));
-
-                if (GUILayout.Button(new GUIContent("+", button.toolTip), buttonStyle, GUILayout.Width(28), GUILayout.Height(24)))
-                    Main.Toggle(button, true);
-
-                GUILayout.EndHorizontal();
-
-                break;
-            }
-
-            default:
-            {
-                if (GUILayout.Button(new GUIContent(button.GetDisplayText(), button.toolTip), buttonStyle, GUILayout.Height(24)))
-                    Main.Toggle(button);
-
-                break;
-            }
-        }
     }
 
     // ---------- helpers ----------
