@@ -38,6 +38,7 @@ public class DesktopGui : MonoBehaviour
     private Vector2 modScrollPosition;
     private string  searchQuery  = "";
     private int     lastDrawnTab = -1;
+    private float   ignoreTooltipsUntil;
 
     private Rect windowRect = new(HiddenX, 24, WindowW, WindowH);
 
@@ -49,6 +50,7 @@ public class DesktopGui : MonoBehaviour
     private GUIStyle backStyle;
     private GUIStyle labelStyle;
     private GUIStyle dimLabelStyle;
+    private GUIStyle chevronStyle;
     private GUIStyle sectionStyle;
     private GUIStyle searchFieldStyle;
     private GUIStyle tooltipStyle;
@@ -67,9 +69,10 @@ public class DesktopGui : MonoBehaviour
 
     private readonly Dictionary<int, Color> categoryStripeColors = [];
 
-    private string cachedFps     = "0";
-    private string cachedRoom    = "Offline";
-    private string cachedPlayers = "1";
+    private string cachedFps      = "0";
+    private string cachedRoom     = "Offline";
+    private string cachedRoomFull = "Offline";
+    private string cachedPlayers  = "1";
     private float  fpsTimer;
     private int    fpsFrames;
 
@@ -118,9 +121,13 @@ public class DesktopGui : MonoBehaviour
 
         try
         {
-            cachedRoom = PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null
-                                     ? PhotonNetwork.CurrentRoom.Name
-                                     : "Offline";
+            cachedRoomFull = PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null
+                                          ? PhotonNetwork.CurrentRoom.Name
+                                          : "Offline";
+
+            cachedRoom = cachedRoomFull.Length > 22
+                                     ? cachedRoomFull.Substring(0, 20) + ".."
+                                     : cachedRoomFull;
 
             cachedPlayers = PhotonNetwork.InRoom && PhotonNetwork.PlayerList != null
                                         ? PhotonNetwork.PlayerList.Length.ToString()
@@ -234,6 +241,13 @@ public class DesktopGui : MonoBehaviour
         dimLabelStyle = new GUIStyle(labelStyle)
         {
             normal = { textColor = TextDim },
+        };
+
+        chevronStyle = new GUIStyle(labelStyle)
+        {
+            normal    = { textColor = new Color(TextDim.r, TextDim.g, TextDim.b, 0.7f) },
+            alignment = TextAnchor.MiddleCenter,
+            fontSize  = 15,
         };
 
         sectionStyle = new GUIStyle(labelStyle)
@@ -570,6 +584,34 @@ public class DesktopGui : MonoBehaviour
 
         GUILayout.EndHorizontal();
 
+        GUILayout.Space(10);
+
+        int totalMods = 0;
+        int totalOn   = 0;
+        int catCount  = 0;
+
+        for (int i = 0; i < Buttons.Categories.Length; i++)
+        {
+            ButtonCategory category = Buttons.Categories[i];
+
+            if (category.adminOnly && !isAdmin)
+                continue;
+
+            int visible = CountVisibleButtons(category, isAdmin);
+
+            if (visible == 0)
+                continue;
+
+            catCount++;
+            totalMods += visible;
+
+            foreach (ButtonInfo button in category.buttons)
+                if (button.enabled)
+                    totalOn++;
+        }
+
+        GUILayout.Label($"{catCount} categories  ·  {totalMods} mods  ·  <color=#C79BFF>{totalOn} active</color>", dimLabelStyle);
+
         GUILayout.EndScrollView();
     }
 
@@ -598,15 +640,23 @@ public class DesktopGui : MonoBehaviour
             GUI.color = GetStripeColor(index);
             GUI.DrawTexture(new Rect(rect.x, rect.y + 6f, 4f, rect.height - 12f), accentBarTex);
             GUI.color = previous;
+
+            GUI.Label(new Rect(rect.xMax - 28f, rect.y, 20f, rect.height), ">", chevronStyle);
         }
 
         if (clicked)
         {
-            currentGuiTab    = index;
-            view             = GuiView.Category;
+            currentGuiTab     = index;
+            view              = GuiView.Category;
             modScrollPosition = Vector2.zero;
             lastDrawnTab      = -1;
+            SuppressTooltipsBriefly();
         }
+    }
+
+    private void SuppressTooltipsBriefly()
+    {
+        ignoreTooltipsUntil = Time.unscaledTime + 0.3f;
     }
 
     private Color GetStripeColor(int index)
@@ -636,7 +686,10 @@ public class DesktopGui : MonoBehaviour
         GUILayout.BeginHorizontal();
 
         if (GUILayout.Button("  < Back", backStyle, GUILayout.Width(80), GUILayout.Height(24)))
+        {
             view = GuiView.Home;
+            SuppressTooltipsBriefly();
+        }
 
         GUILayout.Space(6);
 
@@ -813,7 +866,10 @@ public class DesktopGui : MonoBehaviour
         searchQuery = GUILayout.TextField(searchQuery, searchFieldStyle, GUILayout.Height(24));
 
         if (GUILayout.Button("X", buttonStyle, GUILayout.Width(30), GUILayout.Height(24)))
+        {
             searchQuery = "";
+            SuppressTooltipsBriefly();
+        }
 
         GUILayout.Space(6);
 
@@ -834,6 +890,9 @@ public class DesktopGui : MonoBehaviour
 
     private void DrawHoverTooltip()
     {
+        if (Time.unscaledTime < ignoreTooltipsUntil)
+            return;
+
         string tip = GUI.tooltip;
 
         if (string.IsNullOrEmpty(tip) || Event.current.type != EventType.Repaint)
@@ -875,7 +934,7 @@ public class DesktopGui : MonoBehaviour
     {
         try
         {
-            GUIUtility.systemCopyBuffer = cachedRoom;
+            GUIUtility.systemCopyBuffer = cachedRoomFull;
         }
         catch (Exception e)
         {
