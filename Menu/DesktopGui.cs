@@ -23,8 +23,15 @@ public class DesktopGui : MonoBehaviour
     private static readonly Color TextMain = new(0.93f,  0.93f,  0.96f);
     private static readonly Color TextDim  = new(0.62f,  0.60f,  0.70f);
 
+    private enum GuiView
+    {
+        Home,
+        Category,
+    }
+
     private float windowX = HiddenX;
     private int   currentGuiTab;
+    private GuiView view = GuiView.Home;
     private bool  menuVisible = true;
     private bool  stylesReady;
 
@@ -38,8 +45,8 @@ public class DesktopGui : MonoBehaviour
     private GUIStyle buttonStyle;
     private GUIStyle toggleOnStyle;
     private GUIStyle toggleOffStyle;
-    private GUIStyle chipOnStyle;
-    private GUIStyle chipOffStyle;
+    private GUIStyle cardStyle;
+    private GUIStyle backStyle;
     private GUIStyle labelStyle;
     private GUIStyle dimLabelStyle;
     private GUIStyle sectionStyle;
@@ -57,6 +64,8 @@ public class DesktopGui : MonoBehaviour
     private Texture2D scrollbarThumbTex;
 
     private Texture2D logoTexture;
+
+    private readonly Dictionary<int, Color> categoryStripeColors = [];
 
     private string cachedFps     = "0";
     private string cachedRoom    = "Offline";
@@ -201,14 +210,18 @@ public class DesktopGui : MonoBehaviour
             hover  = { background = buttonHoverTex, textColor = Color.white },
         };
 
-        chipOnStyle = new GUIStyle(toggleOnStyle)
+        cardStyle = new GUIStyle(buttonStyle)
         {
-            fontSize = 11,
+            alignment = TextAnchor.MiddleLeft,
+            padding   = new RectOffset(16, 8, 6, 6),
+            fontSize  = 13,
+            wordWrap  = true,
         };
 
-        chipOffStyle = new GUIStyle(toggleOffStyle)
+        backStyle = new GUIStyle(buttonStyle)
         {
-            fontSize = 11,
+            alignment = TextAnchor.MiddleLeft,
+            padding   = new RectOffset(10, 6, 2, 2),
         };
 
         labelStyle = new GUIStyle(GUI.skin.label)
@@ -411,10 +424,6 @@ public class DesktopGui : MonoBehaviour
 
             EnsureValidTab(isAdmin);
 
-            DrawCategoryChips(isAdmin);
-
-            GUILayout.Space(8);
-
             DrawContentPane(isAdmin);
 
             GUILayout.Space(8);
@@ -470,11 +479,11 @@ public class DesktopGui : MonoBehaviour
         int fps = int.TryParse(cachedFps, out int f) ? f : 0;
         GUIStyle fpsStyle = fps >= 60 ? fpsGreenStyle : fps >= 30 ? fpsYellowStyle : fpsRedStyle;
 
-        GUILayout.Label($"FPS {cachedFps}",      fpsStyle);
+        GUILayout.Label($"FPS {cachedFps}",         fpsStyle);
         GUILayout.Space(10);
         GUILayout.Label($"Players {cachedPlayers}", dimLabelStyle);
         GUILayout.Space(10);
-        GUILayout.Label($"Room {cachedRoom}",    dimLabelStyle);
+        GUILayout.Label($"Room {cachedRoom}",       dimLabelStyle);
 
         if (GUILayout.Button(new GUIContent("Copy", "Copy the room name to your clipboard"), buttonStyle, GUILayout.Width(46), GUILayout.Height(19)))
             SafeCopyRoom();
@@ -501,12 +510,36 @@ public class DesktopGui : MonoBehaviour
         GUI.color = previous;
     }
 
-    private void DrawCategoryChips(bool isAdmin)
-    {
-        const int   perRow = 3;
-        float       chipW  = (WindowW - 28f - 16f) / perRow;
+    // ---------- content ----------
 
-        GUILayout.BeginVertical();
+    private void DrawContentPane(bool isAdmin)
+    {
+        if (!string.IsNullOrEmpty(searchQuery))
+        {
+            DrawSearchView(isAdmin);
+            return;
+        }
+
+        if (view == GuiView.Category)
+            DrawCategoryView(isAdmin);
+        else
+            DrawHomeView(isAdmin);
+    }
+
+    private void DrawHomeView(bool isAdmin)
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("CATEGORIES", sectionStyle);
+        GUILayout.FlexibleSpace();
+        GUILayout.Label($"v{Constants.Version}", dimLabelStyle);
+        GUILayout.EndHorizontal();
+
+        GUILayout.Space(6);
+
+        modScrollPosition = GUILayout.BeginScrollView(modScrollPosition, GUILayout.ExpandHeight(true));
+
+        float cardW = (WindowW - 28f - 10f) / 2f;
+        const float cardH = 58f;
 
         int col = 0;
         GUILayout.BeginHorizontal();
@@ -518,61 +551,111 @@ public class DesktopGui : MonoBehaviour
             if (category.adminOnly && !isAdmin)
                 continue;
 
-            if (CountVisibleButtons(category, isAdmin) == 0)
+            int visible = CountVisibleButtons(category, isAdmin);
+
+            if (visible == 0)
                 continue;
 
-            if (col >= perRow)
+            if (col >= 2)
             {
                 GUILayout.EndHorizontal();
                 GUILayout.BeginHorizontal();
                 col = 0;
             }
 
-            int enabledCount = 0;
-
-            foreach (ButtonInfo button in category.buttons)
-                if (button.enabled)
-                    enabledCount++;
-
-            string label = category.name;
-
-            if (enabledCount > 0)
-                label += $" <color=#C79BFF>{enabledCount}</color>";
-
-            bool selected  = currentGuiTab == i;
-            GUIStyle style = selected ? chipOnStyle : chipOffStyle;
-
-            if (GUILayout.Toggle(selected, label, style, GUILayout.Width(chipW), GUILayout.Height(24)))
-                currentGuiTab = i;
-
+            DrawCategoryCard(i, category, visible, cardW, cardH);
             col++;
         }
 
-        // pad the last row so chips stay aligned
-        for (; col < perRow; col++)
-            GUILayout.Space(chipW);
+        for (; col < 2; col++)
+            GUILayout.Space(cardW);
 
         GUILayout.EndHorizontal();
-        GUILayout.EndVertical();
+
+        GUILayout.EndScrollView();
     }
 
-    private void DrawContentPane(bool isAdmin)
+    private void DrawCategoryCard(int index, ButtonCategory category, int visibleCount, float width, float height)
     {
+        Rect rect = GUILayoutUtility.GetRect(width, height, GUILayout.ExpandWidth(false));
+
+        int onCount = 0;
+
+        foreach (ButtonInfo button in category.buttons)
+            if (button.enabled)
+                onCount++;
+
+        string subtitle = $"{visibleCount} mods";
+
+        if (onCount > 0)
+            subtitle += $"  ·  <color=#C79BFF>{onCount} on</color>";
+
+        string text = $"<b>{category.name}</b>\n<size=10><color=#99AABB>{subtitle}</color></size>";
+
+        bool clicked = GUI.Button(rect, new GUIContent(text, $"Open {category.name}"), cardStyle);
+
+        if (Event.current.type == EventType.Repaint && accentBarTex != null)
+        {
+            Color previous = GUI.color;
+            GUI.color = GetStripeColor(index);
+            GUI.DrawTexture(new Rect(rect.x, rect.y + 6f, 4f, rect.height - 12f), accentBarTex);
+            GUI.color = previous;
+        }
+
+        if (clicked)
+        {
+            currentGuiTab    = index;
+            view             = GuiView.Category;
+            modScrollPosition = Vector2.zero;
+            lastDrawnTab      = -1;
+        }
+    }
+
+    private Color GetStripeColor(int index)
+    {
+        if (categoryStripeColors.TryGetValue(index, out Color cached))
+            return cached;
+
+        string name = Buttons.Categories[index].name;
+        float hash = 0f;
+
+        foreach (char c in name)
+            hash = hash * 31f + c;
+
+        Color color = Color.HSVToRGB(Mathf.Repeat(hash * 0.0137f, 1f), 0.65f, 1f);
+        categoryStripeColors[index] = color;
+
+        return color;
+    }
+
+    private void DrawCategoryView(bool isAdmin)
+    {
+        ButtonCategory category = Buttons.Categories[currentGuiTab];
+
+        GUILayout.BeginHorizontal();
+
+        if (GUILayout.Button(new GUIContent("  < Back", "Return to the category overview"), backStyle, GUILayout.Width(80), GUILayout.Height(24)))
+            view = GuiView.Home;
+
+        GUILayout.Space(6);
+
+        GUILayout.Label(category.name.ToUpperInvariant(), sectionStyle);
+
+        GUILayout.FlexibleSpace();
+
+        List<ButtonInfo> buttons = CollectCategoryButtons(category, isAdmin);
+
+        GUILayout.Label($"{buttons.Count} mods", dimLabelStyle);
+
+        GUILayout.EndHorizontal();
+
+        GUILayout.Space(6);
+
         if (currentGuiTab != lastDrawnTab)
         {
             modScrollPosition = Vector2.zero;
             lastDrawnTab      = currentGuiTab;
         }
-
-        List<ButtonInfo> buttons = CollectVisibleButtons(isAdmin);
-
-        GUILayout.BeginHorizontal();
-        GUILayout.Label(string.IsNullOrEmpty(searchQuery) ? Buttons.Categories[currentGuiTab].name.ToUpperInvariant() : $"SEARCH: {searchQuery.ToUpperInvariant()}", sectionStyle);
-        GUILayout.FlexibleSpace();
-        GUILayout.Label($"{buttons.Count} mods", dimLabelStyle);
-        GUILayout.EndHorizontal();
-
-        GUILayout.Space(4);
 
         modScrollPosition = GUILayout.BeginScrollView(modScrollPosition, GUILayout.ExpandHeight(true));
 
@@ -581,36 +664,57 @@ public class DesktopGui : MonoBehaviour
         GUILayout.EndScrollView();
     }
 
-    private List<ButtonInfo> CollectVisibleButtons(bool isAdmin)
+    private void DrawSearchView(bool isAdmin)
+    {
+        List<ButtonInfo> buttons = CollectSearchButtons(isAdmin);
+
+        GUILayout.BeginHorizontal();
+        GUILayout.Label($"SEARCH: {searchQuery.ToUpperInvariant()}", sectionStyle);
+        GUILayout.FlexibleSpace();
+        GUILayout.Label($"{buttons.Count} results", dimLabelStyle);
+        GUILayout.EndHorizontal();
+
+        GUILayout.Space(6);
+
+        modScrollPosition = GUILayout.BeginScrollView(modScrollPosition, GUILayout.ExpandHeight(true));
+
+        DrawButtonGrid(buttons);
+
+        GUILayout.EndScrollView();
+    }
+
+    private List<ButtonInfo> CollectCategoryButtons(ButtonCategory category, bool isAdmin)
     {
         List<ButtonInfo> buttons = [];
 
-        if (!string.IsNullOrEmpty(searchQuery))
+        foreach (ButtonInfo button in category.buttons)
         {
-            foreach (ButtonInfo button in Buttons.AllButtons)
-            {
-                if (IsCategoryNavButton(button))
-                    continue;
+            if (IsCategoryNavButton(button))
+                continue;
 
-                if (!isAdmin && IsButtonInAdminCategory(button))
-                    continue;
+            if (!isAdmin && IsButtonInAdminCategory(button))
+                continue;
 
-                if (button.buttonText.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
-                    buttons.Add(button);
-            }
+            buttons.Add(button);
         }
-        else
+
+        return buttons;
+    }
+
+    private List<ButtonInfo> CollectSearchButtons(bool isAdmin)
+    {
+        List<ButtonInfo> buttons = [];
+
+        foreach (ButtonInfo button in Buttons.AllButtons)
         {
-            foreach (ButtonInfo button in Buttons.Categories[currentGuiTab].buttons)
-            {
-                if (IsCategoryNavButton(button))
-                    continue;
+            if (IsCategoryNavButton(button))
+                continue;
 
-                if (!isAdmin && IsButtonInAdminCategory(button))
-                    continue;
+            if (!isAdmin && IsButtonInAdminCategory(button))
+                continue;
 
+            if (button.buttonText.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
                 buttons.Add(button);
-            }
         }
 
         return buttons;
@@ -844,12 +948,15 @@ public class DesktopGui : MonoBehaviour
 
     private void EnsureValidTab(bool isAdmin)
     {
+        if (view != GuiView.Category)
+            return;
+
         ButtonCategory category = Buttons.Categories[currentGuiTab];
 
         if ((!category.adminOnly || isAdmin) && CountVisibleButtons(category, isAdmin) > 0)
             return;
 
-        currentGuiTab = FindFirstVisibleCategory();
+        view = GuiView.Home;
     }
 
     private void LogErrorOnce(string key, Exception e)
