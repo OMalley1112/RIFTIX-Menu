@@ -399,6 +399,13 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText = "WASD Fly",
+                    method     = Mods.Movement.WasdFly,
+                    toolTip    = "Desktop fly with WASD, Space up, Shift fast, mouse right looks and left aims your hand.",
+            },
+
+            new()
+            {
                     buttonText    = "Noclip",
                     method        = Mods.Movement.Noclip,
                     disableMethod = Mods.Movement.DisableNoclip,

@@ -1,8 +1,10 @@
 ﻿using System.Collections.Generic;
+using BepInEx;
 using GorillaLocomotion;
 using Photon.Pun;
 using StupidTemplate.Classes;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.XR;
 using static StupidTemplate.Menu.Main;
 
@@ -621,5 +623,213 @@ public abstract class Movement
         {
             VRRig.LocalRig.enabled = true;
         }
+    }
+
+    private const float WASD_MOUSE_SENSITIVITY = 0.08f;
+
+    private static readonly Dictionary<Transform, Vector3> wasdHandPositions = new();
+    private static          SphereCollider                wasdHandProbe;
+
+    public static void WasdFly()
+    {
+        GorillaTagger tagger = GorillaTagger.Instance;
+        var           input  = UnityInput.Current;
+
+        if (tagger == null || input == null || GTPlayer.Instance == null ||
+            tagger.rigidbody == null || tagger.headCollider == null ||
+            tagger.leftHandTransform == null || tagger.rightHandTransform == null)
+            return;
+
+        Rigidbody rigidbody = tagger.rigidbody;
+        Transform body      = rigidbody.transform;
+        Transform head      = tagger.headCollider.transform;
+
+        Transform leftHand  = tagger.leftHandTransform;
+        Transform rightHand = tagger.rightHandTransform;
+
+        leftHand.localPosition  += Vector3.down * 0.5f;
+        rightHand.localPosition += Vector3.down * 0.5f;
+
+        leftHand.localPosition  -= Vector3.right * 0.2f;
+        rightHand.localPosition -= Vector3.left  * 0.2f;
+
+        leftHand.localRotation  = Quaternion.Euler(40f, 0f, 0f);
+        rightHand.localRotation = Quaternion.Euler(40f, 0f, 0f);
+
+        if (input.GetKey(KeyCode.Q))
+        {
+            leftHand.localPosition += Vector3.forward * 0.2f;
+            leftHand.localPosition += Vector3.up      * 0.4f;
+        }
+
+        if (input.GetKey(KeyCode.E))
+        {
+            rightHand.localPosition += Vector3.forward * 0.2f;
+            rightHand.localPosition += Vector3.up      * 0.4f;
+        }
+
+        Camera     thirdPersonCam = null;
+        GameObject cameraObj      = GameObject.Find("Player Objects/Third Person Camera/Shoulder Camera");
+
+        if (cameraObj != null)
+            thirdPersonCam = cameraObj.GetComponent<Camera>();
+
+        Mouse mouse = Mouse.current;
+
+        if (mouse != null && mouse.rightButton.isPressed)
+        {
+            Vector2 mouseDelta = mouse.delta.ReadValue();
+
+            body.Rotate(Vector3.up,         mouseDelta.x * WASD_MOUSE_SENSITIVITY, Space.World);
+            head.Rotate(Vector3.right, -mouseDelta.y * WASD_MOUSE_SENSITIVITY, Space.Self);
+
+            Cursor.lockState = CursorLockMode.Locked;
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.None;
+        }
+
+        if (mouse != null && mouse.leftButton.isPressed)
+        {
+            Camera raycastCamera = Camera.main;
+
+            if (thirdPersonCam != null)
+                raycastCamera = thirdPersonCam;
+
+            if (raycastCamera != null)
+            {
+                Ray ray = raycastCamera.ScreenPointToRay(mouse.position.ReadValue());
+
+                if (Physics.Raycast(
+                            ray,
+                            out RaycastHit hit,
+                            100f,
+                            GTPlayer.Instance.locomotionEnabledLayers,
+                            QueryTriggerInteraction.Ignore))
+                    rightHand.position = hit.point;
+            }
+        }
+
+        Vector3 movementDirection = Vector3.zero;
+
+        Vector3 forwardDirection = head.forward;
+        Vector3 rightDirection   = head.right;
+
+        if (input.GetKey(KeyCode.W))
+            movementDirection += forwardDirection;
+
+        if (input.GetKey(KeyCode.S))
+            movementDirection -= forwardDirection;
+
+        if (input.GetKey(KeyCode.A))
+            movementDirection -= rightDirection;
+
+        if (input.GetKey(KeyCode.D))
+            movementDirection += rightDirection;
+
+        if (input.GetKey(KeyCode.Space))
+            movementDirection += head.up;
+
+        float speed = input.GetKey(KeyCode.LeftShift) ? 40f : 10f;
+
+        if (movementDirection != Vector3.zero)
+            body.position += movementDirection.normalized * (Time.deltaTime * speed);
+
+        rigidbody.linearVelocity        = Vector3.zero;
+        rigidbody.angularVelocity = Vector3.zero;
+
+        ResolveWasdHandCollision(leftHand);
+        ResolveWasdHandCollision(rightHand);
+    }
+
+    private static void ResolveWasdHandCollision(Transform hand)
+    {
+        const float handRadius = 0.075f;
+        const float skinWidth  = 0.0025f;
+
+        bool shouldIgnore = Vector3.Distance(hand.position, GorillaTagger.Instance.rigidbody.transform.position) > 2f;
+
+        if (shouldIgnore)
+        {
+            wasdHandPositions[hand] = hand.position;
+
+            return;
+        }
+
+        if (!wasdHandPositions.TryGetValue(hand, out Vector3 previousPosition))
+            previousPosition = hand.position;
+
+        Vector3 currentPosition = hand.position;
+        Vector3 moveDelta       = currentPosition - previousPosition;
+
+        float distance = moveDelta.magnitude;
+
+        if (distance > 0.0001f)
+        {
+            Vector3 direction = moveDelta.normalized;
+
+            if (Physics.SphereCast(
+                        previousPosition,
+                        handRadius,
+                        direction,
+                        out RaycastHit hit,
+                        distance + skinWidth,
+                        GTPlayer.Instance.locomotionEnabledLayers,
+                        QueryTriggerInteraction.Ignore))
+            {
+                hand.position = hit.point + hit.normal * (handRadius + skinWidth);
+
+                Vector3 remainingMovement = currentPosition - hand.position;
+                Vector3 surfaceSlide      = Vector3.ProjectOnPlane(remainingMovement, hit.normal);
+
+                if (!Physics.SphereCast(
+                            hand.position,
+                            handRadius,
+                            surfaceSlide.normalized,
+                            out RaycastHit slideHit,
+                            surfaceSlide.magnitude,
+                            GTPlayer.Instance.locomotionEnabledLayers,
+                            QueryTriggerInteraction.Ignore))
+                    hand.position += surfaceSlide;
+            }
+        }
+
+        Collider[] overlaps = Physics.OverlapSphere(
+                hand.position,
+                handRadius,
+                GTPlayer.Instance.locomotionEnabledLayers,
+                QueryTriggerInteraction.Ignore);
+
+        foreach (Collider col in overlaps)
+            if (Physics.ComputePenetration(
+                        GetWasdHandProbe(handRadius, hand.position),
+                        hand.position,
+                        Quaternion.identity,
+                        col,
+                        col.transform.position,
+                        col.transform.rotation,
+                        out Vector3 direction,
+                        out float penetration))
+                hand.position += direction * (penetration + skinWidth);
+
+        wasdHandPositions[hand] = hand.position;
+    }
+
+    private static SphereCollider GetWasdHandProbe(float radius, Vector3 position)
+    {
+        if (wasdHandProbe == null)
+        {
+            GameObject obj = new("RIFTIX_WasdHandProbe");
+            obj.hideFlags = HideFlags.HideAndDontSave;
+
+            wasdHandProbe           = obj.AddComponent<SphereCollider>();
+            wasdHandProbe.isTrigger = true;
+        }
+
+        wasdHandProbe.radius             = radius;
+        wasdHandProbe.transform.position = position;
+
+        return wasdHandProbe;
     }
 }
