@@ -163,6 +163,8 @@ public class HamburburData : MonoBehaviour
                     foreach (string superAdmin in LocalAdmins.SuperAdmins)
                         HamburburSuperAdmins.Add(superAdmin);
 
+                    AdminStore.MergeInto();
+
                     if (!hasLoadedConsole)
                     {
                         Console.LoadConsole();
