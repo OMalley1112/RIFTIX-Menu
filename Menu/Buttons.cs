@@ -79,6 +79,14 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText = "Visual Mods",
+                    method     = () => SetCategory("Visual Mods"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the visual mods tab.",
+            },
+
+            new()
+            {
                     buttonText = "Safety Mods",
                     method     = () => SetCategory("Safety Mods"),
                     mode       = ButtonMode.Action,
@@ -351,6 +359,137 @@ public abstract class Buttons
                     buttonText = "Teleport Gun",
                     method     = Mods.Movement.TeleportGun,
                     toolTip    = "Teleports you to wherever your pointer is when pressing trigger.",
+            },
+
+            new()
+            {
+                    buttonText = "Speed Boost",
+                    method     = Mods.Movement.SpeedBoost,
+                    toolTip    = "Increases your jump speed for a big movement speed boost.",
+            },
+
+            new()
+            {
+                    buttonText    = "Long Arms",
+                    method        = Mods.Movement.LongArms,
+                    disableMethod = Mods.Movement.UnLongArms,
+                    toolTip       = "Makes your arms 15% longer, letting you reach further.",
+            },
+
+            new()
+            {
+                    buttonText = "Amplified Monke",
+                    method     = Mods.Movement.AmplifiedMonke,
+                    toolTip    = "Pushes you forward in the direction you are moving on the ground.",
+            },
+
+            new()
+            {
+                    buttonText = "Ground Helper",
+                    method     = Mods.Movement.GroundHelper,
+                    toolTip    = "Hold grip to stick to the ground and keep your speed, hold A to boost forward.",
+            },
+
+            new()
+            {
+                    buttonText = "Joystick Fly",
+                    method     = Mods.Movement.JoystickFly,
+                    toolTip    = "Fly with the joysticks, left joystick moves, right joystick goes up.",
+            },
+
+            new()
+            {
+                    buttonText    = "Noclip",
+                    method        = Mods.Movement.Noclip,
+                    disableMethod = Mods.Movement.DisableNoclip,
+                    toolTip       = "Walk through walls and terrain while enabled.",
+            },
+
+            new()
+            {
+                    buttonText = "Dash",
+                    method     = Mods.Movement.Dash,
+                    toolTip    = "Press A to jump up, hold grip and push forward to dash.",
+            },
+
+            new()
+            {
+                    buttonText    = "Web Slingers",
+                    method        = Mods.Movement.WebSlingers,
+                    disableMethod = Mods.Movement.DisableWebSlingers,
+                    toolTip       = "Hold grip to shoot web lines at surfaces and swing like Spider-Man.",
+            },
+
+            new()
+            {
+                    buttonText = "Hand Turn",
+                    method     = Mods.Movement.HandTurn,
+                    toolTip    = "Hold grip and point your hand down at the ground to spin your character.",
+            },
+
+            new()
+            {
+                    buttonText = "Tag Gun",
+                    method     = Mods.Movement.TagGun,
+                    toolTip    = "Points at a player and presses trigger to tag them when you get close.",
+            },
+
+            new()
+            {
+                    buttonText = "Tag All",
+                    method     = Mods.Movement.TagAll,
+                    toolTip    = "Chases and tags every untagged player in the room.",
+            },
+    };
+
+    private static readonly ButtonInfo[] VisualModsButtons =
+    {
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page of the menu.",
+            },
+
+            new()
+            {
+                    buttonText    = "Box ESP",
+                    method        = Visual.BoxESP,
+                    disableMethod = Visual.CleanupBoxEsp,
+                    toolTip       = "Draws a coloured box on every player, red means they are it.",
+            },
+
+            new()
+            {
+                    buttonText    = "Skeleton ESP",
+                    method        = Visual.SkeletonESP,
+                    disableMethod = Visual.DisableSkeletonESP,
+                    toolTip       = "Draws spheres on every player's head and hands, red means they are it.",
+            },
+
+            new()
+            {
+                    buttonText    = "Nametags",
+                    method        = Visual.Nametags,
+                    disableMethod = Visual.DisableNametags,
+                    toolTip       = "Shows every player's name and FPS above their head.",
+            },
+
+            new()
+            {
+                    buttonText    = "Fullbright",
+                    method        = Visual.Fullbright,
+                    disableMethod = Visual.FullbrightOff,
+                    toolTip       = "Removes fog and lights up the whole map.",
+            },
+
+            new()
+            {
+                    buttonText    = "Tracers",
+                    method        = Visual.Tracers,
+                    disableMethod = Visual.DisableTracers,
+                    toolTip       = "Draws lines from your head to every player, red means they are it.",
             },
     };
 
@@ -682,6 +821,12 @@ public abstract class Buttons
             {
                     name    = "Movement Mods",
                     buttons = MovementModsButtons,
+            },
+
+            new()
+            {
+                    name    = "Visual Mods",
+                    buttons = VisualModsButtons,
             },
 
             new()
