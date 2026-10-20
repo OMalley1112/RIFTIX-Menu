@@ -31,7 +31,7 @@ public class DesktopGui : MonoBehaviour
 
     private float windowX = HiddenX;
     private float baseX   = VisibleX;
-    private float slideT  = 1f;
+    private float slideT  = 0f;
     private int   currentGuiTab;
     private GuiView view = GuiView.Home;
     private bool  menuVisible = true;
@@ -143,16 +143,12 @@ public class DesktopGui : MonoBehaviour
 
     private void UpdateAnimation()
     {
-        Vector2 mousePos = Mouse.current != null ? Mouse.current.position.ReadValue() : Vector2.zero;
-        mousePos.y = Screen.height - mousePos.y;
-
-        bool hoverArea = mousePos.x < WindowW + 40f && mousePos.y < WindowH + 60f;
-
         // absorb last frame's drag so the slide animation never snaps the window back
         if (slideT > 0.85f)
             baseX = windowRect.x;
 
-        slideT    = Mathf.Lerp(slideT, hoverArea ? 1f : 0f, Time.deltaTime * AnimSpeed);
+        // auto-opens on startup; F11 slides it in/out at the position you left it
+        slideT    = Mathf.Lerp(slideT, menuVisible ? 1f : 0f, Time.deltaTime * AnimSpeed);
         windowX   = Mathf.Lerp(HiddenX, baseX, slideT);
         windowRect.x = windowX;
 

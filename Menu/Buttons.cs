@@ -845,7 +845,6 @@ public abstract class Buttons
             new()
             {
                     name      = "Guardian",
-                    adminOnly = true,
                     buttons   = GuardianButtons,
             },
 
