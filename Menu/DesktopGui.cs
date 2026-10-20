@@ -14,11 +14,12 @@ namespace StupidTemplate.Menu;
 public class DesktopGui : MonoBehaviour
 {
     private const float AnimSpeed = 12f;
-    private const float WindowW   = 580f;
-    private const float WindowH   = 630f;
+    private const float WindowW   = 600f;
+    private const float WindowH   = 650f;
     private const float HiddenX   = -(WindowW + 24f);
     private const float VisibleX  = 12f;
     private const float SidebarW  = 155f;
+    private const float BodyH     = 490f;
 
     private static readonly Color Accent   = new(0.616f, 0.306f, 0.867f);
     private static readonly Color TextMain = new(0.93f,  0.93f,  0.96f);
@@ -31,6 +32,7 @@ public class DesktopGui : MonoBehaviour
 
     private Vector2 modScrollPosition;
     private string  searchQuery = "";
+    private int     lastDrawnTab = -1;
 
     private Rect windowRect = new(HiddenX, 24, WindowW, WindowH);
 
@@ -365,17 +367,14 @@ public class DesktopGui : MonoBehaviour
 
         GUI.DrawTextureWithTexCoords(new Rect(c, c, width - c * 2f, height - c * 2f), roundedBackgroundTex, Center);
 
-        // sidebar tint + divider
-        float bodyTop    = 96f;
-        float bodyBottom = height - 46f;
-
-        GUI.DrawTexture(new Rect(0f, bodyTop, SidebarW, bodyBottom - bodyTop), sidebarTex);
+        // sidebar tint + divider (inset so it stays inside the rounded corners)
+        GUI.DrawTexture(new Rect(3f, 8f, SidebarW - 3f, height - 16f), sidebarTex);
 
         if (accentBarTex != null)
         {
             Color previous = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, 0.14f);
-            GUI.DrawTexture(new Rect(SidebarW - 1f, bodyTop, 1f, bodyBottom - bodyTop), accentBarTex);
+            GUI.DrawTexture(new Rect(SidebarW - 1f, 10f, 1f, height - 20f), accentBarTex);
             GUI.color = previous;
         }
     }
@@ -413,7 +412,7 @@ public class DesktopGui : MonoBehaviour
 
             EnsureValidTab(isAdmin);
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(GUILayout.Height(BodyH));
 
             DrawSidebar(isAdmin);
             GUILayout.Space(10);
@@ -434,7 +433,8 @@ public class DesktopGui : MonoBehaviour
 
             DrawHoverTooltip();
 
-            GUI.DragWindow(new Rect(0, 0, windowRect.width, 92));
+            // thin top strip only — keep the Copy button and stats clickable
+            GUI.DragWindow(new Rect(0, 0, windowRect.width, 34));
         }
         catch (Exception e)
         {
@@ -548,7 +548,7 @@ public class DesktopGui : MonoBehaviour
             bool selected  = currentGuiTab == i;
             GUIStyle style = selected ? tabOnStyle : tabOffStyle;
 
-            if (GUILayout.Toggle(selected, label, style, GUILayout.Height(26)))
+            if (GUILayout.Toggle(selected, label, style, GUILayout.Height(26), GUILayout.ExpandWidth(true)))
                 currentGuiTab = i;
         }
 
@@ -573,7 +573,13 @@ public class DesktopGui : MonoBehaviour
     {
         GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
 
-        modScrollPosition = GUILayout.BeginScrollView(modScrollPosition);
+        if (currentGuiTab != lastDrawnTab)
+        {
+            modScrollPosition = Vector2.zero;
+            lastDrawnTab      = currentGuiTab;
+        }
+
+        modScrollPosition = GUILayout.BeginScrollView(modScrollPosition, GUILayout.ExpandHeight(true));
 
         List<ButtonInfo> buttons = [];
 
