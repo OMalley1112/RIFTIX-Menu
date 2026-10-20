@@ -1,8 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using BepInEx;
+using Photon.Pun;
 using StupidTemplate.Classes;
 using StupidTemplate.Mods;
+using StupidTemplate.Notifications;
 using static StupidTemplate.Menu.Main;
 using static StupidTemplate.Menu.Settings;
 using Movement = StupidTemplate.Mods.Settings.Movement;
@@ -184,6 +188,14 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText = "My ID",
+                    method     = CopyMyId,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Copies your player ID to the clipboard and saves it to a file.",
+            },
+
+            new()
+            {
                     buttonText    = "Disconnect Button",
                     enableMethod  = () => disconnectButton = true,
                     disableMethod = () => disconnectButton = false,
@@ -290,6 +302,30 @@ public abstract class Buttons
                     toolTip       = "Moves the page buttons into the first two normal button slots.",
             },
     };
+
+    public static void CopyMyId()
+    {
+        try
+        {
+            if (!PhotonNetwork.InRoom || PhotonNetwork.LocalPlayer == null ||
+                string.IsNullOrEmpty(PhotonNetwork.LocalPlayer.UserId))
+            {
+                NotifiLib.SendNotification("Join a lobby first, then press My ID again");
+                return;
+            }
+
+            string id = PhotonNetwork.LocalPlayer.UserId;
+
+            UnityEngine.GUIUtility.systemCopyBuffer = id;
+            NotifiLib.SendNotification("Your ID: " + id);
+
+            File.WriteAllText(Path.Combine(Paths.ConfigPath, "riftix.myid.txt"), id);
+        }
+        catch (Exception e)
+        {
+            NotifiLib.SendNotification("Could not get ID: " + e.Message);
+        }
+    }
 
     private static readonly ButtonInfo[] MovementSettingsButtons =
     {
