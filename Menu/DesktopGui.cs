@@ -399,7 +399,7 @@ public class DesktopGui : MonoBehaviour
             return;
 
         Color previous = GUI.color;
-        GUI.color = Color.HSVToRGB(Mathf.Repeat(Time.time * 0.04f, 1f), 0.5f, 1f);
+        GUI.color = Color.HSVToRGB(Mathf.Repeat(0.66f + Mathf.Sin(Time.time * 0.35f) * 0.12f, 1f), 0.55f, 1f);
         GUI.DrawTexture(barRect, accentBarTex);
         GUI.color = previous;
     }
@@ -442,12 +442,12 @@ public class DesktopGui : MonoBehaviour
 
     private void DrawHeader()
     {
-        GUILayout.BeginHorizontal();
+        GUILayout.BeginHorizontal(GUILayout.Height(64));
 
         if (logoTexture != null)
         {
             float aspect = logoTexture.width / (float)logoTexture.height;
-            float height = 60f;
+            float height = 56f;
             float width  = height * aspect;
 
             Rect logoRect = GUILayoutUtility.GetRect(width, height, GUILayout.ExpandWidth(false));
@@ -460,13 +460,12 @@ public class DesktopGui : MonoBehaviour
             GUIStyle big = MakeColoredLabel(Accent);
             big.fontSize  = 22;
             big.fontStyle = FontStyle.BoldAndItalic;
-            GUILayout.Label(Constants.Name, big, GUILayout.Height(56));
+            GUILayout.Label(Constants.Name, big, GUILayout.Height(52));
         }
 
         GUILayout.Space(10);
 
         GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
-        GUILayout.FlexibleSpace();
 
         GUIStyle nameStyle = MakeColoredLabel(Accent);
         nameStyle.fontSize  = 15;
@@ -485,12 +484,11 @@ public class DesktopGui : MonoBehaviour
         GUILayout.Space(10);
         GUILayout.Label($"Room {cachedRoom}",       dimLabelStyle);
 
-        if (GUILayout.Button(new GUIContent("Copy", "Copy the room name to your clipboard"), buttonStyle, GUILayout.Width(46), GUILayout.Height(19)))
+        if (GUILayout.Button("Copy", buttonStyle, GUILayout.Width(46), GUILayout.Height(19)))
             SafeCopyRoom();
 
         GUILayout.EndHorizontal();
 
-        GUILayout.FlexibleSpace();
         GUILayout.EndVertical();
 
         GUILayout.EndHorizontal();
@@ -592,7 +590,7 @@ public class DesktopGui : MonoBehaviour
 
         string text = $"<b>{category.name}</b>\n<size=10><color=#99AABB>{subtitle}</color></size>";
 
-        bool clicked = GUI.Button(rect, new GUIContent(text, $"Open {category.name}"), cardStyle);
+        bool clicked = GUI.Button(rect, new GUIContent(text), cardStyle);
 
         if (Event.current.type == EventType.Repaint && accentBarTex != null)
         {
@@ -617,12 +615,15 @@ public class DesktopGui : MonoBehaviour
             return cached;
 
         string name = Buttons.Categories[index].name;
-        float hash = 0f;
+
+        int hash = 0;
 
         foreach (char c in name)
-            hash = hash * 31f + c;
+            hash = unchecked(hash * 31 + c);
 
-        Color color = Color.HSVToRGB(Mathf.Repeat(hash * 0.0137f, 1f), 0.65f, 1f);
+        float hue = Mathf.Repeat(Mathf.Abs(hash % 360) / 360f, 1f);
+
+        Color color = Color.HSVToRGB(hue, 0.65f, 1f);
         categoryStripeColors[index] = color;
 
         return color;
@@ -634,7 +635,7 @@ public class DesktopGui : MonoBehaviour
 
         GUILayout.BeginHorizontal();
 
-        if (GUILayout.Button(new GUIContent("  < Back", "Return to the category overview"), backStyle, GUILayout.Width(80), GUILayout.Height(24)))
+        if (GUILayout.Button("  < Back", backStyle, GUILayout.Width(80), GUILayout.Height(24)))
             view = GuiView.Home;
 
         GUILayout.Space(6);
@@ -811,17 +812,17 @@ public class DesktopGui : MonoBehaviour
 
         searchQuery = GUILayout.TextField(searchQuery, searchFieldStyle, GUILayout.Height(24));
 
-        if (GUILayout.Button(new GUIContent("X", "Clear search"), buttonStyle, GUILayout.Width(30), GUILayout.Height(24)))
+        if (GUILayout.Button("X", buttonStyle, GUILayout.Width(30), GUILayout.Height(24)))
             searchQuery = "";
 
         GUILayout.Space(6);
 
-        if (GUILayout.Button(new GUIContent("Disconnect", "Leave the current room"), buttonStyle, GUILayout.Width(90), GUILayout.Height(24)))
+        if (GUILayout.Button("Disconnect", buttonStyle, GUILayout.Width(90), GUILayout.Height(24)))
             SafeDisconnect();
 
         GUILayout.Space(4);
 
-        if (GUILayout.Button(new GUIContent("Quit", "Exit the game"), buttonStyle, GUILayout.Width(60), GUILayout.Height(24)))
+        if (GUILayout.Button("Quit", buttonStyle, GUILayout.Width(60), GUILayout.Height(24)))
             Application.Quit();
 
         GUILayout.EndHorizontal();
