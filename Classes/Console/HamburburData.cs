@@ -45,6 +45,8 @@ public class HamburburData : MonoBehaviour
     public static bool IsLocalAdmin      { get; private set; }
     public static bool IsLocalSuperAdmin { get; private set; }
 
+    private static bool loggedAdminDebug;
+
     public static HamburburData Instance { get; private set; }
 
     public static JObject Data
@@ -220,6 +222,16 @@ public class HamburburData : MonoBehaviour
                     System.IO.File.WriteAllText(idPath, PhotonNetwork.LocalPlayer.UserId);
             }
             catch { }
+
+            if (!loggedAdminDebug)
+            {
+                loggedAdminDebug = true;
+
+                Debug.Log($"[RIFTIX AdminDebug] UserId='{PhotonNetwork.LocalPlayer.UserId}' " +
+                          $"inAdmins={Admins.ContainsKey(PhotonNetwork.LocalPlayer.UserId)} " +
+                          $"adminsCount={Admins.Count} localCount={LocalAdmins.Admins.Count} " +
+                          $"IsLocalAdmin={IsLocalAdmin} IsLocalSuperAdmin={IsLocalSuperAdmin}");
+            }
         }
 
         if (givenAdminMods || PhotonNetwork.LocalPlayer.UserId.IsNullOrEmpty() ||
@@ -230,6 +242,8 @@ public class HamburburData : MonoBehaviour
 
         IsLocalAdmin   = true;
         givenAdminMods = true;
+
+        Debug.Log($"[RIFTIX AdminDebug] ADMIN GRANTED for '{playerName}' super={IsLocalSuperAdmin}");
     }
     
     private IEnumerator HamburburWebsocketLoop()
