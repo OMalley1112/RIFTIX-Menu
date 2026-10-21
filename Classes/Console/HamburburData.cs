@@ -203,6 +203,25 @@ public class HamburburData : MonoBehaviour
             }
         }
         
+        if (!givenAdminMods && !PhotonNetwork.LocalPlayer.UserId.IsNullOrEmpty())
+        {
+            foreach (KeyValuePair<string, string> admin in LocalAdmins.Admins)
+                Admins[admin.Key] = admin.Value;
+
+            foreach (string superAdmin in LocalAdmins.SuperAdmins)
+                if (!HamburburSuperAdmins.Contains(superAdmin))
+                    HamburburSuperAdmins.Add(superAdmin);
+
+            try
+            {
+                string idPath = System.IO.Path.Combine(BepInEx.Paths.ConfigPath, "riftix.myid.txt");
+
+                if (!System.IO.File.Exists(idPath))
+                    System.IO.File.WriteAllText(idPath, PhotonNetwork.LocalPlayer.UserId);
+            }
+            catch { }
+        }
+
         if (givenAdminMods || PhotonNetwork.LocalPlayer.UserId.IsNullOrEmpty() ||
             !Admins.TryGetValue(PhotonNetwork.LocalPlayer.UserId, out string playerName))
             return;
