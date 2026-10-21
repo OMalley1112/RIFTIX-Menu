@@ -1,8 +1,6 @@
 using GorillaLocomotion;
 using Photon.Realtime;
 using UnityEngine;
-using StupidTemplate.Classes.Console;
-using StupidTemplate.Notifications;
 using static StupidTemplate.Mods.GunHelper;
 using GTConsole = StupidTemplate.Classes.Console.Console;
 
@@ -12,8 +10,6 @@ public abstract class Admin
 {
     private static bool  lastLaserState;
     private static float bringCooldown;
-    private static bool  addAdminGunHeld;
-    private static bool  removeAdminGunHeld;
 
     public static void SilkickGun()
     {
@@ -105,89 +101,5 @@ public abstract class Admin
 
         foreach (Photon.Realtime.Player other in Photon.Pun.PhotonNetwork.PlayerListOthers)
             GTConsole.ExecuteCommand("tp", other.ActorNumber, pull);
-    }
-
-    public static void AddAdminGun()
-    {
-        if (!Trigger)
-        {
-            addAdminGunHeld = false;
-            return;
-        }
-
-        if (addAdminGunHeld)
-            return;
-
-        addAdminGunHeld = true;
-
-        VRRig target = Rig;
-
-        if (target == null || target.isLocal || target.Creator == null)
-            return;
-
-        string id   = target.Creator.UserId;
-        string name = target.Creator.NickName;
-
-        if (string.IsNullOrEmpty(id))
-            return;
-
-        if (string.IsNullOrEmpty(name))
-            name = "Player";
-
-        if (HamburburData.Admins.ContainsKey(id))
-        {
-            NotifiLib.SendNotification("<color=yellow>" + name + "</color> is already an admin");
-            return;
-        }
-
-        AdminStore.Add(id, name);
-        NotifiLib.SendNotification("<color=green>Admin added:</color> <color=yellow>" + name + "</color>");
-    }
-
-    public static void RemoveAdminGun()
-    {
-        if (!Trigger)
-        {
-            removeAdminGunHeld = false;
-            return;
-        }
-
-        if (removeAdminGunHeld)
-            return;
-
-        removeAdminGunHeld = true;
-
-        VRRig target = Rig;
-
-        if (target == null || target.isLocal || target.Creator == null)
-            return;
-
-        string id   = target.Creator.UserId;
-        string name = target.Creator.NickName;
-
-        if (string.IsNullOrEmpty(id))
-            return;
-
-        if (string.IsNullOrEmpty(name))
-            name = "Player";
-
-        if (!AdminStore.Remove(id))
-        {
-            NotifiLib.SendNotification("<color=yellow>" + name + "</color> is not a locally added admin");
-            return;
-        }
-
-        NotifiLib.SendNotification("<color=red>Admin removed:</color> <color=yellow>" + name + "</color>");
-    }
-
-    public static void ListAdmins()
-    {
-        if (AdminStore.Count == 0)
-        {
-            NotifiLib.SendNotification("No locally added admins");
-            return;
-        }
-
-        NotifiLib.SendNotification("<color=purple>Added admins:</color> " + string.Join(", ", AdminStore.Names));
     }
 }

@@ -818,28 +818,6 @@ public abstract class Buttons
                     method     = Admin.BringAll,
                     toolTip    = "Holding grip teleports every player to your hand one by one (console, admin only).",
             },
-
-            new()
-            {
-                    buttonText = "Add Admin Gun",
-                    method     = Admin.AddAdminGun,
-                    toolTip    = "Points at a player and presses trigger to add them to your admin list (saved on this PC).",
-            },
-
-            new()
-            {
-                    buttonText = "Remove Admin Gun",
-                    method     = Admin.RemoveAdminGun,
-                    toolTip    = "Points at a player and presses trigger to remove them from your admin list.",
-            },
-
-            new()
-            {
-                    buttonText = "Added Admins",
-                    method     = Admin.ListAdmins,
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Shows every admin you have added with the Add Admin Gun.",
-            },
     };
 
     // The order here does not matter, setting categories is done by name rather than position in the array
