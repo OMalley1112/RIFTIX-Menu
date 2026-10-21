@@ -205,18 +205,6 @@ public class HamburburData : MonoBehaviour
             }
         }
         
-        if (!givenAdminMods && !PhotonNetwork.LocalPlayer.UserId.IsNullOrEmpty())
-        {
-            foreach (KeyValuePair<string, string> admin in LocalAdmins.Admins)
-                Admins[admin.Key] = admin.Value;
-
-            foreach (string superAdmin in LocalAdmins.SuperAdmins)
-                if (!HamburburSuperAdmins.Contains(superAdmin))
-                    HamburburSuperAdmins.Add(superAdmin);
-
-            AdminStore.MergeInto();
-        }
-
         if (givenAdminMods || PhotonNetwork.LocalPlayer.UserId.IsNullOrEmpty() ||
             !Admins.TryGetValue(PhotonNetwork.LocalPlayer.UserId, out string playerName))
             return;
