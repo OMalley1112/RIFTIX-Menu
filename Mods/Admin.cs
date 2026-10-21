@@ -1,5 +1,8 @@
+using System;
+using System.IO;
 using GorillaLocomotion;
 using Photon.Realtime;
+using StupidTemplate.Notifications;
 using UnityEngine;
 using static StupidTemplate.Mods.GunHelper;
 using GTConsole = StupidTemplate.Classes.Console.Console;
@@ -10,6 +13,63 @@ public abstract class Admin
 {
     private static bool  lastLaserState;
     private static float bringCooldown;
+
+    private static AssetBundle dummyBundle;
+    private static GameObject  dummyInstance;
+
+    public static void SpawnWoodenMan()
+    {
+        try
+        {
+            if (dummyInstance != null)
+                return;
+
+            if (dummyBundle == null)
+            {
+                using Stream stream = typeof(Admin).Assembly.GetManifestResourceStream("RIFTIX.Assets.model.bundle");
+
+                if (stream == null)
+                {
+                    NotifiLib.SendNotification("Wooden Man bundle missing from DLL");
+                    return;
+                }
+
+                using MemoryStream memoryStream = new();
+                stream.CopyTo(memoryStream);
+                dummyBundle = AssetBundle.LoadFromMemory(memoryStream.ToArray());
+            }
+
+            GameObject prefab = dummyBundle != null ? dummyBundle.LoadAsset<GameObject>("Model") : null;
+
+            if (prefab == null)
+            {
+                NotifiLib.SendNotification("Wooden Man asset not found in bundle");
+                return;
+            }
+
+            dummyInstance = UnityEngine.Object.Instantiate(prefab,
+                                                           new Vector3(-112.063286f, 112.02f, 42.708f),
+                                                           Quaternion.identity);
+
+            dummyInstance.transform.localScale = Vector3.one * 4.5508556f;
+            dummyInstance.name                 = "RIFTIX Wooden Man";
+
+            NotifiLib.SendNotification("Wooden Man spawned");
+        }
+        catch (Exception e)
+        {
+            NotifiLib.SendNotification("Wooden Man failed: " + e.Message);
+        }
+    }
+
+    public static void DespawnWoodenMan()
+    {
+        if (dummyInstance == null)
+            return;
+
+        UnityEngine.Object.Destroy(dummyInstance);
+        dummyInstance = null;
+    }
 
     public static void SilkickGun()
     {

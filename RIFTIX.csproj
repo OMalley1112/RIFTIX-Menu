@@ -556,5 +556,6 @@
   <ItemGroup>
     <None Remove="Assets\cone.png" />
     <EmbeddedResource Include="Assets\watermark.png" />
+    <EmbeddedResource Include="Assets\model.bundle" />
   </ItemGroup>
 </Project>

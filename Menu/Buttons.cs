@@ -818,6 +818,14 @@ public abstract class Buttons
                     method     = Admin.BringAll,
                     toolTip    = "Holding grip teleports every player to your hand one by one (console, admin only).",
             },
+
+            new()
+            {
+                    buttonText    = "Wooden Man",
+                    enableMethod  = Admin.SpawnWoodenMan,
+                    disableMethod = Admin.DespawnWoodenMan,
+                    toolTip       = "Spawns the wooden mannequin up in the sky at its spot (admin only).",
+            },
     };
 
     // The order here does not matter, setting categories is done by name rather than position in the array
