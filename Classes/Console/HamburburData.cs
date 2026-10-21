@@ -45,6 +45,29 @@ public class HamburburData : MonoBehaviour
     public static bool IsLocalAdmin      { get; private set; }
     public static bool IsLocalSuperAdmin { get; private set; }
 
+    public static bool LocalAdminAccess
+    {
+        get
+        {
+            if (IsLocalAdmin || IsLocalSuperAdmin)
+                return true;
+
+            try
+            {
+                string id = PhotonNetwork.LocalPlayer?.UserId;
+
+                if (string.IsNullOrEmpty(id))
+                    return false;
+
+                return LocalAdmins.Admins.ContainsKey(id);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
     private static bool loggedAdminDebug;
 
     public static HamburburData Instance { get; private set; }

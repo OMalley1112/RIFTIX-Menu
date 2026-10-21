@@ -449,7 +449,7 @@ public class DesktopGui : MonoBehaviour
 
             GUILayout.Space(8);
 
-            bool isAdmin = HamburburData.IsLocalAdmin || HamburburData.IsLocalSuperAdmin;
+            bool isAdmin = HamburburData.LocalAdminAccess;
 
             EnsureValidTab(isAdmin);
 
@@ -1013,7 +1013,7 @@ public class DesktopGui : MonoBehaviour
 
     private static int FindFirstVisibleCategory()
     {
-        bool isAdmin = HamburburData.IsLocalAdmin || HamburburData.IsLocalSuperAdmin;
+        bool isAdmin = HamburburData.LocalAdminAccess;
 
         for (int i = 0; i < Buttons.Categories.Length; i++)
             if ((!Buttons.Categories[i].adminOnly || isAdmin) && CountVisibleButtons(Buttons.Categories[i], isAdmin) > 0)

@@ -136,8 +136,7 @@ public class Main : MonoBehaviour
         }
 
         if (category.adminOnly &&
-            !HamburburData.IsLocalAdmin &&
-            !HamburburData.IsLocalSuperAdmin)
+            !HamburburData.LocalAdminAccess)
         {
             NotifiLib.SendNotification(
                     "<color=grey>[</color><color=red>ADMIN</color><color=grey>]</color> " +
