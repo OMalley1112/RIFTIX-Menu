@@ -75,6 +75,8 @@ public class DesktopGui : MonoBehaviour
     private string cachedRoom     = "Offline";
     private string cachedRoomFull = "Offline";
     private string cachedPlayers  = "1";
+    private string cachedName     = "OMALLEYGHT";
+    private string cachedId       = "--------";
     private float  fpsTimer;
     private int    fpsFrames;
 
@@ -134,6 +136,14 @@ public class DesktopGui : MonoBehaviour
             cachedPlayers = PhotonNetwork.InRoom && PhotonNetwork.PlayerList != null
                                         ? PhotonNetwork.PlayerList.Length.ToString()
                                         : "1";
+
+            cachedName = !string.IsNullOrEmpty(PhotonNetwork.LocalPlayer?.NickName)
+                                      ? PhotonNetwork.LocalPlayer.NickName
+                                      : "OMALLEYGHT";
+
+            cachedId = !string.IsNullOrEmpty(PhotonNetwork.LocalPlayer?.UserId)
+                                    ? PhotonNetwork.LocalPlayer.UserId
+                                    : "--------";
         }
         catch (Exception e)
         {
@@ -242,6 +252,7 @@ public class DesktopGui : MonoBehaviour
             normal    = { textColor = TextMain },
             fontStyle = FontStyle.Bold,
             fontSize  = 12,
+            richText  = true,
         };
 
         dimLabelStyle = new GUIStyle(labelStyle)
@@ -443,13 +454,13 @@ public class DesktopGui : MonoBehaviour
 
             GUILayout.Space(2);
 
-            DrawHeader();
+            bool isAdmin = HamburburData.LocalAdminAccess;
+
+            DrawHeader(isAdmin);
 
             DrawAccentBar();
 
             GUILayout.Space(8);
-
-            bool isAdmin = HamburburData.LocalAdminAccess;
 
             EnsureValidTab(isAdmin);
 
@@ -470,7 +481,7 @@ public class DesktopGui : MonoBehaviour
         }
     }
 
-    private void DrawHeader()
+    private void DrawHeader(bool isAdmin)
     {
         GUILayout.BeginHorizontal(GUILayout.Height(64));
 
@@ -497,11 +508,15 @@ public class DesktopGui : MonoBehaviour
 
         GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
 
-        GUIStyle nameStyle = MakeColoredLabel(Accent);
+        GUIStyle nameStyle = MakeColoredLabel(Color.white);
         nameStyle.fontSize  = 15;
         nameStyle.fontStyle = FontStyle.BoldAndItalic;
 
-        GUILayout.Label(Constants.Name, nameStyle);
+        GUILayout.Label(
+            "<color=grey>[</color><color=#7EC8FF>Steam</color><color=grey>]</color> " +
+            "<color=grey>[</color><color=#FFFFFF>" + cachedName + "</color><color=grey>]</color> " +
+            "<color=grey>[</color><color=#C79BFF>" + (isAdmin ? "Owner" : "User") + "</color><color=grey>]</color>",
+            nameStyle);
 
         GUILayout.BeginHorizontal();
 
@@ -509,6 +524,8 @@ public class DesktopGui : MonoBehaviour
         GUIStyle fpsStyle = fps >= 60 ? fpsGreenStyle : fps >= 30 ? fpsYellowStyle : fpsRedStyle;
 
         GUILayout.Label($"FPS {cachedFps}",         fpsStyle);
+        GUILayout.Space(10);
+        GUILayout.Label($"ID {cachedId}",           dimLabelStyle);
         GUILayout.Space(10);
         GUILayout.Label($"Players {cachedPlayers}", dimLabelStyle);
         GUILayout.Space(10);

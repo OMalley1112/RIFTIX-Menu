@@ -390,9 +390,15 @@ public class Main : MonoBehaviour
                 currentFont;
 
         titleText.text =
-                Constants.Name                        +
-                " <color=grey>[</color><color=white>" +
-                (pageNumber + 1)                      +
+                (Photon.Pun.PhotonNetwork.LocalPlayer != null &&
+                 !string.IsNullOrEmpty(Photon.Pun.PhotonNetwork.LocalPlayer.NickName)
+                         ? Photon.Pun.PhotonNetwork.LocalPlayer.NickName
+                         : "OMALLEYGHT")                     +
+                (HamburburData.LocalAdminAccess
+                         ? " <color=grey>[</color><color=#C79BFF>Owner</color><color=grey>]</color>"
+                         : "")                               +
+                " <color=grey>[</color><color=white>"        +
+                (pageNumber + 1)                             +
                 "</color><color=grey>]</color>";
 
         titleText.fontSize             = 1;
