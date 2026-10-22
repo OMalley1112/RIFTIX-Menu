@@ -1,137 +1,183 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace StupidTemplate.Mods;
 
 public abstract class DabUp
 {
-    private const float EaseRate = 10f;
+    private const float TouchDistance  = 0.30f;
+    private const float EscapeDistance = 1.5f;
+    private const float EaseRate       = 14f;
 
-    private static bool poseActive;
+    private static bool dapActive;
     private static bool wasGripping;
     private static bool easingOut;
-    private static bool poseInitialized;
-    private static bool dabSideRight = true;
+    private static bool dapHandRight;
+    private static bool dapInitialized;
 
-    private static Vector3    currentLeftPos;
-    private static Vector3    currentRightPos;
-    private static Quaternion currentLeftRot;
-    private static Quaternion currentRightRot;
+    private static Transform  dapTarget;
+    private static Vector3    currentPos;
+    private static Quaternion currentRot;
 
     public static void Tick()
     {
-        bool grips;
+        bool grip;
+        bool gripRight;
 
         try
         {
-            grips = ControllerInputPoller.instance.leftGrab && ControllerInputPoller.instance.rightGrab;
+            grip      = ControllerInputPoller.instance.leftGrab || ControllerInputPoller.instance.rightGrab;
+            gripRight = ControllerInputPoller.instance.rightGrab;
         }
         catch
         {
             return;
         }
 
-        if (grips && !wasGripping)
-        {
-            wasGripping     = true;
-            poseActive      = true;
-            easingOut       = false;
-            dabSideRight    = !dabSideRight;
-            poseInitialized = false;
+        bool pressed = grip && !wasGripping;
+        wasGripping = grip;
 
-            Clap();
-        }
-        else if (!grips && wasGripping)
+        if (dapActive)
         {
-            wasGripping = false;
-            poseActive  = false;
-            easingOut   = poseInitialized;
+            Camera cam = Camera.main;
+
+            bool escaped = dapTarget == null || cam == null ||
+                           Vector3.Distance(cam.transform.position, dapTarget.position) > EscapeDistance;
+
+            if (!grip || escaped)
+            {
+                dapActive  = false;
+                easingOut  = dapInitialized;
+            }
         }
 
-        if (poseActive || easingOut)
+        if (pressed && !dapActive)
+            TryStartDap(gripRight);
+
+        if (dapActive || easingOut)
             ApplyPose();
     }
 
     public static void ApplyPose()
     {
-        if (!poseActive && !easingOut)
+        if (!dapActive && !easingOut)
             return;
 
         GorillaTagger tagger = GorillaTagger.Instance;
         Camera         cam    = Camera.main;
 
-        if (tagger == null || cam == null ||
-            tagger.leftHandTransform == null || tagger.rightHandTransform == null)
+        if (tagger == null || cam == null)
             return;
 
-        Vector3    trackedL  = tagger.leftHandTransform.position;
-        Vector3    trackedR  = tagger.rightHandTransform.position;
-        Quaternion trackedLR = tagger.leftHandTransform.rotation;
-        Quaternion trackedRR = tagger.rightHandTransform.rotation;
+        Transform myHand = dapHandRight
+                                   ? tagger.rightHandTransform
+                                   : tagger.leftHandTransform;
 
-        if (poseActive)
+        if (myHand == null)
+            return;
+
+        Vector3    trackedPos = myHand.position;
+        Quaternion trackedRot = myHand.rotation;
+
+        if (dapActive && dapTarget != null)
         {
-            Vector3 leftOffset;
-            Vector3 rightOffset;
-
-            if (dabSideRight)
+            if (!dapInitialized)
             {
-                rightOffset = new Vector3(-0.10f, -0.04f, 0.20f);
-                leftOffset  = new Vector3(-0.52f, -0.16f, 0.06f);
-            }
-            else
-            {
-                leftOffset  = new Vector3(0.10f, -0.04f, 0.20f);
-                rightOffset = new Vector3(0.52f, -0.16f, 0.06f);
-            }
-
-            Transform head = cam.transform;
-
-            Vector3 dabL = head.position + head.rotation * leftOffset;
-            Vector3 dabR = head.position + head.rotation * rightOffset;
-
-            if (!poseInitialized)
-            {
-                currentLeftPos  = trackedL;
-                currentRightPos = trackedR;
-                currentLeftRot  = trackedLR;
-                currentRightRot = trackedRR;
-                poseInitialized = true;
+                currentPos      = trackedPos;
+                currentRot      = trackedRot;
+                dapInitialized  = true;
             }
 
             float k = 1f - Mathf.Exp(-EaseRate * Time.deltaTime);
 
-            currentLeftPos  = Vector3.Lerp(currentLeftPos, dabL, k);
-            currentRightPos = Vector3.Lerp(currentRightPos, dabR, k);
-            currentLeftRot  = Quaternion.Slerp(currentLeftRot, head.rotation, k);
-            currentRightRot = Quaternion.Slerp(currentRightRot, head.rotation, k);
+            currentPos = Vector3.Lerp(currentPos, dapTarget.position, k);
+            currentRot = Quaternion.Slerp(currentRot, dapTarget.rotation, k);
 
-            SetHands(currentLeftPos, currentLeftRot, currentRightPos, currentRightRot);
+            SetDapHand(currentPos, currentRot);
         }
-        else
+        else if (!dapActive && easingOut)
         {
             float k = 1f - Mathf.Exp(-EaseRate * 1.5f * Time.deltaTime);
 
-            currentLeftPos  = Vector3.Lerp(currentLeftPos, trackedL, k);
-            currentRightPos = Vector3.Lerp(currentRightPos, trackedR, k);
-            currentLeftRot  = Quaternion.Slerp(currentLeftRot, trackedLR, k);
-            currentRightRot = Quaternion.Slerp(currentRightRot, trackedRR, k);
+            currentPos = Vector3.Lerp(currentPos, trackedPos, k);
+            currentRot = Quaternion.Slerp(currentRot, trackedRot, k);
 
-            SetHands(currentLeftPos, currentLeftRot, currentRightPos, currentRightRot);
+            SetDapHand(currentPos, currentRot);
 
-            if (Vector3.Distance(currentLeftPos, trackedL)  < 0.01f &&
-                Vector3.Distance(currentRightPos, trackedR) < 0.01f)
+            if (Vector3.Distance(currentPos, trackedPos) < 0.01f)
                 easingOut = false;
         }
     }
 
     public static void Disable()
     {
-        poseActive  = false;
+        dapActive   = false;
         wasGripping = false;
-        easingOut   = poseInitialized;
+        easingOut   = dapInitialized;
     }
 
-    private static void SetHands(Vector3 leftPos, Quaternion leftRot, Vector3 rightPos, Quaternion rightRot)
+    private static void TryStartDap(bool rightHand)
+    {
+        GorillaTagger tagger = GorillaTagger.Instance;
+
+        if (tagger == null)
+            return;
+
+        Transform myHand = rightHand
+                                   ? tagger.rightHandTransform
+                                   : tagger.leftHandTransform;
+
+        if (myHand == null)
+            return;
+
+        Transform nearest  = null;
+        float     best     = TouchDistance;
+
+        IReadOnlyList<VRRig> rigs = VRRigCache.ActiveRigs;
+
+        for (int i = 0; i < rigs.Count; i++)
+        {
+            VRRig rig = rigs[i];
+
+            if (rig == null || rig.isLocal)
+                continue;
+
+            if (rig.leftHandTransform != null)
+            {
+                float distance = Vector3.Distance(myHand.position, rig.leftHandTransform.position);
+
+                if (distance < best)
+                {
+                    best    = distance;
+                    nearest = rig.leftHandTransform;
+                }
+            }
+
+            if (rig.rightHandTransform != null)
+            {
+                float distance = Vector3.Distance(myHand.position, rig.rightHandTransform.position);
+
+                if (distance < best)
+                {
+                    best    = distance;
+                    nearest = rig.rightHandTransform;
+                }
+            }
+        }
+
+        if (nearest == null)
+            return;
+
+        dapHandRight    = rightHand;
+        dapTarget       = nearest;
+        dapActive       = true;
+        easingOut       = false;
+        dapInitialized  = false;
+
+        Clap((myHand.position + nearest.position) * 0.5f);
+    }
+
+    private static void SetDapHand(Vector3 position, Quaternion rotation)
     {
         try
         {
@@ -139,28 +185,28 @@ public abstract class DabUp
 
             if (tagger != null)
             {
-                if (tagger.leftHandTransform != null)
-                    tagger.leftHandTransform.SetPositionAndRotation(leftPos, leftRot);
+                Transform hand = dapHandRight
+                                         ? tagger.rightHandTransform
+                                         : tagger.leftHandTransform;
 
-                if (tagger.rightHandTransform != null)
-                    tagger.rightHandTransform.SetPositionAndRotation(rightPos, rightRot);
+                hand?.SetPositionAndRotation(position, rotation);
             }
 
             VRRig rig = VRRig.LocalRig;
 
             if (rig != null)
             {
-                if (rig.leftHandTransform != null)
-                    rig.leftHandTransform.SetPositionAndRotation(leftPos, leftRot);
+                Transform rigHand = dapHandRight
+                                            ? rig.rightHandTransform
+                                            : rig.leftHandTransform;
 
-                if (rig.rightHandTransform != null)
-                    rig.rightHandTransform.SetPositionAndRotation(rightPos, rightRot);
+                rigHand?.SetPositionAndRotation(position, rotation);
             }
         }
         catch { }
     }
 
-    private static void Clap()
+    private static void Clap(Vector3 position)
     {
         try
         {
@@ -178,20 +224,8 @@ public abstract class DabUp
         }
         catch { }
 
-        try
-        {
-            GorillaTagger tagger = GorillaTagger.Instance;
-
-            if (tagger != null)
-            {
-                if (tagger.leftHandTransform != null)
-                    SteamBurst(tagger.leftHandTransform.position);
-
-                if (tagger.rightHandTransform != null)
-                    SteamBurst(tagger.rightHandTransform.position);
-            }
-        }
-        catch { }
+        SteamBurst(position);
+        SteamBurst(position + Vector3.up * 0.12f);
     }
 
     private static void SteamBurst(Vector3 position)

@@ -482,7 +482,7 @@ public abstract class Buttons
                     buttonText    = "DabUp",
                     method        = Mods.DabUp.Tick,
                     disableMethod = Mods.DabUp.Disable,
-                    toolTip       = "Hold both grips to snap into a dab — loud clap, steam puffs, hands lock. Alt dab side each time.",
+                    toolTip       = "Touch someone's hand and press a grip to dap — loud clap, steam, hand locks to theirs until you let go.",
             },
     };
 
