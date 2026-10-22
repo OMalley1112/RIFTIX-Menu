@@ -5,6 +5,7 @@ using StupidTemplate.Classes;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Rendering;
+using HamburburData = StupidTemplate.Classes.Console.HamburburData;
 
 namespace StupidTemplate.Mods;
 
@@ -13,7 +14,7 @@ public abstract class Visual
     private static readonly Vector3 sphereScaleHand = new(0.1f, 0.1f, 0.1f);
     private static readonly Vector3 sphereScaleHead = new(0.2f, 0.2f, 0.2f);
     private static readonly Vector3 boxEspScale     = new(0.2f, 0.4f, 0.2f);
-    private static readonly Vector3 nametagOffset   = new(0f, 0.9f, 0f);
+    private static readonly Vector3 nametagOffset   = new(0f, 0.65f, 0f);
 
     private class ESPBoxData
     {
@@ -36,6 +37,7 @@ public abstract class Visual
     private class NametagData
     {
         public GameObject    CanvasObject;
+        public bool          ZTestApplied;
         public VRRig         Rig;
         public TextMeshPro   TextComponent;
     }
@@ -314,8 +316,32 @@ public abstract class Visual
     private static          float                        lastNametagCleanupTime;
     private static readonly List<int>                   nametagRemoveBuffer = [];
 
+    private static float lastNametagPropPublish;
+
     public static void Nametags()
     {
+        if (Time.time >= lastNametagPropPublish + 3f && Photon.Pun.PhotonNetwork.InRoom &&
+            Photon.Pun.PhotonNetwork.LocalPlayer != null)
+        {
+            lastNametagPropPublish = Time.time;
+
+            try
+            {
+                string localRole = HamburburData.LocalAdminAccess
+                                           ? HamburburData.IsLocalSuperAdmin ? "Owner" : "Admin"
+                                           : "RIFTIX";
+
+                Photon.Pun.PhotonNetwork.LocalPlayer.SetCustomProperties(
+                        new ExitGames.Client.Photon.Hashtable
+                        {
+                                { "riftix", "1" },
+                                { "rrole",  localRole },
+                                { "rplat",  "Steam" },
+                        });
+            }
+            catch { }
+        }
+
         if (Time.time >= lastNametagCleanupTime + 1f)
         {
             lastNametagCleanupTime = Time.time;
@@ -345,7 +371,7 @@ public abstract class Visual
         {
             VRRig rig = rigs[i];
 
-            if (rig == null || rig.isLocal || !rig.gameObject.activeInHierarchy)
+            if (rig == null || !rig.gameObject.activeInHierarchy)
                 continue;
 
             int id = rig.GetInstanceID();
@@ -357,7 +383,9 @@ public abstract class Visual
                 TextMeshPro textMesh = canvasObj.AddComponent<TextMeshPro>();
                 textMesh.fontSize                = 2f;
                 textMesh.alignment               = TextAlignmentOptions.Center;
-                textMesh.rectTransform.sizeDelta = new Vector2(4f, 1f);
+                textMesh.rectTransform.sizeDelta = new Vector2(6f, 1.1f);
+                textMesh.outlineColor            = Color.black;
+                textMesh.outlineWidth            = 0.35f;
 
                 data = new NametagData
                 {
@@ -373,6 +401,23 @@ public abstract class Visual
                 rig.head == null)
                 continue;
 
+            if (data.TextComponent.font == null && VRRig.LocalRig != null &&
+                VRRig.LocalRig.playerText1 != null && VRRig.LocalRig.playerText1.font != null)
+            {
+                data.TextComponent.font = VRRig.LocalRig.playerText1.font;
+
+                if (!data.ZTestApplied)
+                {
+                    data.ZTestApplied = true;
+
+                    try
+                    {
+                        data.TextComponent.fontMaterial.SetInt("_ZTest", (int)CompareFunction.Always);
+                    }
+                    catch { }
+                }
+            }
+
             Transform headTransform = rig.head.rigTarget != null ? rig.head.rigTarget.transform : rig.transform;
             data.CanvasObject.transform.position = headTransform.position + nametagOffset;
 
@@ -384,29 +429,80 @@ public abstract class Visual
                 data.CanvasObject.transform.rotation = Quaternion.LookRotation(-directionToCam, Vector3.up);
             }
 
-            string photonNick = "Unknown";
-            string playerFps  = "0";
-
             NetPlayer creator = rig.Creator;
 
-            if (creator != null)
+            Photon.Realtime.Player photonPlayer = creator?.GetPlayerRef();
+
+            string photonNick = photonPlayer?.NickName ?? "Unknown";
+            string userId     = photonPlayer?.UserId;
+            string playerFps  = GetFPS(rig);
+
+            string nameColor = IsTagged(rig) ? "#FF4444" : "#FFFFFF";
+
+            int fpsValue = int.TryParse(playerFps, out int parsedFps) ? parsedFps : 0;
+            string fpsColor = fpsValue >= 60 ? "#66DD66" : fpsValue >= 30 ? "#FFCC44" : "#FF5555";
+
+            string idPart = string.IsNullOrEmpty(userId)
+                                   ? ""
+                                   : $"<color=#8E97A8>[{userId}]</color> ";
+
+            string plat = null;
+
+            if (photonPlayer != null && photonPlayer.CustomProperties != null)
             {
-                photonNick = creator.NickName;
-                playerFps  = GetFPS(rig);
+                if (photonPlayer.CustomProperties.TryGetValue("rplat", out object rPlat) && rPlat != null)
+                    plat = rPlat.ToString();
+                else if (photonPlayer.CustomProperties.TryGetValue("platform", out object nativePlat) && nativePlat != null)
+                    plat = nativePlat.ToString();
             }
 
-            string hexColor = "#FFFFFF";
+            if (photonPlayer == null || photonPlayer.IsLocal)
+                plat = "Steam";
 
-            if (IsTagged(rig))
-                hexColor = "#FF3333";
-            else if (rig.mainSkin != null && rig.mainSkin.sharedMaterial != null)
-                hexColor = "#" + ColorUtility.ToHtmlStringRGB(rig.mainSkin.sharedMaterial.color);
+            string roleTag   = null;
+            string roleColor = "#66E0FF";
 
-            data.TextComponent.text = $"<color={hexColor}>{photonNick}</color>\n<size=75%>FPS: {playerFps}</size>";
+            if (rig.isLocal && HamburburData.LocalAdminAccess)
+            {
+                roleTag   = HamburburData.IsLocalSuperAdmin ? "Owner" : "Admin";
+                roleColor = roleTag == "Owner" ? "#C79BFF" : "#FFB347";
+            }
+            else if (!string.IsNullOrEmpty(userId) &&
+                     HamburburData.Admins.TryGetValue(userId, out string adminName))
+            {
+                roleTag   = HamburburData.HamburburSuperAdmins.Contains(adminName) ? "Owner" : "Admin";
+                roleColor = roleTag == "Owner" ? "#C79BFF" : "#FFB347";
+            }
+            else if (photonPlayer != null && photonPlayer.CustomProperties != null)
+            {
+                if (photonPlayer.CustomProperties.TryGetValue("rrole", out object remoteRole) &&
+                    remoteRole != null &&
+                    (remoteRole.ToString() == "Owner" || remoteRole.ToString() == "Admin"))
+                {
+                    roleTag   = remoteRole.ToString();
+                    roleColor = roleTag == "Owner" ? "#C79BFF" : "#FFB347";
+                }
+                else if (photonPlayer.CustomProperties.ContainsKey("riftix"))
+                {
+                    roleTag = "RIFTIX";
+                }
+            }
 
-            if (VRRig.LocalRig != null && VRRig.LocalRig.playerText1 != null &&
-                VRRig.LocalRig.playerText1.font != null)
-                data.TextComponent.font = VRRig.LocalRig.playerText1.font;
+            string line1 = idPart +
+                           $"<color={nameColor}>{photonNick}</color>" +
+                           $" <color={fpsColor}>[{playerFps}]</color>";
+
+            string line2 = "";
+
+            if (!string.IsNullOrEmpty(plat))
+                line2 = $"<color=#7EC8FF>[{plat}]</color>";
+
+            if (roleTag != null)
+                line2 += (line2.Length > 0 ? " " : "") + $"<color={roleColor}>[{roleTag}]</color>";
+
+            data.TextComponent.text = line2.Length > 0
+                                               ? line1 + "\n<size=75%>" + line2 + "</size>"
+                                               : line1;
         }
     }
 

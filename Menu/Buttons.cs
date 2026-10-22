@@ -509,7 +509,7 @@ public abstract class Buttons
                     buttonText    = "Nametags",
                     method        = Visual.Nametags,
                     disableMethod = Visual.DisableNametags,
-                    toolTip       = "Shows every player's name and FPS above their head.",
+                    toolTip       = "Gemstone-style tags above every body: ID, name, FPS, Steam and Owner tags.",
             },
 
             new()
