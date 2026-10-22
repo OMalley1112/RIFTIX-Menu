@@ -112,6 +112,18 @@ public class DesktopGui : MonoBehaviour
         UpdateStats();
     }
 
+    private void LateUpdate()
+    {
+        try
+        {
+            StupidTemplate.Mods.DabUp.ApplyPose();
+        }
+        catch (Exception e)
+        {
+            LogErrorOnce("dabup", e);
+        }
+    }
+
     private void UpdateStats()
     {
         fpsFrames++;

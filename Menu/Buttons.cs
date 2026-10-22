@@ -476,6 +476,14 @@ public abstract class Buttons
                     method     = Mods.Movement.TagAll,
                     toolTip    = "Chases and tags every untagged player in the room.",
             },
+
+            new()
+            {
+                    buttonText    = "DabUp",
+                    method        = Mods.DabUp.Tick,
+                    disableMethod = Mods.DabUp.Disable,
+                    toolTip       = "Hold both grips to snap into a dab — loud clap, steam puffs, hands lock. Alt dab side each time.",
+            },
     };
 
     private static readonly ButtonInfo[] VisualModsButtons =
