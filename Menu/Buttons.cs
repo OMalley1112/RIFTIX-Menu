@@ -120,6 +120,41 @@ public abstract class Buttons
                     mode       = ButtonMode.Action,
                     toolTip    = "Opens the console admin tab (admin only).",
             },
+
+            new()
+            {
+                    buttonText = "Science",
+                    method     = () => SetCategory("Science Project"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the virus science project tab.",
+            },
+    };
+
+    private static readonly ButtonInfo[] ScienceButtons =
+    {
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page of the menu.",
+            },
+
+            new()
+            {
+                    buttonText = "Open Project",
+                    method     = Mods.Science.OpenProject,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the virus science project on your PC.",
+            },
+
+            new()
+            {
+                    buttonText = "Virus Fact",
+                    method     = Mods.Science.NextFact,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Shares a fun virus science fact.",
+            },
     };
 
     private static readonly ButtonInfo[] SettingsButtons =
@@ -942,6 +977,12 @@ public abstract class Buttons
             {
                     name      = "Halloween",
                     buttons   = HalloweenButtons,
+            },
+
+            new()
+            {
+                    name    = "Science Project",
+                    buttons = ScienceButtons,
             },
 
             new()
