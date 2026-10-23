@@ -43,13 +43,36 @@ public abstract class Admin
                 using MemoryStream memoryStream = new();
                 stream.CopyTo(memoryStream);
                 dummyBundle = AssetBundle.LoadFromMemory(memoryStream.ToArray());
+
+                if (dummyBundle == null)
+                {
+                    NotifiLib.SendNotification("Wooden Man bundle failed to load");
+                    return;
+                }
             }
 
-            GameObject prefab = dummyBundle != null ? dummyBundle.LoadAsset<GameObject>("Model") : null;
+            GameObject prefab = dummyBundle.LoadAsset<GameObject>("Model");
 
             if (prefab == null)
             {
-                NotifiLib.SendNotification("Wooden Man asset not found in bundle");
+                foreach (string assetPath in dummyBundle.GetAllAssetNames())
+                {
+                    GameObject loaded = dummyBundle.LoadAsset<GameObject>(assetPath);
+
+                    if (loaded != null)
+                    {
+                        prefab = loaded;
+                        UnityEngine.Debug.Log("[RIFTIX WoodenMan] loaded prefab from: " + assetPath);
+                        break;
+                    }
+                }
+            }
+
+            if (prefab == null)
+            {
+                string names = string.Join(", ", dummyBundle.GetAllAssetNames());
+                UnityEngine.Debug.Log("[RIFTIX WoodenMan] no GameObject found. Bundle assets: " + names);
+                NotifiLib.SendNotification("Wooden Man: no prefab in bundle (see log)");
                 return;
             }
 
@@ -61,6 +84,9 @@ public abstract class Admin
             dummyInstance.name                 = "RIFTIX Wooden Man";
 
             FreezeInPlace(dummyInstance);
+
+            UnityEngine.Debug.Log("[RIFTIX WoodenMan] spawned '" + prefab.name + "' at " +
+                                  dummyInstance.transform.position);
 
             NotifiLib.SendNotification("Wooden Man spawned at its sky spot");
         }
