@@ -83,6 +83,10 @@ public class Main : MonoBehaviour
     private static GameObject   GunPointer;
     private static LineRenderer GunLine;
 
+    private static Vector3 smoothedGunPosition;
+    private static Vector3 gunSmoothVelocity;
+    private static bool     gunWasHolding;
+
     // Data
     public static int pageNumber;
 
@@ -2445,6 +2449,29 @@ public class Main : MonoBehaviour
     {
         GunSettings currentSettings = settings ?? gunSettings;
 
+        // Gemstone-style gun: hold a grip to bring the gun up in that hand.
+        bool rightGrab = ControllerInputPoller.instance.rightGrab;
+        bool leftGrab  = ControllerInputPoller.instance.leftGrab;
+        bool holding   = rightGrab || leftGrab;
+
+        if (rightGrab && !leftGrab)
+            currentSettings.hand = XRNode.RightHand;
+        else if (leftGrab && !rightGrab)
+            currentSettings.hand = XRNode.LeftHand;
+
+        if (!holding && !gunLocked)
+        {
+            if (GunPointer != null)
+                GunPointer.SetActive(false);
+
+            if (GunLine != null)
+                GunLine.gameObject.SetActive(false);
+
+            gunWasHolding = false;
+
+            return (default, GunPointer);
+        }
+
         Transform gunTransform = currentSettings.hand == XRNode.LeftHand
                                          ? GorillaTagger.Instance.leftHandTransform
                                          : GorillaTagger.Instance.rightHandTransform;
@@ -2486,6 +2513,24 @@ public class Main : MonoBehaviour
         else
             endPosition = startPosition + direction * currentSettings.maxDistance;
 
+        // Smooth the pointer toward the aim point (Gemstone gun feel).
+        if (!gunWasHolding || currentSettings.pointerSmoothness <= 0.001f)
+        {
+            smoothedGunPosition = endPosition;
+            gunSmoothVelocity   = Vector3.zero;
+        }
+        else
+        {
+            smoothedGunPosition = Vector3.SmoothDamp(
+                    smoothedGunPosition,
+                    endPosition,
+                    ref gunSmoothVelocity,
+                    currentSettings.pointerSmoothness);
+        }
+
+        gunWasHolding = true;
+        endPosition   = smoothedGunPosition;
+
         if (GunPointer == null)
         {
             GunPointer = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -2505,7 +2550,7 @@ public class Main : MonoBehaviour
 
         bool pressed =
                 gunLocked ||
-                ControllerInputPoller.TriggerFloat(currentSettings.hand) > 0.5f;
+                holding;
 
         ExtGradient pointerColors = pressed
                                             ? currentSettings.pointerActiveColor ?? buttonColors[1]

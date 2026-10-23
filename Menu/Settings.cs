@@ -194,6 +194,57 @@ public class Settings
 
     public static string ThemeName => themes[themeIndex].name;
 
+    public static string GunLineStyleName =>
+            gunSettings.lineStyle.ToString();
+
+    public static string GunLineWidthName =>
+            gunSettings.lineWidth.ToString("0.000");
+
+    public static string GunPointerSizeName =>
+            gunSettings.pointerSize.ToString("0.00");
+
+    public static string GunSmoothnessName =>
+            gunSettings.pointerSmoothness <= 0.001f
+                    ? "Off"
+                    : gunSettings.pointerSmoothness.ToString("0.000");
+
+    public static void ChangeGunLineStyle(bool increment)
+    {
+        int count = Enum.GetValues(typeof(GunLineStyle)).Length;
+
+        int index =
+                (int)gunSettings.lineStyle +
+                (increment ? 1 : -1);
+
+        if (index >= count)
+            index = 0;
+        else if (index < 0)
+            index = count - 1;
+
+        gunSettings.lineStyle = (GunLineStyle)index;
+    }
+
+    public static void ChangeGunLineWidth(bool increment)
+    {
+        float value = gunSettings.lineWidth + (increment ? 0.005f : -0.005f);
+
+        gunSettings.lineWidth = Mathf.Clamp(Mathf.Round(value * 200f) / 200f, 0.005f, 0.1f);
+    }
+
+    public static void ChangeGunPointerSize(bool increment)
+    {
+        float value = gunSettings.pointerSize + (increment ? 0.05f : -0.05f);
+
+        gunSettings.pointerSize = Mathf.Clamp(Mathf.Round(value * 20f) / 20f, 0.05f, 0.6f);
+    }
+
+    public static void ChangeGunSmoothness(bool increment)
+    {
+        float value = gunSettings.pointerSmoothness + (increment ? 0.02f : -0.02f);
+
+        gunSettings.pointerSmoothness = Mathf.Clamp(Mathf.Round(value * 50f) / 50f, 0f, 0.25f);
+    }
+
     public static void ChangeGradientAnimation(bool increment)
     {
         int count = Enum.GetValues(typeof(GradientAnimationMode)).Length;

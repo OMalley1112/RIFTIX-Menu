@@ -11,13 +11,16 @@ namespace StupidTemplate.Classes
 
     public class GunSettings
     {
-        public readonly XRNode hand = XRNode.RightHand;
+        public XRNode hand = XRNode.RightHand;
 
         public GunLineStyle lineStyle = GunLineStyle.Straight;
 
         public float maxDistance = 512f;
         public float lineWidth   = 0.025f;
         public float pointerSize = 0.2f;
+
+        // Gemstone-style pointer smoothing: 0 = instant, higher = lazier follow.
+        public float pointerSmoothness = 0.05f;
 
         public float curveAmount   = 0.15f;
         public float waveAmount    = 0.05f;
