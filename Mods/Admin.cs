@@ -14,6 +14,12 @@ public abstract class Admin
     private static bool  lastLaserState;
     private static float bringCooldown;
 
+    private static float silkickCooldown;
+    private static float bringGunCooldown;
+    private static float grabCooldown;
+    private static float laserSilkickCooldown;
+    private static float laserHeartbeat;
+
     private static AssetBundle dummyBundle;
     private static GameObject  dummyInstance;
 
@@ -54,12 +60,29 @@ public abstract class Admin
             dummyInstance.transform.localScale = Vector3.one * 4.5508556f;
             dummyInstance.name                 = "RIFTIX Wooden Man";
 
-            NotifiLib.SendNotification("Wooden Man spawned");
+            FreezeInPlace(dummyInstance);
+
+            NotifiLib.SendNotification("Wooden Man spawned at its sky spot");
         }
         catch (Exception e)
         {
             NotifiLib.SendNotification("Wooden Man failed: " + e.Message);
         }
+    }
+
+    private static void FreezeInPlace(GameObject root)
+    {
+        foreach (Rigidbody body in root.GetComponentsInChildren<Rigidbody>(true))
+        {
+            body.isKinematic               = true;
+            body.useGravity                = false;
+            body.constraints               = RigidbodyConstraints.FreezeAll;
+            body.linearVelocity            = Vector3.zero;
+            body.angularVelocity           = Vector3.zero;
+        }
+
+        root.transform.SetPositionAndRotation(new Vector3(-112.063286f, 112.02f, 42.708f),
+                                              Quaternion.identity);
     }
 
     public static void DespawnWoodenMan()
@@ -76,12 +99,18 @@ public abstract class Admin
         if (!Trigger)
             return;
 
+        if (Time.time < silkickCooldown)
+            return;
+
         VRRig target = Rig;
 
         if (target == null || target.Creator == null)
             return;
 
+        silkickCooldown = Time.time + 0.8f;
+
         GTConsole.ExecuteCommand("silkick", ReceiverGroup.All, target.Creator.UserId);
+        NotifiLib.SendNotification("Silkicked " + target.Creator.NickName);
     }
 
     public static void AdminLaser()
@@ -105,13 +134,25 @@ public abstract class Admin
                 {
                     VRRig gunTarget = ray.collider.GetComponentInParent<VRRig>();
 
-                    if (gunTarget != null && !gunTarget.isLocal && gunTarget.Creator != null)
+                    if (gunTarget != null && !gunTarget.isLocal && gunTarget.Creator != null &&
+                        Time.time >= laserSilkickCooldown)
+                    {
+                        laserSilkickCooldown = Time.time + 0.8f;
+
                         GTConsole.ExecuteCommand("silkick", ReceiverGroup.All, gunTarget.Creator.UserId);
+                        NotifiLib.SendNotification("Laser silkicked " + gunTarget.Creator.NickName);
+                    }
                 }
             }
             catch { }
 
-            GTConsole.ExecuteCommand("laser", ReceiverGroup.All, true, useRightHand);
+            if (Time.time >= laserHeartbeat)
+            {
+                laserHeartbeat = Time.time + 0.25f;
+
+                GTConsole.ExecuteCommand("laser", ReceiverGroup.All, true, useRightHand);
+            }
+
             lastLaserState = true;
         }
         else
@@ -129,6 +170,11 @@ public abstract class Admin
         if (!ControllerInputPoller.instance.rightGrab)
             return;
 
+        if (Time.time < grabCooldown)
+            return;
+
+        grabCooldown = Time.time + 0.5f;
+
         GTConsole.ExecuteCommand("tp", ReceiverGroup.Others,
                                  GTPlayer.Instance.RightHand.controllerTransform.position);
     }
@@ -138,13 +184,19 @@ public abstract class Admin
         if (!Trigger)
             return;
 
+        if (Time.time < bringGunCooldown)
+            return;
+
         VRRig target = Rig;
 
         if (target == null || target.Creator == null)
             return;
 
+        bringGunCooldown = Time.time + 0.6f;
+
         GTConsole.ExecuteCommand("tp", target.Creator.ActorNumber,
                                  GorillaTagger.Instance.rightHandTransform.position);
+        NotifiLib.SendNotification("Brought " + target.Creator.NickName + " to you");
     }
 
     public static void BringAll()
