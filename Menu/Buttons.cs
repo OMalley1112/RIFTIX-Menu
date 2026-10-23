@@ -155,6 +155,33 @@ public abstract class Buttons
                     mode       = ButtonMode.Action,
                     toolTip    = "Shares a fun virus science fact.",
             },
+
+            new()
+            {
+                    buttonText    = "Virus Gun",
+                    method        = Mods.Science.VirusGun,
+                    enableMethod  = Mods.Science.EnableVirusGun,
+                    disableMethod = Mods.Science.DisableVirusGun,
+                    toolTip       = "Grip to aim a gun line, pull the trigger to spray virus particles.",
+            },
+
+            new()
+            {
+                    buttonText    = "Virus Aura",
+                    method        = Mods.Science.VirusAura,
+                    enableMethod  = Mods.Science.EnableVirusAura,
+                    disableMethod = Mods.Science.DisableVirusAura,
+                    toolTip       = "A glowing green virus mist follows your head.",
+            },
+
+            new()
+            {
+                    buttonText    = "Auto Facts",
+                    method        = Mods.Science.AutoFacts,
+                    enableMethod  = Mods.Science.EnableAutoFacts,
+                    disableMethod = Mods.Science.DisableAutoFacts,
+                    toolTip       = "Shows a virus fact notification every few seconds.",
+            },
     };
 
     private static readonly ButtonInfo[] SettingsButtons =
