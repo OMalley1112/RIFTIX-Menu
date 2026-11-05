@@ -1656,7 +1656,9 @@ public class Console : MonoBehaviour
                                                     rig.Creator.UserId == id);
     }
 
-    private async Task LoadAssetBundle(string assetBundle)
+    // Public: the menu's Console Assets browser proves a bundle loads before the
+    // whole room is asked to download it. Static: it only touches the pool.
+    public static async Task LoadAssetBundle(string assetBundle)
     {
         while (!CosmeticsV2Spawner_Dirty.isPrepared)
             await Task.Yield();

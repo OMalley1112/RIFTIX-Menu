@@ -121,6 +121,14 @@ public abstract class Buttons
                     toolTip    = "Opens the console admin tab (admin only).",
             },
 
+            new()
+            {
+                    buttonText = "Console Assets",
+                    method     = () => SetCategory("Console Assets"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Spawns networked Console assets the whole room can see (Gemstone TV, asset browser, menu scan).",
+            },
+
            
             };
 
@@ -894,6 +902,71 @@ public abstract class Buttons
             },
     };
 
+    // The Console Assets root page. Its two dynamic companions ("Console Objects"
+    // and "Spawned Assets") start empty and are filled by ConsoleAssetPages.
+    private static readonly ButtonInfo[] ConsoleAssetsButtons =
+    {
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page of the menu.",
+            },
+
+            new()
+            {
+                    buttonText    = "Gemstone TV",
+                    enableMethod  = ConsoleAssetPages.EnableTv,
+                    disableMethod = ConsoleAssetPages.DisableTv,
+                    displayText   = ConsoleAssetPages.TvDisplay,
+                    toolTip       = "Spawns the Gemstone TV and sofa with a video for the whole room.",
+            },
+
+            new()
+            {
+                    buttonText    = "Video Player",
+                    enableMethod  = ConsoleAssetPages.EnableVideoPlayer,
+                    disableMethod = ConsoleAssetPages.DisableVideoPlayer,
+                    displayText   = ConsoleAssetPages.VideoPlayerDisplay,
+                    toolTip       = "Spawns a small video screen anchored to your left hand.",
+            },
+
+            new()
+            {
+                    buttonText  = "Video",
+                    method      = ConsoleAssetPages.CycleVideo,
+                    mode        = ButtonMode.Action,
+                    displayText = ConsoleAssetPages.VideoDisplay,
+                    toolTip     = "Changes the video playing on the TV and video player.",
+            },
+
+            new()
+            {
+                    buttonText = "Browse Assets",
+                    method     = ConsoleAssetPages.OpenBundles,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Lists every networked Console asset bundle, ready to spawn.",
+            },
+
+            new()
+            {
+                    buttonText  = "In-Room Assets",
+                    method      = ConsoleAssetPages.OpenSpawned,
+                    mode        = ButtonMode.Action,
+                    displayText = ConsoleAssetPages.SpawnedDisplay,
+                    toolTip     = "Shows every Console asset currently in the room.",
+            },
+
+            new()
+            {
+                    buttonText = "Scan Menus",
+                    method     = ConsoleAssetPages.ScanMenus,
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Asks every player which menu they are using; replies pop up as notifications.",
+            },
+    };
+
     // The order here does not matter, setting categories is done by name rather than position in the array
     public static readonly ButtonCategory[] Categories =
     {
@@ -964,6 +1037,26 @@ public abstract class Buttons
                     name      = "Admin",
                     adminOnly = true,
                     buttons   = AdminButtons,
+            },
+
+            new()
+            {
+                    name    = "Console Assets",
+                    buttons = ConsoleAssetsButtons,
+            },
+
+            // Filled at runtime by ConsoleAssetPages: the bundle browser and the
+            // list of assets currently in the room.
+            new()
+            {
+                    name    = "Console Objects",
+                    buttons = [],
+            },
+
+            new()
+            {
+                    name    = "Spawned Assets",
+                    buttons = [],
             },
     };
 
