@@ -433,6 +433,26 @@ public abstract class Guardian
         if (!VRRigCache.Instance.TryGetVrrig(target, out RigContainer targetRig))
             return;
 
+        var activeHandler = GorillaGameModes.GameMode.ActiveNetworkHandler;
+
+        // The handler only exists once guardian mode is actually running; without
+        // this check the fling silently died with a NullReferenceException.
+        if (activeHandler == null)
+        {
+            NotifyFallback("Fling Gun");
+
+            Vector3 fallbackFling = GTPlayer.Instance.GetHandVelocityTracker(false).GetAverageVelocity(true);
+
+            if (fallbackFling.magnitude < 6f)
+                fallbackFling = new Vector3(
+                        Random.Range(-10f, 10f),
+                        Random.Range(5f, 15f),
+                        Random.Range(10f, 20f));
+
+            ConsoleFlingPlayer(target, Vector3.ClampMagnitude(fallbackFling, 20f), 0.35f);
+            return;
+        }
+
         Vector3 handVelocity = GTPlayer.Instance.GetHandVelocityTracker(false).GetAverageVelocity(true);
 
         if (handVelocity.magnitude < 6f)
@@ -447,7 +467,7 @@ public abstract class Guardian
             launchVelocity += groundNormal * 3f *
                               Mathf.Clamp01(1f - Vector3.Dot(groundNormal, launchVelocity.normalized));
 
-        GorillaGameModes.GameMode.ActiveNetworkHandler.SendRPC(
+        activeHandler.SendRPC(
                 "GuardianLaunchPlayer",
                 target,
                 launchVelocity);

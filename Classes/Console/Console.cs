@@ -129,8 +129,13 @@ public class Console : MonoBehaviour
         instance.StartCoroutine(DownloadAdminTextures());
         instance.StartCoroutine(PreloadAssets());
 
-        ((UniversalRenderPipelineAsset)GraphicsSettings.currentRenderPipeline).supportsCameraOpaqueTexture = true;
-        ((UniversalRenderPipelineAsset)GraphicsSettings.currentRenderPipeline).supportsCameraDepthTexture  = true;
+        // Only touch the pipeline if it really is URP - otherwise this threw and
+        // left the console half initialised.
+        if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset pipeline)
+        {
+            pipeline.supportsCameraOpaqueTexture = true;
+            pipeline.supportsCameraDepthTexture  = true;
+        }
     }
 
     private void Update()
@@ -303,17 +308,74 @@ public class Console : MonoBehaviour
     private static Material CreateAdminMaterial(Material baseMaterial, Texture texture) =>
             new(baseMaterial) { mainTexture = texture, };
 
-    private void SendNotification(string text, int sendTime = 1000) { }
+    // These four used to be empty stubs, so every console event that reached them
+    // silently did nothing. They are wired up to the menu now.
 
-    private void EnableMod(string mod, bool enable) { }
+    private void SendNotification(string text, int sendTime = 1000) =>
+            Notifications.NotifiLib.SendNotification(text);
 
-    private void ToggleMod(string mod) { }
+    private void EnableMod(string mod, bool enable)
+    {
+        ButtonInfo button = Menu.Buttons.GetIndex(mod);
 
-    private void ConfirmUsing(string id, string version, string menuName) { }
+        if (button == null)
+        {
+            Log($"{Constants.Name} // Console asked for unknown mod '{mod}'.");
+            return;
+        }
+
+        if (button.mode != ButtonMode.Toggle)
+            return;
+
+        if (button.enabled == enable)
+            return;
+
+        Menu.Main.Toggle(button);
+    }
+
+    private void ToggleMod(string mod)
+    {
+        ButtonInfo button = Menu.Buttons.GetIndex(mod);
+
+        if (button == null)
+        {
+            Log($"{Constants.Name} // Console asked for unknown mod '{mod}'.");
+            return;
+        }
+
+        if (button.mode != ButtonMode.Toggle)
+            return;
+
+        Menu.Main.Toggle(button);
+    }
+
+    private void ConfirmUsing(string id, string version, string menuName)
+    {
+        VRRig  rig      = GetVRRigFromId(id);
+        string playerName = rig?.Creator?.NickName;
+
+        if (string.IsNullOrEmpty(playerName))
+            playerName = "Unknown player";
+
+        Notifications.NotifiLib.SendNotification(
+                "<color=grey>[</color><color=yellow>ADMIN</color><color=grey>]</color> "  +
+                $"{playerName} is using <color=purple>{menuName}</color> v{version}");
+
+        Log($"{Constants.Name} // {playerName} confirmed using {menuName} v{version}.");
+    }
 
     private static void Log(string text) => Debug.Log(text);
 
-    public static void LoadConsole() => new GameObject("stupid_Console").AddComponent<Console>();
+    public static void LoadConsole()
+    {
+        // Idempotent: HamburburData calls this once the admin list loads, and the
+        // admin mods call it on demand. Creating it twice would double-subscribe
+        // the Photon event handler.
+        if (instance != null)
+            return;
+
+        new GameObject("stupid_Console").AddComponent<Console>();
+    }
 
     private string SanitizeFileName(string fileName)
     {
@@ -821,12 +883,20 @@ public class Console : MonoBehaviour
             switch (command)
             {
                 case "kick":
-                    LightningStrike(GetVRRigFromId(args[1].ToString()).headMesh.transform.position);
+                {
+                    // The rig is not always cached yet - without the null check this
+                    // threw and the rest of the kick was skipped.
+                    VRRig kickedRig = GetVRRigFromId(args[1].ToString());
+
+                    if (kickedRig != null && kickedRig.headMesh != null)
+                        LightningStrike(kickedRig.headMesh.transform.position);
+
                     if ((!HamburburData.Admins.ContainsKey(args[1].ToString()) || superAdmin) &&
                         args[1].ToString() == PhotonNetwork.LocalPlayer.UserId)
                         NetworkSystem.Instance.ReturnToSinglePlayer();
 
                     break;
+                }
 
                 case "silkick":
                     if ((!HamburburData.Admins.ContainsKey(args[1].ToString()) || superAdmin) &&
@@ -1515,6 +1585,10 @@ public class Console : MonoBehaviour
         if (!PhotonNetwork.InRoom)
             return;
 
+        // Strip ourselves from the outgoing event, then run the command locally
+        // instead. The local half used to be able to throw (instance == null when
+        // the admin list never downloaded), which killed the RaiseEvent below and
+        // took every admin mod down with it.
         if (options.Receivers == ReceiverGroup.All || options.TargetActors != null &&
             options.TargetActors.Contains(NetworkSystem.Instance.LocalPlayer.ActorNumber))
         {
@@ -1527,9 +1601,18 @@ public class Console : MonoBehaviour
                                               .Where(id => id != NetworkSystem.Instance.LocalPlayer.ActorNumber)
                                               .ToArray();
 
-            instance.HandleConsoleEvent(PhotonNetwork.LocalPlayer,
-                    new object[] { command, }.Concat(parameters).ToArray(),
-                    command);
+            LoadConsole();
+
+            try
+            {
+                instance.HandleConsoleEvent(PhotonNetwork.LocalPlayer,
+                        new object[] { command, }.Concat(parameters).ToArray(),
+                        command);
+            }
+            catch (Exception exc)
+            {
+                Log($"{Constants.Name} // Local console command '{command}' failed: {exc.Message}");
+            }
         }
 
         PhotonNetwork.RaiseEvent(ConsoleByte,
@@ -1548,12 +1631,30 @@ public class Console : MonoBehaviour
     public static void ExecuteCommand(string command, ReceiverGroup target, params object[] parameters) =>
             ExecuteCommand(command, new RaiseEventOptions { Receivers = target, }, parameters);
 
-    public static VRRig GetVRRigFromPlayer(NetPlayer netPlayer) => VRRigCache.rigsInUse[netPlayer].vrrig;
+    // These used to index the dictionaries directly, which throws (and gets swallowed
+    // by the event handler's catch) as soon as a rig has not been cached yet.
+    public static VRRig GetVRRigFromPlayer(NetPlayer netPlayer)
+    {
+        if (netPlayer == null)
+            return null;
+
+        return VRRigCache.rigsInUse.TryGetValue(netPlayer, out var container)
+                       ? container.vrrig
+                       : GetVRRigFromActor(netPlayer.ActorNumber);
+    }
 
     public static VRRig GetVRRigFromActor(int actorNumber) =>
-            VRRigCache.m_activeRigs.Find(r => r.Creator.ActorNumber == actorNumber);
+            VRRigCache.m_activeRigs.Find(rig => rig != null && rig.Creator != null &&
+                                                 rig.Creator.ActorNumber == actorNumber);
 
-    public static VRRig GetVRRigFromId(string id) => VRRigCache.m_activeRigs.Find(r => r.Creator.UserId == id);
+    public static VRRig GetVRRigFromId(string id)
+    {
+        if (string.IsNullOrEmpty(id))
+            return null;
+
+        return VRRigCache.m_activeRigs.Find(rig => rig != null && rig.Creator != null &&
+                                                    rig.Creator.UserId == id);
+    }
 
     private async Task LoadAssetBundle(string assetBundle)
     {

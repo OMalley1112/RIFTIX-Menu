@@ -76,6 +76,14 @@ public static class Preferences
 
             button.enabled = enabled;
 
+            if (loadedData.favorites != null &&
+                loadedData.favorites.TryGetValue(
+                        pair.Key,
+                        out bool favorite))
+            {
+                button.favorite = favorite;
+            }
+
             try
             {
                 if (enabled)
@@ -93,10 +101,36 @@ public static class Preferences
         Save();
     }
 
+    // Every button press used to serialize the whole config and write it to disk,
+    // which is a visible hitch. Presses now mark the data dirty and the actual
+    // write happens a moment later (or when the menu closes).
+    private static bool  saveDirty;
+    private static float nextSaveTime;
+
+    public static void MarkDirty()
+    {
+        saveDirty   = true;
+        nextSaveTime = UnityEngine.Time.unscaledTime + 0.5f;
+    }
+
+    public static void FlushDirty(bool force = false)
+    {
+        if (!saveDirty)
+            return;
+
+        if (!force &&
+            UnityEngine.Time.unscaledTime < nextSaveTime)
+            return;
+
+        Save();
+    }
+
     public static void Save()
     {
         if (!loaded)
             return;
+
+        saveDirty = false;
 
         try
         {
@@ -153,6 +187,9 @@ public static class Preferences
                     new Dictionary<string, string>();
 
             data.buttonStates ??=
+                    new Dictionary<string, bool>();
+
+            data.favorites ??=
                     new Dictionary<string, bool>();
 
             if (root["settings"] == null)
@@ -341,6 +378,10 @@ public static class Preferences
             data.buttonStates[
                             pair.Key] =
                     pair.Value.enabled;
+
+            data.favorites[
+                            pair.Key] =
+                    pair.Value.favorite;
         }
     }
 
@@ -473,6 +514,8 @@ public static class Preferences
         public int version = 2;
 
         public Dictionary<string, bool> buttonStates = new();
+
+        public Dictionary<string, bool> favorites = new();
 
         public Dictionary<string, string> settings = new();
     }

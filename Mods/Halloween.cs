@@ -127,7 +127,7 @@ public abstract class Halloween
     public static void EnableTerraformer()  => SetTerraformerActive(true);
     public static void DisableTerraformer() => SetTerraformerActive(false);
 
-    private static void SummonLucy(bool summoned)
+    private static void SummonLucy(bool summoned, Color? color = null)
     {
         if (!PhotonNetwork.IsMasterClient)
             return;
@@ -137,15 +137,29 @@ public abstract class Halloween
         if (ghost == null || !ghost.IsMine)
             return;
 
+        // The coloured buttons used to be copies of each other, so Red/Blue/Yellow
+        // Lucy all came out the same. Tint the ghost before summoning it instead.
+        if (color.HasValue)
+        {
+            ghost.summonedColor = color.Value;
+
+            if (ghost.ghostMaterial != null)
+                ghost.ghostMaterial.color = color.Value;
+        }
+
         ghost.timeGongStarted = Time.time;
         ghost.currentState    = HalloweenGhostChaser.ChaseState.Gong;
         ghost.isSummoned      = summoned;
     }
 
+    private static readonly Color LucyYellow = new(1.00f, 0.82f, 0.20f);
+    private static readonly Color LucyBlue   = new(0.25f, 0.55f, 1.00f);
+    private static readonly Color LucyRed    = new(1.00f, 0.22f, 0.22f);
+
     public static void SpawnLucy()       => SummonLucy(false);
-    public static void SpawnYellowLucy() => SummonLucy(true);
-    public static void SpawnBlueLucy()   => SummonLucy(true);
-    public static void SpawnRedLucy()    => SummonLucy(true);
+    public static void SpawnYellowLucy() => SummonLucy(true, LucyYellow);
+    public static void SpawnBlueLucy()   => SummonLucy(true, LucyBlue);
+    public static void SpawnRedLucy()    => SummonLucy(true, LucyRed);
 
     // Gun aiming and trigger checks live in GunHelper (RIFTIX's RenderGun replaces Gemstone's GunLib).
 
@@ -263,7 +277,10 @@ public abstract class Halloween
                 ghost.followTarget = rig.head.rigTarget;
                 ghost.transform.rotation = ghost.followTarget.rotation;
                 ghost.transform.position  = ghost.followTarget.position;
-                ghost.WriteDataFusion();
+
+                // No explicit "push to network" call is needed here: the ghost's
+                // PhotonView serialises WriteDataPUN(...) on its own every network
+                // send interval, so simply moving the transform is enough.
             }
         }
     }

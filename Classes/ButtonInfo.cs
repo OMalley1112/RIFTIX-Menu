@@ -20,6 +20,10 @@ namespace StupidTemplate.Classes
         public ExtGradient  enabledColor  = null;
         public Action       enableMethod  = null;
 
+        // Favorites tab
+        public bool  favorite      = false;
+        public float lastPressTime = -10f;
+
         public Action<bool> incrementMethod = null;
         public Action       method          = null;
         public ButtonMode   mode            = ButtonMode.Toggle;

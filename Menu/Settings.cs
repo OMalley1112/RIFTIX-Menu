@@ -142,10 +142,27 @@ public class Settings
 
                     outline = new Color32(5, 5, 5, 255),
             },
+
+            // Atlas / Qubit inspired violet
+            new()
+            {
+                    name = "Qubit",
+
+                    backgroundPrimary   = new Color32(23, 17, 42, 255),
+                    backgroundSecondary = new Color32(38, 26, 62, 255),
+
+                    disabledButtonPrimary   = new Color32(42, 31, 61, 255),
+                    disabledButtonSecondary = new Color32(56, 42, 82, 255),
+
+                    enabledButtonPrimary   = new Color32(124, 92, 255, 255),
+                    enabledButtonSecondary = new Color32(167, 139, 255, 255),
+
+                    outline = new Color32(12, 9, 22, 255),
+            },
     };
 
     [SavedSetting(OnLoaded = nameof(ApplyTheme))]
-    public static int themeIndex;
+    public static int themeIndex = 5;
 
     [SavedSetting(OnLoaded = nameof(ApplyTheme))]
     public static bool rainbowColors = true;
@@ -163,8 +180,8 @@ public class Settings
 
     [SavedSetting] public static KeyCode keyboardButton = KeyCode.Q;
 
-    [SavedSetting] public static Vector3 menuSize       = new(0.1f, 1f, 1f); // Depth, width, height
-    [SavedSetting] public static int     buttonsPerPage = 8;
+    [SavedSetting] public static Vector3 menuSize       = new(0.1f, 1f, 1.1f); // Depth, width, height
+    [SavedSetting] public static int     buttonsPerPage = 6;
 
     [SavedSetting] public static bool incrementalButtons      = true;
     [SavedSetting] public static bool buttonGradients         = true;

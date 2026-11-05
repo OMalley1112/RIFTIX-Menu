@@ -121,68 +121,10 @@ public abstract class Buttons
                     toolTip    = "Opens the console admin tab (admin only).",
             },
 
-            new()
-            {
-                    buttonText = "Science",
-                    method     = () => SetCategory("Science Project"),
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Opens the virus science project tab.",
-            },
-    };
+           
+            };
 
-    private static readonly ButtonInfo[] ScienceButtons =
-    {
-            new()
-            {
-                    buttonText = "Return to Main",
-                    method     = () => SetCategory("Main"),
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Returns to the main page of the menu.",
-            },
-
-            new()
-            {
-                    buttonText = "Open Project",
-                    method     = Mods.Science.OpenProject,
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Opens the virus science project on your PC.",
-            },
-
-            new()
-            {
-                    buttonText = "Virus Fact",
-                    method     = Mods.Science.NextFact,
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Shares a fun virus science fact.",
-            },
-
-            new()
-            {
-                    buttonText    = "Virus Gun",
-                    method        = Mods.Science.VirusGun,
-                    enableMethod  = Mods.Science.EnableVirusGun,
-                    disableMethod = Mods.Science.DisableVirusGun,
-                    toolTip       = "Grip to aim a gun line, pull the trigger to spray virus particles.",
-            },
-
-            new()
-            {
-                    buttonText    = "Virus Aura",
-                    method        = Mods.Science.VirusAura,
-                    enableMethod  = Mods.Science.EnableVirusAura,
-                    disableMethod = Mods.Science.DisableVirusAura,
-                    toolTip       = "A glowing green virus mist follows your head.",
-            },
-
-            new()
-            {
-                    buttonText    = "Auto Facts",
-                    method        = Mods.Science.AutoFacts,
-                    enableMethod  = Mods.Science.EnableAutoFacts,
-                    disableMethod = Mods.Science.DisableAutoFacts,
-                    toolTip       = "Shows a virus fact notification every few seconds.",
-            },
-    };
+   
 
     private static readonly ButtonInfo[] SettingsButtons =
     {
@@ -910,7 +852,7 @@ public abstract class Buttons
             {
                     buttonText = "Admin Laser",
                     method     = Admin.AdminLaser,
-                    toolTip    = "Press thumbstick to show your admin laser and kick anyone it points at (console, admin only).",
+                    toolTip    = "Press X (or the thumbstick) to shoot your admin laser and kick anyone it points at (console, admin only).",
             },
 
             new()
@@ -939,7 +881,16 @@ public abstract class Buttons
                     buttonText    = "Wooden Man",
                     enableMethod  = Admin.SpawnWoodenMan,
                     disableMethod = Admin.DespawnWoodenMan,
-                    toolTip       = "Spawns the wooden mannequin up in the sky at its spot (admin only).",
+                    toolTip       = "Spawns the wooden mannequin at your chosen spawn point (admin only).",
+            },
+
+            new()
+            {
+                    buttonText      = "Spawn Point",
+                    mode            = ButtonMode.Incremental,
+                    incrementMethod = Admin.ChangeWoodenManSpawn,
+                    displayText     = () => "Wooden Man: " + Admin.WoodenManSpawnName,
+                    toolTip         = "Where Wooden Man appears: Next To Me, At Hand, or his old Sky Spot.",
             },
     };
 
@@ -1006,11 +957,7 @@ public abstract class Buttons
                     buttons   = HalloweenButtons,
             },
 
-            new()
-            {
-                    name    = "Science Project",
-                    buttons = ScienceButtons,
-            },
+          
 
             new()
             {

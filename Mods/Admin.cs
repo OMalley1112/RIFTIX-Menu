@@ -23,6 +23,73 @@ public abstract class Admin
     private static AssetBundle dummyBundle;
     private static GameObject  dummyInstance;
 
+    // Where Wooden Man appears. He used to always spawn at a hardcoded map
+    // coordinate, which was useless unless you happened to be standing there.
+    public enum WoodenManSpawn
+    {
+        NextToMe,
+        AtHand,
+        SkySpot,
+    }
+
+    private static readonly Vector3 WoodenManSkySpot = new(-112.063286f, 112.02f, 42.708f);
+
+    public static WoodenManSpawn woodenManSpawnMode = WoodenManSpawn.NextToMe;
+
+    public static string WoodenManSpawnName =>
+            woodenManSpawnMode switch
+            {
+                    WoodenManSpawn.AtHand  => "At Hand",
+                    WoodenManSpawn.SkySpot => "Sky Spot",
+                    _                      => "Next To Me",
+            };
+
+    public static void ChangeWoodenManSpawn(bool increment)
+    {
+        int count = Enum.GetValues(typeof(WoodenManSpawn)).Length;
+
+        int index = (int)woodenManSpawnMode + (increment ? 1 : -1);
+
+        if (index >= count)
+            index = 0;
+        else if (index < 0)
+            index = count - 1;
+
+        woodenManSpawnMode = (WoodenManSpawn)index;
+
+        // Already spawned? Just walk him over instead of making you respawn.
+        if (dummyInstance != null)
+            dummyInstance.transform.SetPositionAndRotation(GetWoodenManPosition(), Quaternion.identity);
+
+        NotifiLib.SendNotification("Wooden Man spawn point: " + WoodenManSpawnName);
+    }
+
+    private static Vector3 GetWoodenManPosition()
+    {
+        switch (woodenManSpawnMode)
+        {
+            case WoodenManSpawn.AtHand:
+                return GorillaTagger.Instance.rightHandTransform.position;
+
+            case WoodenManSpawn.SkySpot:
+                return WoodenManSkySpot;
+
+            default:
+            {
+                // Two metres in front of your head, so he lands right next to you
+                Transform head    = GorillaTagger.Instance.headCollider.transform;
+                Vector3   forward = head.forward;
+
+                forward.y = 0f;
+
+                if (forward.sqrMagnitude < 0.001f)
+                    forward = Vector3.forward;
+
+                return head.position + forward.normalized * 2f + Vector3.up * 0.5f;
+            }
+        }
+    }
+
     public static void SpawnWoodenMan()
     {
         try
@@ -76,8 +143,10 @@ public abstract class Admin
                 return;
             }
 
+            Vector3 spawnPosition = GetWoodenManPosition();
+
             dummyInstance = UnityEngine.Object.Instantiate(prefab,
-                                                           new Vector3(-112.063286f, 112.02f, 42.708f),
+                                                           spawnPosition,
                                                            Quaternion.identity);
 
             dummyInstance.transform.localScale = Vector3.one * 4.5508556f;
@@ -86,9 +155,9 @@ public abstract class Admin
             FreezeInPlace(dummyInstance);
 
             UnityEngine.Debug.Log("[RIFTIX WoodenMan] spawned '" + prefab.name + "' at " +
-                                  dummyInstance.transform.position);
+                                  dummyInstance.transform.position + " (" + WoodenManSpawnName + ")");
 
-            NotifiLib.SendNotification("Wooden Man spawned at its sky spot");
+            NotifiLib.SendNotification("Wooden Man spawned: " + WoodenManSpawnName);
         }
         catch (Exception e)
         {
@@ -107,8 +176,8 @@ public abstract class Admin
             body.angularVelocity           = Vector3.zero;
         }
 
-        root.transform.SetPositionAndRotation(new Vector3(-112.063286f, 112.02f, 42.708f),
-                                              Quaternion.identity);
+        // Note: he is left where he was instantiated. This used to drag him back to
+        // the sky spot, which fought against the spawn-point options above.
     }
 
     public static void DespawnWoodenMan()
@@ -143,6 +212,13 @@ public abstract class Admin
     {
         bool isRightHandPressed = VRRig.LocalRig.rightThumb.calcT > 0.5;
         bool isLeftHandPressed  = VRRig.LocalRig.leftThumb.calcT > 0.5;
+
+        // X on the left controller also fires the laser, pointing from the right hand
+        if (ControllerInputPoller.instance.leftControllerPrimaryButton)
+        {
+            isRightHandPressed = true;
+            isLeftHandPressed  = false;
+        }
 
         if (isRightHandPressed || isLeftHandPressed)
         {

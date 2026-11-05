@@ -6,7 +6,12 @@ namespace StupidTemplate.Classes
 {
     public class ColorChanger : MonoBehaviour
     {
-        private const int GradientResolution = 128;
+        // 64 samples is plenty for a smooth colour ramp.
+        private const int GradientResolution = 64;
+
+        // The gradient only has to be recomputed and re-uploaded about 20 times a
+        // second - doing it every frame for every material was a lot of wasted work.
+        private const float GradientRefreshInterval = 0.05f;
 
         private static readonly Dictionary<
                 (ExtGradient Gradient, bool Vertical),
@@ -25,6 +30,11 @@ namespace StupidTemplate.Classes
         private Shader      solidShader;
 
         private Material targetMaterial;
+
+        // Last state written to the material, so unchanged frames can be skipped.
+        private Color    lastSolidColor;
+        private bool     hasAppliedSolid;
+        private Texture2D lastGradientTexture;
 
         private void Start()
         {
@@ -79,11 +89,27 @@ namespace StupidTemplate.Classes
             if (solidShader           != null &&
                 targetMaterial.shader != solidShader)
             {
-                targetMaterial.shader = solidShader;
+                targetMaterial.shader  = solidShader;
+                hasAppliedSolid        = false;
+                lastGradientTexture    = null;
             }
 
+            Color currentColor =
+                    colors.GetCurrentColor();
+
+            // Same colour as last frame - no need to touch the material again.
+            if (hasAppliedSolid &&
+                currentColor == lastSolidColor)
+                return;
+
+            hasAppliedSolid = true;
+            lastSolidColor  = currentColor;
+
             targetMaterial.mainTexture = null;
-            targetMaterial.color       = colors.GetCurrentColor();
+            targetMaterial.color       = currentColor;
+
+            lastGradientTexture =
+                    null;
         }
 
         private void ApplyGradient()
@@ -98,11 +124,23 @@ namespace StupidTemplate.Classes
             }
 
             if (targetMaterial.shader != shader)
+            {
                 targetMaterial.shader = shader;
+
+                lastGradientTexture =
+                        null;
+            }
 
             Texture2D texture = GetGradientTexture(
                     colors,
                     verticalGradient);
+
+            // The texture object itself is mutated in place, so once it is bound
+            // there is nothing left to write every frame.
+            if (texture == lastGradientTexture)
+                return;
+
+            lastGradientTexture = texture;
 
             if (targetMaterial.HasProperty(MainTex))
                 targetMaterial.SetTexture(MainTex, texture);
@@ -116,6 +154,8 @@ namespace StupidTemplate.Classes
                 targetMaterial.SetFloat(Glossiness, 0f);
 
             targetMaterial.renderQueue = 2000;
+
+            hasAppliedSolid = false;
         }
 
         private static Shader GetGradientShader()
@@ -170,11 +210,17 @@ namespace StupidTemplate.Classes
                         data);
             }
 
-            if (data.lastFrame == Time.frameCount)
-                return data.texture;
+            if (data.lastBuildTime >= 0f)
+            {
+                // A frozen gradient never changes, and an animated one only needs to
+                // be recomputed and re-uploaded about 20 times a second.
+                if (Settings.gradientSpeed <= 0f ||
+                    Time.time - data.lastBuildTime < GradientRefreshInterval)
+                    return data.texture;
+            }
 
-            data.lastFrame =
-                    Time.frameCount;
+            data.lastBuildTime =
+                    Time.time;
 
             float animationTime =
                     Time.time *
@@ -259,7 +305,7 @@ namespace StupidTemplate.Classes
             public readonly Color[] pixels =
                     new Color[GradientResolution];
 
-            public int lastFrame = -1;
+            public float lastBuildTime = -1f;
 
             public Texture2D texture;
         }
