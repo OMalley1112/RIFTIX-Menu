@@ -191,6 +191,33 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Text Gradient",
+                    enableMethod  = () => textGradient = true,
+                    disableMethod = () => textGradient = false,
+                    enabled       = textGradient,
+                    toolTip       = "Paints button titles with an animated colour gradient.",
+            },
+
+            new()
+            {
+                    buttonText    = "Button Pop",
+                    enableMethod  = () => buttonPop = true,
+                    disableMethod = () => buttonPop = false,
+                    enabled       = buttonPop,
+                    toolTip       = "Makes buttons squash and pop back when pressed.",
+            },
+
+            new()
+            {
+                    buttonText    = "Fancy Notifications",
+                    enableMethod  = () => fancyNotifications = true,
+                    disableMethod = () => fancyNotifications = false,
+                    enabled       = fancyNotifications,
+                    toolTip       = "Adds a card, shadow and pop animation to notifications.",
+            },
+
+            new()
+            {
                     buttonText    = "FPS Counter",
                     enableMethod  = () => fpsCounter = true,
                     disableMethod = () => fpsCounter = false,

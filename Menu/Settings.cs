@@ -178,6 +178,10 @@ public class Settings
     [SavedSetting] public static bool rightHanded;
     [SavedSetting] public static bool disableNotifications;
 
+    [SavedSetting] public static bool textGradient       = true;
+    [SavedSetting] public static bool buttonPop          = true;
+    [SavedSetting] public static bool fancyNotifications = true;
+
     [SavedSetting] public static KeyCode keyboardButton = KeyCode.Q;
 
     [SavedSetting] public static Vector3 menuSize       = new(0.1f, 1f, 1.1f); // Depth, width, height

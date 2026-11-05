@@ -509,6 +509,10 @@ public class Main : MonoBehaviour
             // Deferred preference writes (marked by button presses).
             Preferences.FlushDirty();
 
+            // Animated text gradient sweep + button press pop animation.
+            GradientText.Tick();
+            Button.TickPops();
+
             ButtonInfo[] allButtons =
                     AllButtons;
 
@@ -2430,7 +2434,8 @@ public class Main : MonoBehaviour
                             0f,
                             offset,
                             0.12f,
-                            textColors[0]);
+                            textColors[0],
+                            true);
 
             CreateButtonText(
                     "+",
@@ -2481,7 +2486,8 @@ public class Main : MonoBehaviour
                         method.enabled
                                 ? textColors[1]
                                 : textColors[0],
-                        rowWorldZ + 0.005f);
+                        rowWorldZ + 0.005f,
+                        gradient: true);
 
         Text rowSubtitle =
                 CreateRowText(
@@ -2683,6 +2689,16 @@ public class Main : MonoBehaviour
     }
 
     // One line of text placed at a fixed spot on a button row.
+    // Colours for gradient text: the theme's bright accent fading to its text
+    // colour, so the sweep matches the current colour scheme.
+    private static void ConfigureGradient(GradientText gradientText)
+    {
+        MenuTheme theme = themes[themeIndex];
+
+        gradientText.colorA = theme.enabledButtonSecondary;
+        gradientText.colorB = theme.enabledText;
+    }
+
     private static Text CreateRowText(
             string    value,
             Vector2   size,
@@ -2690,15 +2706,25 @@ public class Main : MonoBehaviour
             FontStyle style,
             Color     color,
             float     worldZ,
-            float     localY = 0.028f)
+            float     localY = 0.028f,
+            bool      gradient = false)
     {
-        Text text = new GameObject
-        {
-                transform =
+        GameObject textObject =
+                new()
                 {
-                        parent = canvasObject.transform,
-                },
-        }.AddComponent<Text>();
+                        transform =
+                        {
+                                parent = canvasObject.transform,
+                        },
+                };
+
+        Text text =
+                gradient
+                        ? textObject.AddComponent<GradientText>()
+                        : textObject.AddComponent<Text>();
+
+        if (text is GradientText gradientText)
+            ConfigureGradient(gradientText);
 
         text.font                 = currentFont;
         text.text                 = value;
@@ -2800,15 +2826,25 @@ public class Main : MonoBehaviour
             float  localY,
             float  offset,
             float  width,
-            Color  color)
+            Color  color,
+            bool   gradient = false)
     {
-        Text text = new GameObject
-        {
-                transform =
+        GameObject textObject =
+                new()
                 {
-                        parent = canvasObject.transform,
-                },
-        }.AddComponent<Text>();
+                        transform =
+                        {
+                                parent = canvasObject.transform,
+                        },
+                };
+
+        Text text =
+                gradient
+                        ? textObject.AddComponent<GradientText>()
+                        : textObject.AddComponent<Text>();
+
+        if (text is GradientText gradientText)
+            ConfigureGradient(gradientText);
 
         text.font                 = currentFont;
         text.text                 = value;
