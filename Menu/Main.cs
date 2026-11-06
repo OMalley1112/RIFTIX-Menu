@@ -377,11 +377,15 @@ public class Main : MonoBehaviour
     {
         try
         {
+            // Open the menu with either face button on the active hand:
+            // X or Y on the left controller, A or B on the right one.
             bool menuButtonPressed =
                     !rightHanded &&
-                    ControllerInputPoller.instance.leftControllerSecondaryButton ||
+                    (ControllerInputPoller.instance.leftControllerPrimaryButton   ||
+                     ControllerInputPoller.instance.leftControllerSecondaryButton) ||
                     rightHanded &&
-                    ControllerInputPoller.instance.rightControllerSecondaryButton;
+                    (ControllerInputPoller.instance.rightControllerPrimaryButton   ||
+                     ControllerInputPoller.instance.rightControllerSecondaryButton);
 
             bool keyboardOpen =
                     UnityInput.Current.GetKey(keyboardButton);
