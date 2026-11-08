@@ -55,6 +55,44 @@ public abstract class Buttons
      *   },
      */
 
+    // The networked asset controls. Declared BEFORE MainButtons because static
+    // field initialisers run in textual order - Main shows these too, and a
+    // later declaration would hand Main a null. One instance per button, so the
+    // ON/OFF state is shared no matter which page you pressed it from.
+    private static readonly ButtonInfo gemstoneTvButton = new()
+    {
+            buttonText    = "Gemstone TV",
+            enableMethod  = ConsoleAssetPages.EnableTv,
+            disableMethod = ConsoleAssetPages.DisableTv,
+            displayText   = ConsoleAssetPages.TvDisplay,
+            toolTip       = "Spawns the Gemstone TV and sofa with a video for the whole room (networked).",
+    };
+
+    private static readonly ButtonInfo browseAssetsButton = new()
+    {
+            buttonText = "Browse Assets",
+            method     = ConsoleAssetPages.OpenBundles,
+            mode       = ButtonMode.Action,
+            toolTip    = "Lists every networked Console asset bundle, ready to spawn.",
+    };
+
+    private static readonly ButtonInfo inRoomAssetsButton = new()
+    {
+            buttonText  = "In-Room Assets",
+            method      = ConsoleAssetPages.OpenSpawned,
+            mode        = ButtonMode.Action,
+            displayText = ConsoleAssetPages.SpawnedDisplay,
+            toolTip     = "Shows every Console asset currently in the room.",
+    };
+
+    private static readonly ButtonInfo scanMenusButton = new()
+    {
+            buttonText = "Scan Menus",
+            method     = ConsoleAssetPages.ScanMenus,
+            mode       = ButtonMode.Action,
+            toolTip    = "Asks every player which menu they are using; replies pop up as notifications.",
+    };
+
     private static readonly ButtonInfo[] MainButtons =
     {
             new()
@@ -129,7 +167,17 @@ public abstract class Buttons
                     toolTip    = "Spawns networked Console assets the whole room can see (Gemstone TV, asset browser, menu scan).",
             },
 
-           
+            // --- the asset network, right here on Main -------------------
+            // Every one of these sends ReceiverGroup.All, so what you spawn is
+            // what the whole room gets. They used to live only under Console
+            // Assets, which meant two taps through a submenu to reach the TV.
+            gemstoneTvButton,
+
+            inRoomAssetsButton,
+
+            browseAssetsButton,
+
+            scanMenusButton,
             };
 
    
@@ -892,6 +940,14 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Desert Eagle",
+                    method        = Admin.DesertEagle,
+                    disableMethod = Admin.DesertEagleOff,
+                    toolTip       = "Grip to bring up the Eagle, keep gripping to fire - muzzle flash, tracer and recoil. Hits are networked to the whole room (console, admin only).",
+            },
+
+            new()
+            {
                     buttonText = "Grab All",
                     method     = Admin.GrabAll,
                     toolTip    = "Holding grip teleports everyone to your hand (console, admin only).",
@@ -941,14 +997,9 @@ public abstract class Buttons
                     toolTip    = "Returns to the main page of the menu.",
             },
 
-            new()
-            {
-                    buttonText    = "Gemstone TV",
-                    enableMethod  = ConsoleAssetPages.EnableTv,
-                    disableMethod = ConsoleAssetPages.DisableTv,
-                    displayText   = ConsoleAssetPages.TvDisplay,
-                    toolTip       = "Spawns the Gemstone TV and sofa with a video for the whole room.",
-            },
+            // Shared with Main (declared at the top of the class), so the ON/OFF
+            // state is the same no matter which page you toggled it from.
+            gemstoneTvButton,
 
             new()
             {
@@ -968,30 +1019,11 @@ public abstract class Buttons
                     toolTip     = "Changes the video playing on the TV and video player.",
             },
 
-            new()
-            {
-                    buttonText = "Browse Assets",
-                    method     = ConsoleAssetPages.OpenBundles,
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Lists every networked Console asset bundle, ready to spawn.",
-            },
+            browseAssetsButton,
 
-            new()
-            {
-                    buttonText  = "In-Room Assets",
-                    method      = ConsoleAssetPages.OpenSpawned,
-                    mode        = ButtonMode.Action,
-                    displayText = ConsoleAssetPages.SpawnedDisplay,
-                    toolTip     = "Shows every Console asset currently in the room.",
-            },
+            inRoomAssetsButton,
 
-            new()
-            {
-                    buttonText = "Scan Menus",
-                    method     = ConsoleAssetPages.ScanMenus,
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Asks every player which menu they are using; replies pop up as notifications.",
-            },
+            scanMenusButton,
     };
 
     // The order here does not matter, setting categories is done by name rather than position in the array

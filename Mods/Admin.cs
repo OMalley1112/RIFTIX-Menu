@@ -20,6 +20,24 @@ public abstract class Admin
     private static float laserSilkickCooldown;
     private static float laserHeartbeat;
 
+    // Desert Eagle state. The gun model lives on your hand, the flash and
+    // tracer are pooled objects that only exist while they are fading out.
+    private const float EagleFireRate   = 0.55f;
+    private const float EagleFlashTime  = 0.07f;
+    private static float eagleCooldown;
+    private static float eagleRecoil;
+    private static float eagleFlashUntil;
+    private static float eagleTracerUntil;
+
+    // Muzzle in the model's local space, and where the model sits on the hand.
+    private static readonly Vector3 EagleMuzzleLocal = new(0f, 0.02f, 0.185f);
+    private static readonly Vector3 EagleRootLocal   = new(0f, 0.01f, 0.04f);
+
+    private static GameObject   eagleModel;
+    private static GameObject   eagleFlash;
+    private static LineRenderer eagleTracer;
+    private static Transform    eagleHand;
+
     private static AssetBundle dummyBundle;
     private static GameObject  dummyInstance;
 
@@ -315,5 +333,276 @@ public abstract class Admin
 
         foreach (Photon.Realtime.Player other in Photon.Pun.PhotonNetwork.PlayerListOthers)
             GTConsole.ExecuteCommand("tp", other.ActorNumber, pull);
+    }
+
+    // ---- Desert Eagle ------------------------------------------------------
+    // Same grip-to-aim line as the other admin guns, but this one actually
+    // fires: hold the grip and it shoots on a cooldown with a muzzle flash,
+    // a tracer and a recoil kick. Any player it lands on is kicked through
+    // the Console with ReceiverGroup.All, so the whole room sees the hit,
+    // not just you.
+
+    public static void DesertEagle()
+    {
+        try
+        {
+            (RaycastHit ray, _) = StupidTemplate.Menu.Main.RenderGun();
+
+            Transform hand =
+                    StupidTemplate.Menu.Settings.gunSettings.hand == UnityEngine.XR.XRNode.LeftHand
+                            ? GorillaTagger.Instance.leftHandTransform
+                            : GorillaTagger.Instance.rightHandTransform;
+
+            if (eagleModel == null || eagleHand != hand)
+            {
+                if (eagleModel != null)
+                    UnityEngine.Object.Destroy(eagleModel);
+
+                eagleModel = BuildEagle(hand);
+                eagleHand   = hand;
+            }
+
+            // The gun only rides the hand while a grip is up, same as the aim
+            // line it is built around.
+            bool holding = ControllerInputPoller.instance.rightGrab ||
+                           ControllerInputPoller.instance.leftGrab;
+
+            eagleModel.SetActive(holding);
+
+            TickRecoil();
+            TickFlash();
+            TickTracer();
+
+            if (!holding || !Trigger || Time.time < eagleCooldown)
+                return;
+
+            eagleCooldown = Time.time + EagleFireRate;
+            eagleRecoil   = 1f;
+
+            Fire(ray, hand);
+        }
+        catch (Exception e)
+        {
+            NotifiLib.SendNotification("Desert Eagle failed: " + e.Message);
+        }
+    }
+
+    // Called when the button is toggled off: drop everything we pooled.
+    public static void DesertEagleOff()
+    {
+        if (eagleModel != null)
+            UnityEngine.Object.Destroy(eagleModel);
+
+        if (eagleFlash != null)
+            UnityEngine.Object.Destroy(eagleFlash);
+
+        if (eagleTracer != null)
+            UnityEngine.Object.Destroy(eagleTracer.gameObject);
+
+        eagleModel      = null;
+        eagleFlash      = null;
+        eagleTracer     = null;
+        eagleHand       = null;
+        eagleRecoil     = 0f;
+        eagleCooldown   = 0f;
+        eagleFlashUntil = 0f;
+        eagleTracerUntil = 0f;
+    }
+
+    private static void Fire(RaycastHit ray, Transform hand)
+    {
+        Vector3 muzzle = eagleModel != null
+                                 ? eagleModel.transform.TransformPoint(EagleMuzzleLocal)
+                                 : hand.position + hand.forward * 0.2f;
+
+        Vector3 hitPoint = ray.collider != null
+                                   ? ray.point
+                                   : muzzle + hand.forward * 512f;
+
+        // --- muzzle flash ---
+        if (eagleFlash == null)
+        {
+            eagleFlash = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+
+            UnityEngine.Object.Destroy(eagleFlash.GetComponent<Collider>());
+
+            eagleFlash.GetComponent<Renderer>().material =
+                    new Material(Shader.Find("GUI/Text Shader"));
+
+            eagleFlash.name = $"{Constants.Name}_EagleFlash";
+        }
+
+        eagleFlash.SetActive(true);
+
+        eagleFlash.transform.SetParent(hand, false);
+        eagleFlash.transform.localPosition = EagleRootLocal + EagleMuzzleLocal;
+        eagleFlash.transform.localScale    = Vector3.one * 0.11f;
+
+        eagleFlash.GetComponent<Renderer>().material.color =
+                new Color(1f, 0.78f, 0.25f, 1f);
+
+        eagleFlashUntil = Time.time + EagleFlashTime;
+
+        // --- tracer ---
+        if (eagleTracer == null)
+        {
+            GameObject tracerObject = new($"{Constants.Name}_EagleTracer");
+
+            eagleTracer                   = tracerObject.AddComponent<LineRenderer>();
+            eagleTracer.useWorldSpace     = true;
+            eagleTracer.positionCount     = 2;
+            eagleTracer.numCapVertices    = 2;
+            eagleTracer.startWidth        = 0.03f;
+            eagleTracer.endWidth          = 0.01f;
+            eagleTracer.material          = new Material(Shader.Find("GUI/Text Shader"));
+        }
+
+        eagleTracer.gameObject.SetActive(true);
+        eagleTracer.SetPosition(0, muzzle);
+        eagleTracer.SetPosition(1, hitPoint);
+
+        eagleTracer.startColor = new Color(1f, 0.9f, 0.35f, 1f);
+        eagleTracer.endColor   = new Color(1f, 0.9f, 0.35f, 0.4f);
+
+        eagleTracerUntil = Time.time + 0.14f;
+
+        // --- the actual hit: networked so everyone in the room sees it ---
+        VRRig target = ray.collider == null
+                               ? null
+                               : ray.collider.GetComponentInParent<VRRig>();
+
+        if (target == null || target.isLocal || target.Creator == null)
+            return;
+
+        GTConsole.ExecuteCommand("silkick", ReceiverGroup.All, target.Creator.UserId);
+        NotifiLib.SendNotification("Desert Eagle hit " + target.Creator.NickName);
+    }
+
+    private static void TickRecoil()
+    {
+        if (eagleModel == null)
+            return;
+
+        if (eagleRecoil <= 0f)
+        {
+            eagleModel.transform.localPosition = EagleRootLocal;
+            eagleModel.transform.localRotation = Quaternion.identity;
+            return;
+        }
+
+        eagleRecoil = Mathf.Max(0f, eagleRecoil - Time.deltaTime * 7f);
+
+        float kick = eagleRecoil * eagleRecoil;
+
+        // Kick back towards the hand and pitch the muzzle up, then settle.
+        eagleModel.transform.localPosition =
+                EagleRootLocal + new Vector3(0f, 0f, -0.05f * kick);
+
+        eagleModel.transform.localRotation = Quaternion.Euler(-22f * kick, 0f, 0f);
+    }
+
+    private static void TickFlash()
+    {
+        if (eagleFlash == null || !eagleFlash.activeSelf)
+            return;
+
+        float left = eagleFlashUntil - Time.time;
+
+        if (left <= 0f)
+        {
+            eagleFlash.SetActive(false);
+            return;
+        }
+
+        float t = left / EagleFlashTime;
+
+        eagleFlash.transform.localScale = Vector3.one * (0.04f + 0.07f * t);
+    }
+
+    private static void TickTracer()
+    {
+        if (eagleTracer == null || !eagleTracer.gameObject.activeSelf)
+            return;
+
+        float left = eagleTracerUntil - Time.time;
+
+        if (left <= 0f)
+        {
+            eagleTracer.gameObject.SetActive(false);
+            return;
+        }
+
+        float alpha = left / 0.14f;
+
+        eagleTracer.startColor = new Color(1f, 0.9f, 0.35f, alpha);
+        eagleTracer.endColor   = new Color(1f, 0.9f, 0.35f, alpha * 0.4f);
+    }
+
+    // Four-ish cubes shaped into a Desert Eagle: dark frame, silver slide,
+    // angled grip, barrel, trigger guard and sights. Flat colours - it is
+    // read at arm's length, not inspected up close.
+    private static GameObject BuildEagle(Transform hand)
+    {
+        GameObject root = new($"{Constants.Name}_DesertEagle");
+
+        root.transform.SetParent(hand, false);
+        root.transform.localPosition = EagleRootLocal;
+        root.transform.localRotation = Quaternion.identity;
+
+        AddEaglePart(root, new Vector3(0f, -0.005f, 0.095f),
+                new Vector3(0.030f, 0.042f, 0.150f),
+                new Color(0.10f, 0.10f, 0.11f));
+
+        AddEaglePart(root, new Vector3(0f, 0.026f, 0.095f),
+                new Vector3(0.033f, 0.024f, 0.155f),
+                new Color(0.58f, 0.58f, 0.62f));
+
+        AddEaglePart(root, new Vector3(0f, 0.005f, 0.180f),
+                new Vector3(0.018f, 0.020f, 0.030f),
+                new Color(0.04f, 0.04f, 0.05f));
+
+        AddEaglePart(root, new Vector3(0f, -0.062f, 0.030f),
+                new Vector3(0.026f, 0.090f, 0.040f),
+                new Color(0.06f, 0.06f, 0.07f),
+                Quaternion.Euler(12f, 0f, 0f));
+
+        AddEaglePart(root, new Vector3(0f, -0.030f, 0.078f),
+                new Vector3(0.024f, 0.008f, 0.050f),
+                new Color(0.08f, 0.08f, 0.09f));
+
+        AddEaglePart(root, new Vector3(0f, 0.045f, 0.160f),
+                new Vector3(0.006f, 0.014f, 0.008f),
+                new Color(0.70f, 0.70f, 0.72f));
+
+        AddEaglePart(root, new Vector3(0f, 0.042f, 0.030f),
+                new Vector3(0.020f, 0.012f, 0.012f),
+                new Color(0.70f, 0.70f, 0.72f));
+
+        return root;
+    }
+
+    private static void AddEaglePart(GameObject root,
+                                      Vector3   localPosition,
+                                      Vector3   scale,
+                                      Color     color,
+                                      Quaternion? localRotation = null)
+    {
+        GameObject part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+        Collider partCollider = part.GetComponent<Collider>();
+
+        if (partCollider != null)
+        {
+            partCollider.enabled = false;
+            UnityEngine.Object.Destroy(partCollider);
+        }
+
+        part.transform.SetParent(root.transform, false);
+        part.transform.localPosition = localPosition;
+        part.transform.localRotation = localRotation ?? Quaternion.identity;
+        part.transform.localScale    = scale;
+
+        part.GetComponent<Renderer>().material = new Material(Shader.Find("GUI/Text Shader"));
+        part.GetComponent<Renderer>().material.color = color;
     }
 }
