@@ -827,13 +827,13 @@ public class Main : MonoBehaviour
                             0.0064f);
 
             // Top right of the header card, on the same line as the clock
-            fpsTransform.position =
+            fpsTransform.localPosition =
                     new Vector3(
                             0.064f,
                             -0.065f,
                             0.1357f);
 
-            fpsTransform.rotation =
+            fpsTransform.localRotation =
                     Quaternion.Euler(
                             180f,
                             90f,
@@ -1204,7 +1204,7 @@ public class Main : MonoBehaviour
                             0.07f,
                             0.01f);
 
-            disconnectTransform.rotation =
+            disconnectTransform.localRotation =
                     Quaternion.Euler(
                             180f,
                             90f,
@@ -1282,10 +1282,13 @@ public class Main : MonoBehaviour
         component.sizeDelta =
                 size;
 
-        component.position =
+        // Local transforms: the menu may already be rotated onto the hand when
+        // this runs (page counters and header labels get rebuilt), and a world
+        // transform here would leave them facing world-zero instead of you.
+        component.localPosition =
                 position;
 
-        component.rotation =
+        component.localRotation =
                 Quaternion.Euler(
                         180f,
                         90f,
@@ -2383,7 +2386,9 @@ public class Main : MonoBehaviour
                 width * 0.85f,
                 0.034f);
 
-        component.rotation =
+        // Local: the keyboard gets its own world rotation from the search
+        // layout, so the letters have to ride it instead of facing world-zero.
+        component.localRotation =
                 Quaternion.Euler(
                         180f,
                         90f,
@@ -2783,7 +2788,9 @@ public class Main : MonoBehaviour
         component.sizeDelta =
                 size;
 
-        component.rotation =
+        // Local rotation: rows and tabs are rebuilt while the menu is already
+        // rotated onto the hand, so a world rotation turned them sideways.
+        component.localRotation =
                 Quaternion.Euler(
                         180f,
                         90f,
@@ -2815,8 +2822,12 @@ public class Main : MonoBehaviour
 
         Destroy(buttonObject.GetComponent<Rigidbody>());
 
+        // Local, not world: this runs again on every page/category rebuild,
+        // long after the menu has been rotated onto your hand. A world rotation
+        // here is what made rebuilt rows come out turned 90 degrees while the
+        // chrome built at startup still looked right.
         buttonObject.transform.parent        = menu.transform;
-        buttonObject.transform.rotation      = Quaternion.identity;
+        buttonObject.transform.localRotation = Quaternion.identity;
         buttonObject.transform.localPosition = localPosition;
 
         BoxCollider collider = buttonObject.GetComponent<BoxCollider>();
@@ -2908,7 +2919,8 @@ public class Main : MonoBehaviour
                         width,
                         0.03f);
 
-        component.rotation =
+        // Local: incremental +/- and value text rebuild with the row.
+        component.localRotation =
                 Quaternion.Euler(
                         180f,
                         90f,
