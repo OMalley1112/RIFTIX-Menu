@@ -102,6 +102,10 @@ public class Main : MonoBehaviour
     private static int   lastFpsValue = -1;
     private static float nextFpsUpdateTime;
 
+    // Throttle for the "menu build failed" log - a deterministic build failure
+    // would otherwise print once per frame.
+    private static float nextBuildErrorLogTime;
+
     // Shared chrome materials + shader lookups. Shader.Find is a linear search
     // through every shader in the game, so these are created once and reused
     // instead of on every menu rebuild.
@@ -1207,7 +1211,33 @@ public class Main : MonoBehaviour
                             90f);
         }
 
-        CreateMenuButtons();
+        try
+        {
+            CreateMenuButtons();
+        }
+        catch (Exception exc)
+        {
+            // `menu` is already non-null by the time the buttons are built, so a
+            // build that throws half way leaves a menu the open check believes is
+            // complete: only the buttons created before the throw ever work, and
+            // nothing retries. Throw the whole thing away so the next frame
+            // rebuilds from scratch and the real error lands in the log.
+            if (Time.unscaledTime >= nextBuildErrorLogTime)
+            {
+                nextBuildErrorLogTime =
+                        Time.unscaledTime +
+                        5f;
+
+                Debug.LogError(
+                        $"{Constants.Name} // Menu build failed, discarding it: {exc}");
+            }
+
+            Destroy(menu);
+
+            menu = null;
+
+            return;
+        }
 
         if (animateMenu &&
             playOpenAnimation)
@@ -2776,8 +2806,12 @@ public class Main : MonoBehaviour
 
         Track(buttonObject);
 
-        if (!UnityInput.Current.GetKey(keyboardButton))
-            buttonObject.layer = 2;
+        // Buttons are ALWAYS Ignore Raycast. This used to be conditional on Q
+        // being held at the moment the menu happened to be built, so the layer
+        // depended on when you rebuilt rather than when you clicked - and the
+        // desktop click ray used the default mask, which skips layer 2 anyway.
+        // Between them, a Main / Mods button could be pressed and do nothing.
+        buttonObject.layer = 2;
 
         Destroy(buttonObject.GetComponent<Rigidbody>());
 
@@ -2984,6 +3018,11 @@ public class Main : MonoBehaviour
 
         CreateMenu(false);
 
+        // CreateMenu throws the menu away when a build fails, so there may be
+        // nothing left to re-parent.
+        if (menu == null)
+            return;
+
         if (previousParent != null)
         {
             menu.transform.SetParent(
@@ -3165,23 +3204,52 @@ public class Main : MonoBehaviour
                         90f,
                         0f);
 
-        if (!Mouse.current.leftButton.isPressed)
+        // The third person camera can exist in VR too, and there is not always a
+        // mouse - a null Mouse.current used to throw here and abort the whole
+        // menu tick for that frame.
+        if (Mouse.current == null || !Mouse.current.leftButton.isPressed)
             return;
 
         Ray ray =
                 TPC.ScreenPointToRay(
                         Mouse.current.position.ReadValue());
 
-        if (!Physics.Raycast(
-                    ray,
-                    out RaycastHit hit,
-                    100f))
-            return;
+        // Menu buttons sit on Ignore Raycast (layer 2) on purpose, so hand and
+        // gun rays can never press them by accident. Physics.Raycast's default
+        // mask skips exactly that layer, so this ray hit nothing at all and the
+        // click was silently dropped - which reads as "the Main and Mods buttons
+        // are broken". This is the one raycast that IS meant to reach the menu:
+        // take every layer, force triggers on, then keep the nearest button.
+        RaycastHit[] mouseHits =
+                Physics.RaycastAll(
+ ray,
+                        100f,
+                        ~0,
+                        QueryTriggerInteraction.Collide);
 
-        Button collide =
-                hit.transform
-                   .gameObject
-                   .GetComponent<Button>();
+        Button collide = null;
+
+        float closestDistance = float.MaxValue;
+
+        foreach (RaycastHit candidate in mouseHits)
+        {
+            if (candidate.distance >= closestDistance)
+                continue;
+
+            Button found =
+                    candidate.transform
+ .gameObject
+                             .GetComponent<Button>();
+
+            if (found == null)
+                continue;
+
+            closestDistance = candidate.distance;
+            collide         = found;
+        }
+
+        if (collide == null)
+            return;
 
         SphereCollider simulatedCollider =
                 rightButtonCollider != null
@@ -3518,8 +3586,13 @@ public class Main : MonoBehaviour
         // the menu by itself we must not rebuild it a second time.
         int buildAtStart = menuBuildId;
 
-        // Double tap a mod to star it for the FAVORITES tab.
-        if (target.mode != ButtonMode.Action)
+        // Double tap a mod to star it for the FAVORITES tab. Incremental rows
+        // are deliberately excluded: "- value +" is meant to be tapped over and
+        // over, and the press cooldown (0.2 s) is shorter than this window
+        // (0.6 s), so the second tap of a quick pair always landed inside it and
+        // starred the row instead of changing the value.
+        if (target.mode != ButtonMode.Action &&
+            target.mode != ButtonMode.Incremental)
         {
             bool doubleTap =
                     Time.time - target.lastPressTime <= 0.6f;
