@@ -180,7 +180,10 @@ public class Settings
 
     [SavedSetting] public static bool textGradient       = true;
     [SavedSetting] public static bool buttonPop          = true;
-    [SavedSetting] public static bool fancyNotifications = true;
+
+    // Notifications are plain text by default - the card/shadow/pop version
+    // is opt-in from Settings -> Fancy Notifications.
+    [SavedSetting] public static bool fancyNotifications;
 
     [SavedSetting] public static KeyCode keyboardButton = KeyCode.Q;
 
