@@ -39,9 +39,6 @@ public class Main : MonoBehaviour
     private const  float TextSurfaceOffset = 0.0035f;
     private static int?  noInvisLayerMask;
 
-    public static bool  gunLocked;
-    public static VRRig lockTarget;
-
     // Variables
     // Important
     // Objects
@@ -4198,7 +4195,7 @@ public class Main : MonoBehaviour
         else if (leftGrab && !rightGrab)
             currentSettings.hand = XRNode.LeftHand;
 
-        if (!holding && !gunLocked)
+        if (!holding)
         {
             if (GunPointer != null)
                 GunPointer.SetActive(false);
@@ -4245,12 +4242,27 @@ public class Main : MonoBehaviour
 
         Vector3 endPosition;
 
-        if (gunLocked && lockTarget != null)
-            endPosition = lockTarget.transform.position;
+        // The aim line and pointer never stop on a player: when the target ray
+        // lands on someone, re-shoot past them so the visuals rest on the world
+        // behind instead of sticking to people. The ray returned below still
+        // contains players so the admin guns can pick their target.
+        VRRig hitRig =
+                didHit && ray.collider != null
+                        ? ray.collider.GetComponentInParent<VRRig>()
+                        : null;
+
+        bool hitPlayer = hitRig != null && hitRig != VRRig.LocalRig;
+
+        if (hitPlayer && !overrideLayerMask.HasValue)
+                endPosition =
+                        GunRaycast(rayOrigin, direction, currentSettings.maxDistance,
+                                out RaycastHit worldRay, true)
+                                ? worldRay.point
+                                : startPosition + direction * currentSettings.maxDistance;
         else if (didHit)
-            endPosition = ray.point;
+                endPosition = ray.point;
         else
-            endPosition = startPosition + direction * currentSettings.maxDistance;
+                endPosition = startPosition + direction * currentSettings.maxDistance;
 
         // Smooth the pointer toward the aim point (Gemstone gun feel).
         if (!gunWasHolding || currentSettings.pointerSmoothness <= 0.001f)
@@ -4288,7 +4300,6 @@ public class Main : MonoBehaviour
         currentPointerRenderer.enabled = currentSettings.showPointer;
 
         bool pressed =
-                gunLocked ||
                 holding;
 
         ExtGradient pointerColors = pressed
@@ -4331,7 +4342,8 @@ public class Main : MonoBehaviour
                     Vector3        origin,
                     Vector3        direction,
                     float          maxDistance,
-                    out RaycastHit hit)
+                    out RaycastHit hit,
+                    bool           skipPlayers = false)
     {
             Ray ray = new(origin, direction);
 
@@ -4364,6 +4376,13 @@ public class Main : MonoBehaviour
                     bool isRig =
                                     rig != null &&
                                     rig != VRRig.LocalRig;
+
+                    // The aim visuals call this with skipPlayers so their line
+                    // and pointer pass people by instead of resting on them.
+                    if (skipPlayers && isRig)
+                    {
+                            continue;
+                    }
 
                     if (!isInteractable && !isRig)
                     {

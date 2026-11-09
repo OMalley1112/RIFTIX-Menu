@@ -120,6 +120,14 @@ public abstract class Buttons
                     mode       = ButtonMode.Action,
                     toolTip    = "Opens the console admin tab (admin only).",
             },
+
+            new()
+            {
+                    buttonText = "Console Assets",
+                    method     = () => SetCategory("Console Assets"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the small Console Assets page (TikTok picture spawn).",
+            },
     };
 
    
@@ -918,6 +926,28 @@ public abstract class Buttons
             },
     };
 
+    // The small Console Assets page: one button, one picture (see
+    // Menu/ConsoleAssetPages.cs for the spawn itself).
+    private static readonly ButtonInfo[] ConsoleAssetsButtons =
+    {
+            new()
+            {
+                    buttonText    = "TikTok Picture",
+                    enableMethod  = ConsoleAssetPages.SpawnPicture,
+                    disableMethod = ConsoleAssetPages.RemovePicture,
+                    displayText   = ConsoleAssetPages.PictureDisplay,
+                    toolTip       = "Spawns the TikTok picture with its song on the Gemstone TV in front of you (networked - the whole room sees it).",
+            },
+
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page of the menu.",
+            },
+    };
+
     // The order here does not matter, setting categories is done by name rather than position in the array
     public static readonly ButtonCategory[] Categories =
     {
@@ -988,6 +1018,12 @@ public abstract class Buttons
                     name      = "Admin",
                     adminOnly = true,
                     buttons   = AdminButtons,
+            },
+
+            new()
+            {
+                    name    = "Console Assets",
+                    buttons = ConsoleAssetsButtons,
             },
     };
 

@@ -336,11 +336,11 @@ public abstract class Admin
     }
 
     // ---- Desert Eagle ------------------------------------------------------
-    // Same grip-to-aim line as the other admin guns, but this one actually
+    // Same grip-to-aim line as the other admin guns, and this one actually
     // fires: hold the grip and it shoots on a cooldown with a muzzle flash,
-    // a tracer and a recoil kick. Any player it lands on is kicked through
-    // the Console with ReceiverGroup.All, so the whole room sees the hit,
-    // not just you.
+    // a tracer and a recoil kick. It does NOT target players any more - no
+    // silkick, nothing - the dedicated admin guns (Silent Kick Gun, Admin
+    // Laser) are the ones that touch people.
 
     public static void DesertEagle()
     {
@@ -466,16 +466,9 @@ public abstract class Admin
 
         eagleTracerUntil = Time.time + 0.14f;
 
-        // --- the actual hit: networked so everyone in the room sees it ---
-        VRRig target = ray.collider == null
-                               ? null
-                               : ray.collider.GetComponentInParent<VRRig>();
-
-        if (target == null || target.isLocal || target.Creator == null)
-            return;
-
-        GTConsole.ExecuteCommand("silkick", ReceiverGroup.All, target.Creator.UserId);
-        NotifiLib.SendNotification("Desert Eagle hit " + target.Creator.NickName);
+        // The eagle never targets people: the flash, tracer and recoil above
+        // are the whole shot. Silent Kick Gun / Admin Laser remain the only
+        // guns that silkick anyone.
     }
 
     private static void TickRecoil()
