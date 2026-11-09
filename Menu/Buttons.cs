@@ -926,8 +926,8 @@ public abstract class Buttons
             },
     };
 
-    // The small Console Assets page: one button, one picture (see
-    // Menu/ConsoleAssetPages.cs for the spawn itself).
+    // The small Console Assets page: a picture and the Thor hammer (see
+    // Menu/ConsoleAssetPages.cs for the spawns themselves).
     private static readonly ButtonInfo[] ConsoleAssetsButtons =
     {
             new()
@@ -937,6 +937,15 @@ public abstract class Buttons
                     disableMethod = ConsoleAssetPages.RemovePicture,
                     displayText   = ConsoleAssetPages.PictureDisplay,
                     toolTip       = "Spawns the TikTok picture with its song on a bare screen floating 3 m in front of you (networked - the whole room sees it).",
+            },
+
+            new()
+            {
+                    buttonText    = "Thor Hammer",
+                    enableMethod  = ConsoleAssetPages.SpawnHammer,
+                    disableMethod = ConsoleAssetPages.RemoveHammer,
+                    displayText   = ConsoleAssetPages.HammerDisplay,
+                    toolTip       = "Puts the Thor hammer on your left hand (networked - the whole room sees it). Raise it above your head to call lightning down on it.",
             },
 
             new()

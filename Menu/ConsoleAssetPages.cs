@@ -9,14 +9,20 @@ using HamburburData = StupidTemplate.Classes.Console.HamburburData;
 
 namespace StupidTemplate.Menu;
 
-// The small Console Assets page: one button, one picture.
+// The small Console Assets page: a picture and the Thor hammer.
 //
-// Press it and the TikTok picture - a still photo with its song baked into a
-// single mp4 - appears on a bare screen floating in front of you: no TV
+// Press the picture and the TikTok picture - a still photo with its song baked
+// into a single mp4 - appears on a bare screen floating in front of you: no TV
 // furniture, just the picture turned to face you. Every command goes out with
 // ReceiverGroup.All, so the whole room spawns the same screen at the same spot
 // showing the same picture; players who join later get it through Console's
 // asset sync (which re-sends the texture and the video url).
+//
+// Press the hammer and Mjolnir - Lowpoly_hamm wrapped in a root named
+// ThorHammer, longest edge fitted to 0.55 m, colliders stripped at build time -
+// lands on your left hand, also networked. Hold it above your head and the
+// whole room gets a lightning strike on it; late joiners get the hammer through
+// the same asset sync (anchor and grip pose re-sent).
 public abstract class ConsoleAssetPages
 {
     // The bare-screen asset from the Console bundle: root "VideoPlayer" with a
@@ -54,6 +60,24 @@ public abstract class ConsoleAssetPages
 
     private static int pictureAssetId = -1;
 
+    // The Thor hammer: Lowpoly_hamm wrapped in a root named ThorHammer, its
+    // longest edge fitted to 0.55 m and its colliders stripped at build time
+    // (Assets/Build Thor Hammer Bundle in the bundle project), committed to
+    // this repo under bundles/ - ServerData has no room for it, so Console
+    // falls back to RiftixAssetsURL when the download there misses.
+    private const string HammerBundle = "thor_hammer";
+    private const string HammerAsset  = "ThorHammer";
+
+    // BindObject's anchor slots: 0 head, 1 left hand, 2 right hand, 3 body.
+    private const int HammerAnchor = 1;
+
+    // How far above your head the hammer must be to call a bolt; the hand has
+    // to drop back below your head between strikes (hysteresis - holding it up
+    // there cannot machine-gun bolts).
+    private const float RaiseHeight = 0.2f;
+
+    private static int hammerAssetId = -1;
+
     public static string PictureDisplay()
     {
         ButtonInfo button = Buttons.GetIndex("TikTok Picture");
@@ -64,6 +88,16 @@ public abstract class ConsoleAssetPages
                                              : "<color=red>OFF</color>")}";
     }
 
+    public static string HammerDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Thor Hammer");
+
+        return
+                $"Thor Hammer: {(button != null && button.enabled
+                                              ? "<color=green>ON</color>"
+                                              : "<color=red>OFF</color>")}";
+    }
+
     public static void SpawnPicture()
     {
         if (!CanSpawn(out string reason))
@@ -72,7 +106,7 @@ public abstract class ConsoleAssetPages
             // ever been opened: that path flips back off quietly (the state
             // saves as OFF, so it cannot come back every launch). Any real
             // press - VR menu or desktop GUI - gets the refusal reason.
-            SetSwitchOff();
+            SetSwitchOff("TikTok Picture");
 
             if (!Preferences.RestoringButtonStates)
                 NotifiLib.SendNotification(reason);
@@ -87,7 +121,7 @@ public abstract class ConsoleAssetPages
 
         if (head == null)
         {
-            SetSwitchOff();
+            SetSwitchOff("TikTok Picture");
 
             if (!Preferences.RestoringButtonStates)
                 NotifiLib.SendNotification("Could not find your head - try again inside a room.");
@@ -170,19 +204,132 @@ public abstract class ConsoleAssetPages
                 PictureVideoUrl);
     }
 
+    // Mjolnir on your left hand, networked to the whole room. The bundle is
+    // committed to this repo (bundles/thor_hammer) and Console falls back to
+    // RiftixAssetsURL when ServerData does not know it.
+    public static void SpawnHammer()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Same quiet flip-off as the picture: saved switch states replay
+            // at startup before a room exists (a real press gets the reason).
+            SetSwitchOff("Thor Hammer");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        hammerAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds). The anchor lands the
+        // hammer on your left hand - BindObject's slot 1 - and the zero grip
+        // pose puts its origin in the palm; colliders are stripped here too,
+        // because a held collider lets you climb your own hammer.
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, HammerBundle, HammerAsset, hammerAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, hammerAssetId);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, hammerAssetId, HammerAnchor,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, hammerAssetId, Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, hammerAssetId,
+                Quaternion.identity);
+
+        NotifiLib.SendNotification("Thor hammer on your left hand - raise it up to call lightning.");
+
+        CoroutineManager.Instance.StartCoroutine(ResendHammer());
+        CoroutineManager.Instance.StartCoroutine(WatchForRaise(hammerAssetId));
+    }
+
+    public static void RemoveHammer()
+    {
+        if (Alive(hammerAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, hammerAssetId);
+
+        hammerAssetId = -1;
+    }
+
+    // Anyone still downloading the bundle when the spawn went out would drop
+    // the follow-up commands (Console waits ten seconds for the asset), so
+    // re-send the grip once everyone has had twelve seconds to catch up. The
+    // anchor goes first: BindObject re-parents, so the zero pose must land
+    // after it rather than be re-parented away.
+    private static IEnumerator ResendHammer()
+    {
+        int id = hammerAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (!Alive(id))
+            yield break;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, id, HammerAnchor,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, id, Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, id, Quaternion.identity);
+    }
+
+    // Only the hammer's owner watches: raise it above your head and the room
+    // gets one lightning strike on it through the existing networked "strike"
+    // command (the bolt is drawn upward from the position it is given, so it
+    // erupts out of the hammer). Dropping the hand back below your head
+    // re-arms the trigger, and the loop dies with the hammer or the room.
+    private static IEnumerator WatchForRaise(int assetId)
+    {
+        bool armed = false;
+
+        while (Alive(assetId))
+        {
+            VRRig     localRig = VRRig.LocalRig;
+            Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                         ? localRig.head.rigTarget.transform
+                                         : null;
+
+            if (head == null)
+            {
+                yield return null;
+                continue;
+            }
+
+            Transform hammer = GTConsole.ConsoleAssets[assetId].AssetObject.transform;
+            float     handY  = hammer.position.y;
+            float     headY  = head.position.y;
+
+            if (handY <= headY)
+                armed = true;
+            else if (armed && handY > headY + RaiseHeight)
+            {
+                armed = false;
+
+                GTConsole.ExecuteCommand("strike", ReceiverGroup.All, hammer.position);
+            }
+
+            yield return null;
+        }
+    }
+
     private static bool Alive(int assetId) =>
             assetId >= 0 &&
             GTConsole.ConsoleAssets.TryGetValue(assetId, out GTConsole.ConsoleAsset asset) &&
             asset.AssetObject != null;
 
     // Console clears every asset when the room is left (ClearConsoleAssets):
-    // the picture goes with them, so the switch must read OFF again instead of
-    // claiming a picture that no longer exists.
-    public static void ResetPictureSwitch() => SetSwitchOff();
-
-    private static void SetSwitchOff()
+    // both switches go with them, so they must read OFF again instead of
+    // claiming assets that no longer exist.
+    public static void ResetSwitches()
     {
-        ButtonInfo button = Buttons.GetIndex("TikTok Picture");
+        SetSwitchOff("TikTok Picture");
+        SetSwitchOff("Thor Hammer");
+
+        pictureAssetId = -1;
+        hammerAssetId  = -1;
+    }
+
+    private static void SetSwitchOff(string buttonText)
+    {
+        ButtonInfo button = Buttons.GetIndex(buttonText);
 
         if (button != null)
             button.enabled = false;

@@ -37,6 +37,11 @@ public class Console : MonoBehaviour
     private const string AssetsURL =
             "https://raw.githubusercontent.com/Seralyth/Console/refs/heads/master/ServerData";
 
+    // This menu's own assets (the Thor hammer) live in this repo - ServerData
+    // above is Seralyth's and cannot be added to.
+    private const string RiftixAssetsURL =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/bundles";
+
     public const string BlockedKey = "ConsoleBlocked";
 
     private static Console instance;
@@ -1690,8 +1695,45 @@ public class Console : MonoBehaviour
             url = url.Replace("/Console/", $"/{split[0]}/");
         }
 
-        using HttpClient client         = new();
-        byte[]           downloadedData = await client.GetByteArrayAsync(url);
+        byte[] downloadedData = null;
+
+        using (HttpClient client = new())
+        {
+            // ServerData is Seralyth's repo, so this menu's own bundles (the
+            // Thor hammer) are not in it: a miss there falls back to ours.
+            // Status codes are checked explicitly rather than trusting
+            // GetByteArrayAsync, whose 404 handling differs between runtimes -
+            // an error body would come back as bytes and load as a corrupt
+            // bundle instead of failing the download.
+            string[] urls = { url, $"{RiftixAssetsURL}/{assetBundle}", };
+
+            foreach (string tryUrl in urls)
+            {
+                try
+                {
+                    using HttpResponseMessage response = await client.GetAsync(tryUrl);
+
+                    if (!response.IsSuccessStatusCode)
+                        continue;
+
+                    downloadedData = await response.Content.ReadAsByteArrayAsync();
+
+                    break;
+                }
+                catch
+                {
+                    // Host unreachable or a redirect the runtime declined:
+                    // try the next URL before giving up.
+                }
+            }
+        }
+
+        if (downloadedData == null)
+        {
+            Log($"Failed to download asset bundle {assetBundle}");
+
+            return;
+        }
 
         AssetBundleCreateRequest bundleCreateRequest = AssetBundle.LoadFromMemoryAsync(downloadedData);
         while (!bundleCreateRequest.isDone)
@@ -1836,9 +1878,10 @@ public class Console : MonoBehaviour
 
         ConsoleAssets.Clear();
 
-        // The picture switch claimed to spawn one of these; with the room's
-        // assets gone it must read OFF again instead of pointing at nothing.
-        Menu.ConsoleAssetPages.ResetPictureSwitch();
+        // The picture and hammer switches claimed to spawn these; with the
+        // room's assets gone they must read OFF again instead of pointing
+        // at nothing.
+        Menu.ConsoleAssetPages.ResetSwitches();
     }
 
     private void SanitizeConsoleAssets()
