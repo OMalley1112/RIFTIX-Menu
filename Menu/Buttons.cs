@@ -936,7 +936,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnPicture,
                     disableMethod = ConsoleAssetPages.RemovePicture,
                     displayText   = ConsoleAssetPages.PictureDisplay,
-                    toolTip       = "Spawns the TikTok picture with its song on the Gemstone TV in front of you (networked - the whole room sees it).",
+                    toolTip       = "Spawns the TikTok picture with its song on a bare screen floating 3 m in front of you (networked - the whole room sees it).",
             },
 
             new()

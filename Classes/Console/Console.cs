@@ -1828,16 +1828,27 @@ public class Console : MonoBehaviour
     {
         adminRigTarget = null;
 
-        foreach (ConsoleAsset asset in ConsoleAssets.Values)
+        // Snapshot the collection first: DestroyObject removes its own entry,
+        // and removing while enumerating the dictionary throws - which aborted
+        // the loop and left the rest of the room's assets alive in the scene.
+        foreach (ConsoleAsset asset in ConsoleAssets.Values.ToList())
             asset.DestroyObject();
 
         ConsoleAssets.Clear();
+
+        // The picture switch claimed to spawn one of these; with the room's
+        // assets gone it must read OFF again instead of pointing at nothing.
+        Menu.ConsoleAssetPages.ResetPictureSwitch();
     }
 
     private void SanitizeConsoleAssets()
     {
+        // Materialise before destroying: DestroyObject removes the entry the
+        // lazy Where is still walking, which throws mid-enumeration - and this
+        // runs every frame from Update, so the exception repeated each frame.
         foreach (ConsoleAsset asset in ConsoleAssets.Values.Where(asset => asset.AssetObject == null ||
-                                                                           !asset.AssetObject.activeSelf))
+                                                                           !asset.AssetObject.activeSelf)
+                                                  .ToList())
             asset.DestroyObject();
     }
 
@@ -1858,6 +1869,12 @@ public class Console : MonoBehaviour
 
         foreach (ConsoleAsset asset in ConsoleAssets.Values)
         {
+            // An asset whose object died right before this join has no
+            // transform to read; skip it instead of throwing inside the loop
+            // and silently dropping every remaining asset for the joiner.
+            if (asset.AssetObject == null)
+                continue;
+
             ExecuteCommand("asset-spawn", joiningPlayer.ActorNumber, asset.AssetBundle, asset.AssetName,
                     asset.AssetId);
 
@@ -1880,6 +1897,17 @@ public class Console : MonoBehaviour
             if (asset.ModifiedScale)
                 ExecuteCommand("asset-setscale", joiningPlayer.ActorNumber, asset.AssetId,
                         asset.AssetObject.transform.localScale);
+
+            // The transform sync above says nothing about what is ON the asset:
+            // without this, a player joining after a picture or video went out
+            // would receive a bare screen with no texture and no sound.
+            if (asset.ModifiedTexture)
+                ExecuteCommand("asset-settexture", joiningPlayer.ActorNumber, asset.AssetId,
+                        asset.TextureObject, asset.TextureUrl);
+
+            if (asset.ModifiedVideo)
+                ExecuteCommand("asset-setvideo", joiningPlayer.ActorNumber, asset.AssetId,
+                        asset.VideoObject, asset.VideoUrl);
 
             if (asset.BindedToIndex >= 0)
                 ExecuteCommand("asset-setanchor", joiningPlayer.ActorNumber, asset.AssetId,
@@ -1919,7 +1947,19 @@ public class Console : MonoBehaviour
 
         public bool ModifiedScale;
 
+        public bool ModifiedTexture;
+
+        public bool ModifiedVideo;
+
         public bool PauseAudioUpdates;
+
+        public string TextureObject;
+
+        public string TextureUrl;
+
+        public string VideoObject;
+
+        public string VideoUrl;
 
         public int AssetId { get; } = assetId;
 
@@ -1998,17 +2038,41 @@ public class Console : MonoBehaviour
                 video.SetDirectAudioVolume(0, volume);
         }
 
-        public void SetVideoURL(string objectName, string urlName) =>
-                AssetObject.transform.Find(objectName).GetComponent<VideoPlayer>().url = urlName;
+        // The url and object are remembered so SyncConsoleAssets can hand the
+        // same picture/video to players who join after the commands went out.
+        public void SetVideoURL(string objectName, string urlName)
+        {
+            ModifiedVideo = true;
+            VideoObject   = objectName;
+            VideoUrl      = urlName;
 
-        public void SetTextureURL(string objectName, string urlName) =>
-                instance.StartCoroutine(instance.GetTextureResource(urlName, texture =>
-                                                                                     AssetObject.transform
-                                                                                            .Find(objectName)
-                                                                                            .GetComponent<Renderer>()
-                                                                                            .material.SetTexture(
-                                                                                                     MainTex,
-                                                                                                     texture)));
+            if (!AssetObject.transform.Find(objectName).TryGetComponent(out VideoPlayer video))
+                return;
+
+            // A resend of the clip that is already playing must not restart the
+            // song, so only touch the player when the clip is new or playback
+            // stopped - the url setter alone does not always start playback.
+            if (video.url == urlName && video.isPlaying)
+                return;
+
+            video.url = urlName;
+            video.Play();
+        }
+
+        public void SetTextureURL(string objectName, string urlName)
+        {
+            ModifiedTexture = true;
+            TextureObject   = objectName;
+            TextureUrl      = urlName;
+
+            instance.StartCoroutine(instance.GetTextureResource(urlName, texture =>
+                                                                        AssetObject.transform
+                                                                                   .Find(objectName)
+                                                                                   .GetComponent<Renderer>()
+                                                                                   .material.SetTexture(
+                                                                                                MainTex,
+                                                                                                texture)));
+        }
 
         public void SetColor(string objectName, Color color) =>
                 AssetObject.transform.Find(objectName).GetComponent<Renderer>().material.color = color;

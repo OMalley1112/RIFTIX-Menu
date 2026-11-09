@@ -39,6 +39,11 @@ public class Main : MonoBehaviour
     private const  float TextSurfaceOffset = 0.0035f;
     private static int?  noInvisLayerMask;
 
+    // Where the aim ball rests when the ray finds nothing to land on: open air
+    // within this range, or a couple of metres past whoever was in the way.
+    private const float OpenAirDistance  = 30f;
+    private const float PlayerOvershoot = 2.5f;
+
     // Variables
     // Important
     // Objects
@@ -1532,6 +1537,15 @@ public class Main : MonoBehaviour
 
     private static void CreateMenuButtons()
     {
+        // Clamp the page before anything is drawn: the search bar and the
+        // footer bar write their "N / M" counters below, while CreateList only
+        // clamps later - so a page count that shrank (top page buttons
+        // toggled, a favorite removed) showed "03 / 02" until the next press.
+        int lastPage = GetLastPage();
+
+        if (pageNumber > lastPage)
+            pageNumber = lastPage;
+
         // The tab bar travels with the list: its highlight depends on which tab is
         // open, so both are rebuilt together when the list changes.
         CreateTrackedTabBar();
@@ -1988,55 +2002,61 @@ public class Main : MonoBehaviour
                 footerWorldZ,
                 0.108f);
 
-        CreateButtonObject(
-                previousPageButton,
-                new Vector3(
-                        buttonSize.x,
-                        0.16f,
-                        0.07f),
-                new Vector3(
-                        0.56f,
-                        0.19f,
-                        -0.451f),
-                true,
-                false,
-                false);
+        // With "Top Page Buttons" on, the prev/next pair lives in the first
+        // two list rows instead (CreateList) - drawing it here as well showed
+        // both copies of the page controls at once.
+        if (!pageButtonsAtTop)
+        {
+            CreateButtonObject(
+                    previousPageButton,
+                    new Vector3(
+                            buttonSize.x,
+                            0.16f,
+                            0.07f),
+                    new Vector3(
+                            0.56f,
+                            0.19f,
+                            -0.451f),
+                    true,
+                    false,
+                    false);
 
-        CreateRowText(
-                "‹",
-                new Vector2(
-                        0.06f,
-                        0.02f),
-                TextAnchor.MiddleCenter,
-                FontStyle.Bold,
-                textColors[0],
-                footerWorldZ,
-                0.057f);
+            CreateRowText(
+                    "‹",
+                    new Vector2(
+                            0.06f,
+                            0.02f),
+                    TextAnchor.MiddleCenter,
+                    FontStyle.Bold,
+                    textColors[0],
+                    footerWorldZ,
+                    0.057f);
 
-        CreateButtonObject(
-                nextPageButton,
-                new Vector3(
-                        buttonSize.x,
-                        0.16f,
-                        0.07f),
-                new Vector3(
-                        0.56f,
-                        -0.19f,
-                        -0.451f),
-                true,
-                false,
-                false);
+            CreateButtonObject(
+                    nextPageButton,
+                    new Vector3(
+                            buttonSize.x,
+                            0.16f,
+                            0.07f),
+                    new Vector3(
+                            0.56f,
+                            -0.19f,
+                            -0.451f),
+                    true,
+                    false,
+                    false);
 
-        CreateRowText(
-                "›",
-                new Vector2(
-                        0.06f,
-                        0.02f),
-                TextAnchor.MiddleCenter,
-                FontStyle.Bold,
-                textColors[0],
-                footerWorldZ,
-                -0.057f);
+            CreateRowText(
+                    "›",
+                    new Vector2(
+                            0.06f,
+                            0.02f),
+                    TextAnchor.MiddleCenter,
+                    FontStyle.Bold,
+                    textColors[0],
+                    footerWorldZ,
+                    -0.057f);
+        }
 
         pagerCounterText = CreateHeaderText(
                 new Vector3(
@@ -2556,6 +2576,13 @@ public class Main : MonoBehaviour
                                     255),
                             rowWorldZ + 0.001f,
                             -0.11f);
+        }
+        else if (method.mode == ButtonMode.Incremental)
+        {
+            // Steppers have no on/off state: with the incremental layout off
+            // they still only increment on press, so the ON/OFF badge (always
+            // a grey "OFF") was claiming a state they never hold.
+            rowState = null;
         }
         else
         {
@@ -4036,9 +4063,13 @@ public class Main : MonoBehaviour
             return;
         }
 
-        ButtonInfo[] allButtons = AllButtons;
+        // Walk the categories instead of the flat AllButtons array so admin
+        // rows stay hidden in search exactly as SetCategory hides them -
+        // otherwise typing "kick" or "eagle" surfaced buttons a non-admin
+        // cannot use.
+        bool isAdmin = HamburburData.LocalAdminAccess;
 
-        searchResults = (from button in allButtons let displayText = button.GetDisplayText() let nameMatch = displayText.IndexOf(searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 let toolTipMatch = !string.IsNullOrEmpty(button.toolTip) && button.toolTip.IndexOf(searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 where nameMatch || toolTipMatch select button).ToArray();
+        searchResults = (from category in Categories where isAdmin || !category.adminOnly from button in category.buttons let displayText = button.GetDisplayText() let nameMatch = displayText.IndexOf(searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 let toolTipMatch = !string.IsNullOrEmpty(button.toolTip) && button.toolTip.IndexOf(searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 where nameMatch || toolTipMatch select button).ToArray();
     }
 
     public static void HandleSearchKey(string value)
@@ -4253,16 +4284,21 @@ public class Main : MonoBehaviour
 
         bool hitPlayer = hitRig != null && hitRig != VRRig.LocalRig;
 
+        // The dot has to stay visible: past a player with nothing to land on it
+        // stops a couple of metres beyond them, and open air stops at a range
+        // you can still see rather than the full 512 metre throw, which left
+        // the ball stranded kilometres out with the line.
         if (hitPlayer && !overrideLayerMask.HasValue)
                 endPosition =
                         GunRaycast(rayOrigin, direction, currentSettings.maxDistance,
                                 out RaycastHit worldRay, true)
                                 ? worldRay.point
-                                : startPosition + direction * currentSettings.maxDistance;
+                                : ray.point + direction * PlayerOvershoot;
         else if (didHit)
                 endPosition = ray.point;
         else
-                endPosition = startPosition + direction * currentSettings.maxDistance;
+                endPosition = startPosition + direction *
+                        Mathf.Min(currentSettings.maxDistance, OpenAirDistance);
 
         // Smooth the pointer toward the aim point (Gemstone gun feel).
         if (!gunWasHolding || currentSettings.pointerSmoothness <= 0.001f)
@@ -4293,8 +4329,17 @@ public class Main : MonoBehaviour
         }
 
         GunPointer.SetActive(true);
-        GunPointer.transform.position   = endPosition;
-        GunPointer.transform.localScale = Vector3.one * currentSettings.pointerSize;
+        GunPointer.transform.position = endPosition;
+
+        // A fixed ball shrinks to a speck once the aim point is tens of metres
+        // out, so past a modest distance it grows to keep the same apparent
+        // size on screen - the dot is always findable.
+        float pointerDistance = Vector3.Distance(startPosition, endPosition);
+
+        GunPointer.transform.localScale =
+                Vector3.one *
+                currentSettings.pointerSize *
+                Mathf.Max(1f, pointerDistance / 12f);
 
         Renderer currentPointerRenderer = GunPointer.GetComponent<Renderer>();
         currentPointerRenderer.enabled = currentSettings.showPointer;

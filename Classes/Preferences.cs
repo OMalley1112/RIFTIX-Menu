@@ -38,6 +38,11 @@ public static class Preferences
     private static bool loaded;
     private static bool buttonStatesApplied;
 
+    // True only while ApplyButtonStates replays the saved switch states at
+    // startup, before the menu has ever been opened. SpawnPicture reads it so
+    // a refused spawn flips back off quietly instead of toasting at launch.
+    public static bool RestoringButtonStates { get; private set; }
+
     public static void Load()
     {
         if (loaded)
@@ -86,6 +91,10 @@ public static class Preferences
 
             try
             {
+                // The flag lets refused spawns (the picture outside a room,
+                // say) flip back off without toasting at every launch.
+                RestoringButtonStates = true;
+
                 if (enabled)
                     button.enableMethod?.Invoke();
                 else
@@ -95,6 +104,10 @@ public static class Preferences
             {
                 Debug.LogError(
                         $"{Constants.Name} // Failed to apply saved state for {button.buttonText}: {exc}");
+            }
+            finally
+            {
+                RestoringButtonStates = false;
             }
         }
 

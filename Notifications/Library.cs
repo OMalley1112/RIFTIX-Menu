@@ -44,6 +44,26 @@ public class NotifiLib : BaseUnityPlugin
 
     private void LateUpdate()
     {
+        // The HUD objects are plain scene objects, so a scene or camera change
+        // destroys them while hasInit stays true - which froze the old text on
+        // screen forever and made every later notification write to a dead
+        // Text. Drop the dead set and let Init build a fresh one.
+        if (hasInit && (hudObj2 == null || mainCamera == null || testtext == null))
+        {
+            if (hudObj2 != null)
+                Destroy(hudObj2);
+
+            if (hudObj != null)
+                Destroy(hudObj);
+
+            hudObj           = null;
+            hudObj2          = null;
+            mainCamera       = null;
+            testtext         = null;
+            notificationText = null;
+            hasInit          = false;
+        }
+
         if (!hasInit)
         {
             if (GTPlayer.Instance?.mainCamera == null)
@@ -153,14 +173,25 @@ public class NotifiLib : BaseUnityPlugin
             {
                 if (IsEnabled && PreviousNotification != notificationText)
                 {
-                    if (!notificationText.Contains(Environment.NewLine))
-                    {
-                        notificationText += Environment.NewLine;
-                    }
+                    // Before the first Init (and for a frame after a scene
+                    // change rebuilds the HUD) there is no Text to write to
+                    // yet - waiting beats logging a dead-object error for
+                    // every notification.
+                    if (NotifiLib.notificationText == null)
+                        return;
 
-                    NotifiLib.notificationText.text            += notificationText;
+                    string line = notificationText;
+
+                    if (!line.Contains(Environment.NewLine))
+                        line += Environment.NewLine;
+
+                    NotifiLib.notificationText.text            += line;
                     NotifiLib.notificationText.supportRichText =  true;
-                    PreviousNotification                       =  notificationText;
+
+                    // Store the message as it arrived: comparing against the
+                    // newline-armed copy meant the duplicate filter never
+                    // matched a repeat of a single-line message.
+                    PreviousNotification = notificationText;
                 }
             }
             catch

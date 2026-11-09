@@ -1037,7 +1037,13 @@ public class DesktopGui : MonoBehaviour
 
     private static bool IsCategoryNavButton(ButtonInfo button)
     {
-        if (button.buttonText == "Return to Main")
+        // "Return to Settings", "Menu" and "Movement" retarget the VR menu's
+        // category, which the desktop view does not follow - listing them here
+        // would only offer rows that do nothing when clicked.
+        if (button.buttonText == "Return to Main"      ||
+            button.buttonText == "Return to Settings" ||
+            button.buttonText == "Menu"               ||
+            button.buttonText == "Movement")
             return true;
 
         foreach (ButtonCategory category in Buttons.Categories)

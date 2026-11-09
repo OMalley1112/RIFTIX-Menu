@@ -11,26 +11,48 @@ namespace StupidTemplate.Menu;
 
 // The small Console Assets page: one button, one picture.
 //
-// Press it and the TikTok picture - still image plus its song, baked into a
-// single mp4 - appears on the Gemstone TV in front of you. Every command goes
-// out with ReceiverGroup.All, so the whole room spawns the same TV at the same
-// spot playing the same clip; anyone who joins late gets the spawn too.
+// Press it and the TikTok picture - a still photo with its song baked into a
+// single mp4 - appears on a bare screen floating in front of you: no TV
+// furniture, just the picture turned to face you. Every command goes out with
+// ReceiverGroup.All, so the whole room spawns the same screen at the same spot
+// showing the same picture; players who join later get it through Console's
+// asset sync (which re-sends the texture and the video url).
 public abstract class ConsoleAssetPages
 {
-    private const string TvBundle = "consolehamburburassets";
+    // The bare-screen asset from the Console bundle: root "VideoPlayer" with a
+    // single Plane child "Video" (built-in 10x10 plane on a custom VideoMat
+    // shader - its _MainTex is exactly what asset-settexture writes, so the
+    // photo lands on the mesh even though the VideoPlayer itself renders to a
+    // RenderTexture nobody displays).
+    private const string ScreenBundle = "console.main1";
+    private const string ScreenAsset  = "VideoPlayer";
+    private const string ScreenChild  = "Video";
 
     // "The Park is Closed" (Jurassic World OST) under the TikTok picture,
     // encoded as park.mp4 and committed to this menu's public repo. Served
     // straight off raw.githubusercontent.com: no redirect hop for the player
     // to follow, and Range requests are answered, which is what Unity's
-    // VideoPlayer needs to stream a file.
+    // VideoPlayer needs to stream a file. The VideoPlayer's audio runs in
+    // Direct mode, so the song plays without an AudioSource.
     private const string PictureVideoUrl =
             "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/park.mp4";
 
-    // How far in front of your face the TV stands.
+    // The photo itself on the plane's _MainTex: the video frames go to an
+    // internal RenderTexture that is never displayed, so this is what the room
+    // actually sees. Portrait shot, so the plane is scaled to match its
+    // 2160x2752 aspect instead of the stock 16:9.
+    private const string PictureImageUrl =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/park.jpg";
+
+    // How far in front of your face the picture floats.
     private const float SpawnDistance = 3f;
 
-    private static int tvAssetId = -1;
+    // The plane measures 15.24 x 8.52 units at scale 1 (10 unit mesh through
+    // the child's 1.524/0.852 scale), so these give roughly 0.95 x 1.20 m -
+    // the photo's own aspect ratio, about 22 degrees tall at 3 metres.
+    private static readonly Vector3 PictureScale = new(0.062f, 0.141f, 0.062f);
+
+    private static int pictureAssetId = -1;
 
     public static string PictureDisplay()
     {
@@ -46,11 +68,13 @@ public abstract class ConsoleAssetPages
     {
         if (!CanSpawn(out string reason))
         {
-            // Saved switch states are restored before a room is joined;
-            // flipping back off silently beats a notification at startup.
+            // Saved switch states are replayed at startup before the menu has
+            // ever been opened: that path flips back off quietly (the state
+            // saves as OFF, so it cannot come back every launch). Any real
+            // press - VR menu or desktop GUI - gets the refusal reason.
             SetSwitchOff();
 
-            if (PhotonNetwork.InRoom)
+            if (!Preferences.RestoringButtonStates)
                 NotifiLib.SendNotification(reason);
 
             return;
@@ -64,15 +88,18 @@ public abstract class ConsoleAssetPages
         if (head == null)
         {
             SetSwitchOff();
-            NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
 
             return;
         }
 
-        // Stand it SpawnDistance metres ahead of you, at eye height, turned to
-        // face you. The TV's screen points along +X when its rotation is
-        // Euler(270, 0, 0) - the pitch every other menu spawns it with - so the
-        // yaw is solved from the direction back to your head.
+        // Float it SpawnDistance metres ahead of you at eye height, turned to
+        // face you. The plane's normal points along the root's +Z after the
+        // child's built-in 90 degree tilt, and its UVs run so that +Z at the
+        // viewer keeps the photo upright and unmirrored - so plain
+        // LookRotation back at your head is the whole orientation.
         Vector3 forward = head.forward;
         forward.y = 0f;
 
@@ -91,18 +118,20 @@ public abstract class ConsoleAssetPages
 
         toPlayer.Normalize();
 
-        float yaw = Mathf.Atan2(-toPlayer.z, toPlayer.x) * Mathf.Rad2Deg;
+        Quaternion rotation = Quaternion.LookRotation(toPlayer);
 
-        tvAssetId = GTConsole.GetFreeAssetID();
+        pictureAssetId = GTConsole.GetFreeAssetID();
 
         // Spawn first; every command after it waits for the asset to exist
-        // (Console gives each one up to ten seconds), so the TV arrives in
+        // (Console gives each one up to ten seconds), so the screen arrives in
         // place with the picture already on it.
-        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, TvBundle, "TV", tvAssetId);
-        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, tvAssetId, position);
-        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, tvAssetId,
-                Quaternion.Euler(270f, yaw, 0f));
-        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, tvAssetId, "VideoPlayer",
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ScreenBundle, ScreenAsset, pictureAssetId);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, pictureAssetId, position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, pictureAssetId, rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, pictureAssetId, PictureScale);
+        GTConsole.ExecuteCommand("asset-settexture", ReceiverGroup.All, pictureAssetId, ScreenChild,
+                PictureImageUrl);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, pictureAssetId, ScreenChild,
                 PictureVideoUrl);
 
         NotifiLib.SendNotification("Picture is up in front of you - the whole room sees it.");
@@ -112,27 +141,32 @@ public abstract class ConsoleAssetPages
 
     public static void RemovePicture()
     {
-        if (Alive(tvAssetId))
-            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, tvAssetId);
+        if (Alive(pictureAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, pictureAssetId);
 
-        tvAssetId = -1;
+        pictureAssetId = -1;
     }
 
     // Anyone still downloading the bundle when the spawn went out would drop
-    // the position/rotation/video commands, so re-send them once everyone has
-    // had twelve seconds to catch up.
+    // the follow-up commands (Console waits ten seconds for the asset), so
+    // re-send everything once everyone has had twelve seconds to catch up.
+    // SetVideoURL skips a clip that is already playing, so the song does not
+    // restart on this pass.
     private static IEnumerator ResendPicture()
     {
         yield return new WaitForSeconds(12f);
 
-        if (!Alive(tvAssetId))
+        if (!Alive(pictureAssetId))
             yield break;
 
-        Transform tv = GTConsole.ConsoleAssets[tvAssetId].AssetObject.transform;
+        Transform screen = GTConsole.ConsoleAssets[pictureAssetId].AssetObject.transform;
 
-        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, tvAssetId, tv.position);
-        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, tvAssetId, tv.rotation);
-        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, tvAssetId, "VideoPlayer",
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, pictureAssetId, screen.position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, pictureAssetId, screen.rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, pictureAssetId, PictureScale);
+        GTConsole.ExecuteCommand("asset-settexture", ReceiverGroup.All, pictureAssetId, ScreenChild,
+                PictureImageUrl);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, pictureAssetId, ScreenChild,
                 PictureVideoUrl);
     }
 
@@ -140,6 +174,11 @@ public abstract class ConsoleAssetPages
             assetId >= 0 &&
             GTConsole.ConsoleAssets.TryGetValue(assetId, out GTConsole.ConsoleAsset asset) &&
             asset.AssetObject != null;
+
+    // Console clears every asset when the room is left (ClearConsoleAssets):
+    // the picture goes with them, so the switch must read OFF again instead of
+    // claiming a picture that no longer exists.
+    public static void ResetPictureSwitch() => SetSwitchOff();
 
     private static void SetSwitchOff()
     {
