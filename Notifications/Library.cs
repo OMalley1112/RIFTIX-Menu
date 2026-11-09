@@ -40,20 +40,6 @@ public class NotifiLib : BaseUnityPlugin
 
     private Text testtext;
 
-    // Fancy notification panel: rounded card + accent border + stripe that
-    // sit behind the text, plus a soft drop shadow on the glyphs.
-    private static Image  cardImage;
-    private static Image  cardBorder;
-    private static Image  accentBar;
-    private static Shadow textShadow;
-
-    // Timestamps for the pop punch and card colour flash.
-    private static float punchStart = -10f;
-    private static float flashStart = -10f;
-
-    private static readonly Color cardColor   = new Color32(20, 15, 32, 235);
-    private static readonly Color accentColor = new Color32(199, 155, 255, 255);
-
     private void Awake() => Logger.LogInfo("Plugin NotificationLibrary is loaded!");
 
     private void LateUpdate()
@@ -80,8 +66,6 @@ public class NotifiLib : BaseUnityPlugin
 
         hudObj2.transform.rotation =
                 mainCamera.transform.rotation;
-
-        UpdateFancyCard();
 
         if (string.IsNullOrEmpty(testtext.text))
         {
@@ -154,168 +138,11 @@ public class NotifiLib : BaseUnityPlugin
         testtext.rectTransform.localPosition = new Vector3(-1f,            -1f,            -0.5f);
         testtext.material                    = alertText;
 
-        // Rounded panel behind the notifications: border ring, dark card,
-        // accent stripe, and a drop shadow on the text itself.
-        Sprite cardSprite = CreateRoundedSprite(64, 22);
-
-        cardBorder = CreateCardObject(
-                hudObj.transform,
-                cardSprite,
-                new Color32(199, 155, 255, 110),
-                new Vector2(480f, 234f));
-
-        cardImage = CreateCardObject(
-                hudObj.transform,
-                cardSprite,
-                cardColor,
-                new Vector2(470f, 224f));
-
-        GameObject barObject =
-                new()
-                {
-                        transform =
-                        {
-                                parent = cardImage.transform,
-                        },
-                };
-
-        accentBar = barObject.AddComponent<Image>();
-        accentBar.color                     = accentColor;
-        accentBar.raycastTarget             = false;
-        accentBar.rectTransform.sizeDelta   = new Vector2(12f, 224f);
-        accentBar.rectTransform.localPosition = new Vector3(-225f, 0f, 0f);
-
-        textShadow = testtext.gameObject.AddComponent<Shadow>();
-        textShadow.effectColor     = new Color(0f, 0f, 0f, 0.75f);
-        textShadow.effectDistance  = new Vector2(2f, -2f);
-        textShadow.useGraphicAlpha = true;
-
-        // Text draws on top of the panel.
-        testtext.transform.SetAsLastSibling();
-
+        // Notifications are plain text: no card, stripe or drop shadow behind
+        // them. The old accent stripe was parented with a world-stay transform,
+        // which turned its 12x224 rect into a 12m x 224m pink slab in front of
+        // your face - hence no fancy panel at all any more.
         notificationText = testtext;
-    }
-
-    // Panel image sharing the text's exact transform so it sits flush behind it.
-    private Image CreateCardObject(Transform parent, Sprite sprite, Color color, Vector2 size)
-    {
-        GameObject cardObject =
-                new()
-                {
-                        transform =
-                        {
-                                parent = parent,
-                        },
-                };
-
-        Image image = cardObject.AddComponent<Image>();
-
-        image.sprite        = sprite;
-        image.type          = Image.Type.Sliced;
-        image.color         = color;
-        image.raycastTarget = false;
-
-        image.rectTransform.localPosition = testtext.rectTransform.localPosition;
-        image.rectTransform.localRotation = testtext.rectTransform.localRotation;
-        image.rectTransform.localScale    = testtext.rectTransform.localScale;
-        image.rectTransform.sizeDelta     = size;
-
-        return image;
-    }
-
-    // Soft rounded-square sprite used by the notification card.
-    private static Sprite CreateRoundedSprite(int size, int radius)
-    {
-        Texture2D texture = new(size, size, TextureFormat.RGBA32, false);
-
-        Color[] pixels = new Color[size * size];
-
-        for (int y = 0; y < size; y++)
-        {
-            for (int x = 0; x < size; x++)
-            {
-                // Distance to the inner rect; zero in the straight-edge zones,
-                // real distance only in the four corners.
-                float px = Mathf.Clamp(x + 0.5f, radius, size - radius);
-                float py = Mathf.Clamp(y + 0.5f, radius, size - radius);
-
-                float distance =
-                        Vector2.Distance(
-                                new Vector2(x + 0.5f, y + 0.5f),
-                                new Vector2(px,             py));
-
-                float alpha =
-                        Mathf.Clamp01(radius - distance + 0.5f);
-
-                pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
-            }
-        }
-
-        texture.SetPixels(pixels);
-        texture.Apply();
-
-        return Sprite.Create(
-                texture,
-                new Rect(0f, 0f, size, size),
-                new Vector2(0.5f, 0.5f),
-                1f, // pixels per unit: sprite units match canvas units
-                0,
-                SpriteMeshType.FullRect,
-                new Vector4(radius, radius, radius, radius));
-    }
-
-    // Pop punch on the HUD and accent flash on the card, plus visibility.
-    private void UpdateFancyCard()
-    {
-        if (cardImage == null)
-            return;
-
-        bool fancy  = fancyNotifications;
-        bool hasText = !string.IsNullOrEmpty(testtext.text);
-        bool show   = fancy && hasText;
-
-        cardImage.enabled = show;
-
-        if (cardBorder != null)
-            cardBorder.enabled = show;
-
-        if (accentBar != null)
-            accentBar.enabled = show;
-
-        if (textShadow != null)
-            textShadow.enabled = fancy;
-
-        // Squeeze the whole HUD when a notification arrives, then ease back.
-        float punchT =
-                (Time.unscaledTime - punchStart) /
-                0.25f;
-
-        if (hudObj != null)
-        {
-            if (punchT >= 1f)
-                hudObj.transform.localScale = Vector3.one;
-            else
-            {
-                float strength =
-                        1f +
-                        0.15f * (1f - punchT) * (1f - punchT);
-
-                hudObj.transform.localScale = Vector3.one * strength;
-            }
-        }
-
-        if (!fancy)
-            return;
-
-        // Flash the card from accent purple back to its dark resting colour.
-        float flashT =
-                (Time.unscaledTime - flashStart) /
-                0.45f;
-
-        cardImage.color =
-                flashT >= 1f
-                        ? cardColor
-                        : Color.Lerp(accentColor, cardColor, flashT);
     }
 
     public static void SendNotification(string notificationText)
@@ -334,12 +161,6 @@ public class NotifiLib : BaseUnityPlugin
                     NotifiLib.notificationText.text            += notificationText;
                     NotifiLib.notificationText.supportRichText =  true;
                     PreviousNotification                       =  notificationText;
-
-                    if (fancyNotifications)
-                    {
-                        punchStart = Time.unscaledTime;
-                        flashStart = Time.unscaledTime;
-                    }
                 }
             }
             catch

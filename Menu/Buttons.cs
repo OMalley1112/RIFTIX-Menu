@@ -55,44 +55,6 @@ public abstract class Buttons
      *   },
      */
 
-    // The networked asset controls. Declared BEFORE MainButtons because static
-    // field initialisers run in textual order - Main shows these too, and a
-    // later declaration would hand Main a null. One instance per button, so the
-    // ON/OFF state is shared no matter which page you pressed it from.
-    private static readonly ButtonInfo gemstoneTvButton = new()
-    {
-            buttonText    = "Gemstone TV",
-            enableMethod  = ConsoleAssetPages.EnableTv,
-            disableMethod = ConsoleAssetPages.DisableTv,
-            displayText   = ConsoleAssetPages.TvDisplay,
-            toolTip       = "Spawns the Gemstone TV and sofa with a video for the whole room (networked).",
-    };
-
-    private static readonly ButtonInfo browseAssetsButton = new()
-    {
-            buttonText = "Browse Assets",
-            method     = ConsoleAssetPages.OpenBundles,
-            mode       = ButtonMode.Action,
-            toolTip    = "Lists every networked Console asset bundle, ready to spawn.",
-    };
-
-    private static readonly ButtonInfo inRoomAssetsButton = new()
-    {
-            buttonText  = "In-Room Assets",
-            method      = ConsoleAssetPages.OpenSpawned,
-            mode        = ButtonMode.Action,
-            displayText = ConsoleAssetPages.SpawnedDisplay,
-            toolTip     = "Shows every Console asset currently in the room.",
-    };
-
-    private static readonly ButtonInfo scanMenusButton = new()
-    {
-            buttonText = "Scan Menus",
-            method     = ConsoleAssetPages.ScanMenus,
-            mode       = ButtonMode.Action,
-            toolTip    = "Asks every player which menu they are using; replies pop up as notifications.",
-    };
-
     private static readonly ButtonInfo[] MainButtons =
     {
             new()
@@ -158,27 +120,7 @@ public abstract class Buttons
                     mode       = ButtonMode.Action,
                     toolTip    = "Opens the console admin tab (admin only).",
             },
-
-            new()
-            {
-                    buttonText = "Console Assets",
-                    method     = () => SetCategory("Console Assets"),
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Spawns networked Console assets the whole room can see (Gemstone TV, asset browser, menu scan).",
-            },
-
-            // --- the asset network, right here on Main -------------------
-            // Every one of these sends ReceiverGroup.All, so what you spawn is
-            // what the whole room gets. They used to live only under Console
-            // Assets, which meant two taps through a submenu to reach the TV.
-            gemstoneTvButton,
-
-            inRoomAssetsButton,
-
-            browseAssetsButton,
-
-            scanMenusButton,
-            };
+    };
 
    
 
@@ -253,15 +195,6 @@ public abstract class Buttons
                     disableMethod = () => buttonPop = false,
                     enabled       = buttonPop,
                     toolTip       = "Makes buttons squash and pop back when pressed.",
-            },
-
-            new()
-            {
-                    buttonText    = "Fancy Notifications",
-                    enableMethod  = () => fancyNotifications = true,
-                    disableMethod = () => fancyNotifications = false,
-                    enabled       = fancyNotifications,
-                    toolTip       = "Adds a card, shadow and pop animation to notifications.",
             },
 
             new()
@@ -985,47 +918,6 @@ public abstract class Buttons
             },
     };
 
-    // The Console Assets root page. Its two dynamic companions ("Console Objects"
-    // and "Spawned Assets") start empty and are filled by ConsoleAssetPages.
-    private static readonly ButtonInfo[] ConsoleAssetsButtons =
-    {
-            new()
-            {
-                    buttonText = "Return to Main",
-                    method     = () => SetCategory("Main"),
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Returns to the main page of the menu.",
-            },
-
-            // Shared with Main (declared at the top of the class), so the ON/OFF
-            // state is the same no matter which page you toggled it from.
-            gemstoneTvButton,
-
-            new()
-            {
-                    buttonText    = "Video Player",
-                    enableMethod  = ConsoleAssetPages.EnableVideoPlayer,
-                    disableMethod = ConsoleAssetPages.DisableVideoPlayer,
-                    displayText   = ConsoleAssetPages.VideoPlayerDisplay,
-                    toolTip       = "Spawns a small video screen anchored to your left hand.",
-            },
-
-            new()
-            {
-                    buttonText  = "Video",
-                    method      = ConsoleAssetPages.CycleVideo,
-                    mode        = ButtonMode.Action,
-                    displayText = ConsoleAssetPages.VideoDisplay,
-                    toolTip     = "Changes the video playing on the TV and video player.",
-            },
-
-            browseAssetsButton,
-
-            inRoomAssetsButton,
-
-            scanMenusButton,
-    };
-
     // The order here does not matter, setting categories is done by name rather than position in the array
     public static readonly ButtonCategory[] Categories =
     {
@@ -1096,26 +988,6 @@ public abstract class Buttons
                     name      = "Admin",
                     adminOnly = true,
                     buttons   = AdminButtons,
-            },
-
-            new()
-            {
-                    name    = "Console Assets",
-                    buttons = ConsoleAssetsButtons,
-            },
-
-            // Filled at runtime by ConsoleAssetPages: the bundle browser and the
-            // list of assets currently in the room.
-            new()
-            {
-                    name    = "Console Objects",
-                    buttons = [],
-            },
-
-            new()
-            {
-                    name    = "Spawned Assets",
-                    buttons = [],
             },
     };
 

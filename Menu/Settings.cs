@@ -181,9 +181,8 @@ public class Settings
     [SavedSetting] public static bool textGradient       = true;
     [SavedSetting] public static bool buttonPop          = true;
 
-    // Notifications are plain text by default - the card/shadow/pop version
-    // is opt-in from Settings -> Fancy Notifications.
-    [SavedSetting] public static bool fancyNotifications;
+    // Notifications are always plain text: the card / stripe / shadow version
+    // was removed after its accent stripe rendered as a 12m pink slab.
 
     [SavedSetting] public static KeyCode keyboardButton = KeyCode.Q;
 
