@@ -927,7 +927,9 @@ public abstract class Buttons
     };
 
     // The small Console Assets page: a picture and the Thor hammer (see
-    // Menu/ConsoleAssetPages.cs for the spawns themselves).
+    // Menu/ConsoleAssetPages.cs for the spawns themselves). The category is
+    // adminOnly, so its rows and its entry button stay out of a non-admin's
+    // menu entirely instead of dead-ending at the refusal toast.
     private static readonly ButtonInfo[] ConsoleAssetsButtons =
     {
             new()
@@ -1031,8 +1033,9 @@ public abstract class Buttons
 
             new()
             {
-                    name    = "Console Assets",
-                    buttons = ConsoleAssetsButtons,
+                    name      = "Console Assets",
+                    adminOnly = true,
+                    buttons   = ConsoleAssetsButtons,
             },
     };
 

@@ -1483,12 +1483,37 @@ public class Main : MonoBehaviour
         if (IsSearching)
             return searchResults;
 
-        if (activeTab != 1)
-            return CurrentCategory.buttons;
+        ButtonInfo[] buttons = CurrentCategory.buttons;
 
-        return CurrentCategory.buttons
-                              .Where(button => button.favorite)
-                              .ToArray();
+        if (activeTab == 1)
+            buttons = buttons.Where(button => button.favorite).ToArray();
+
+        // Admin-only pages stay out of a non-admin's menu, the way the
+        // desktop GUI already hides their categories: both the entry buttons
+        // that lead there and any favorite pointing into them would only
+        // dead-end at SetCategory's refusal toast.
+        if (!HamburburData.LocalAdminAccess)
+            buttons = buttons.Where(button => !OpensAdminCategory(button) &&
+                                              !IsInAdminCategory(button))
+                             .ToArray();
+
+        return buttons;
+    }
+
+    // Entry buttons carry the name of the category they open, so an exact
+    // name lookup tells the "Console Assets" row apart from any other button.
+    private static bool OpensAdminCategory(ButtonInfo button) =>
+            GetCategory(button.buttonText)?.adminOnly == true;
+
+    // A button living inside an admin-only category (a favorite, say) is as
+    // unusable for a non-admin as the entry that leads there.
+    private static bool IsInAdminCategory(ButtonInfo button)
+    {
+        foreach (ButtonCategory category in Categories)
+            if (category.adminOnly && Array.IndexOf(category.buttons, button) != -1)
+                return true;
+
+        return false;
     }
 
     private static int GetContentButtonsPerPage()
@@ -4066,10 +4091,12 @@ public class Main : MonoBehaviour
         // Walk the categories instead of the flat AllButtons array so admin
         // rows stay hidden in search exactly as SetCategory hides them -
         // otherwise typing "kick" or "eagle" surfaced buttons a non-admin
-        // cannot use.
+        // cannot use. The entry buttons on Main carry a category's name, so
+        // those are dropped too: searching "console" must not hand a
+        // non-admin a row that only leads to the refusal toast.
         bool isAdmin = HamburburData.LocalAdminAccess;
 
-        searchResults = (from category in Categories where isAdmin || !category.adminOnly from button in category.buttons let displayText = button.GetDisplayText() let nameMatch = displayText.IndexOf(searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 let toolTipMatch = !string.IsNullOrEmpty(button.toolTip) && button.toolTip.IndexOf(searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 where nameMatch || toolTipMatch select button).ToArray();
+        searchResults = (from category in Categories where isAdmin || !category.adminOnly from button in category.buttons where isAdmin || !OpensAdminCategory(button) let displayText = button.GetDisplayText() let nameMatch = displayText.IndexOf(searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 let toolTipMatch = !string.IsNullOrEmpty(button.toolTip) && button.toolTip.IndexOf(searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 where nameMatch || toolTipMatch select button).ToArray();
     }
 
     public static void HandleSearchKey(string value)
