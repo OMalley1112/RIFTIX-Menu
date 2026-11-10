@@ -284,6 +284,7 @@ public class Console : MonoBehaviour
             }
         }
 
+        Menu.ConsoleAssetPages.UpdateSteamIcon();
         SanitizeConsoleAssets();
     }
 

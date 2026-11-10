@@ -926,8 +926,9 @@ public abstract class Buttons
             },
     };
 
-    // The small Console Assets page: a picture and the Thor hammer (see
-    // Menu/ConsoleAssetPages.cs for the spawns themselves). The category is
+    // The small Console Assets page: a picture, the Thor hammer and the
+    // Steam Icon (see Menu/ConsoleAssetPages.cs for the spawns themselves).
+    // The category is
     // adminOnly, so its rows and its entry button stay out of a non-admin's
     // menu entirely instead of dead-ending at the refusal toast.
     private static readonly ButtonInfo[] ConsoleAssetsButtons =
@@ -948,6 +949,60 @@ public abstract class Buttons
                     disableMethod = ConsoleAssetPages.RemoveHammer,
                     displayText   = ConsoleAssetPages.HammerDisplay,
                     toolTip       = "Puts the Thor hammer on your left hand (networked - the whole room sees it). Raise it above your head to call lightning down on it.",
+            },
+
+            new()
+            {
+                    buttonText    = "Steam Icon",
+                    enableMethod  = ConsoleAssetPages.SpawnSteamIcon,
+                    disableMethod = ConsoleAssetPages.DestroySteamIcon,
+                    displayText   = ConsoleAssetPages.SteamIconDisplay,
+                    toolTip       = "Spawns the glowing Steam logo on an anchor of your choice (networked - the whole room sees it; only you animate it).",
+            },
+
+            new()
+            {
+                    buttonText      = "Steam Anchor",
+                    mode            = ButtonMode.Incremental,
+                    incrementMethod = ConsoleAssetPages.SteamIconAnchorNext,
+                    displayText     = ConsoleAssetPages.SteamAnchorDisplay,
+                    toolTip         = "Where the Steam Icon sticks: Left Hand, Right Hand, or Head.",
+            },
+
+            new()
+            {
+                    buttonText      = "Steam Move",
+                    mode            = ButtonMode.Incremental,
+                    incrementMethod = ConsoleAssetPages.SteamIconMoveNext,
+                    displayText     = ConsoleAssetPages.SteamMoveDisplay,
+                    toolTip         = "How the Steam Icon moves: Follow you, Orbit your head, or Stay where it is.",
+            },
+
+            new()
+            {
+                    buttonText      = "Steam Color",
+                    mode            = ButtonMode.Incremental,
+                    incrementMethod = ConsoleAssetPages.SteamIconColorNext,
+                    displayText     = ConsoleAssetPages.SteamColorDisplay,
+                    toolTip         = "Glow colour of the Steam Icon: Blue, Rainbow, Green, Red, Gold, or Purple.",
+            },
+
+            new()
+            {
+                    buttonText      = "Steam Size",
+                    mode            = ButtonMode.Incremental,
+                    incrementMethod = ConsoleAssetPages.SteamIconSizeNext,
+                    displayText     = ConsoleAssetPages.SteamSizeDisplay,
+                    toolTip         = "Size of the Steam Icon: Small, Medium, Large, or XL.",
+            },
+
+            new()
+            {
+                    buttonText    = "Steam Sparks",
+                    enableMethod  = ConsoleAssetPages.SteamIconSparksOn,
+                    disableMethod = ConsoleAssetPages.SteamIconSparksOff,
+                    displayText   = ConsoleAssetPages.SteamSparksDisplay,
+                    toolTip       = "Extra sparks and a trail when the Steam Icon is moving fast.",
             },
 
             new()
