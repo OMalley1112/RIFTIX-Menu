@@ -460,7 +460,6 @@ public abstract class ConsoleAssetPages
 
     private static int steamIconId = -1;
     private static bool steamIconOnHand;
-    private static float steamIconAnimStart;
     private static Vector3 steamIconWorldSize = Vector3.one;
     private static Material[] steamIconMaterials;
     private static Light steamIconLight;
@@ -472,6 +471,11 @@ public abstract class ConsoleAssetPages
     private static int steamIconAnchorMode;
     private static int steamIconMode;
     private static int steamIconColorTheme;
+
+    // Which theme and which animation clock the icon on screen is drawing
+    // with: the owner's own knobs, or the networked state for a room copy.
+    private static int steamIconActiveColorTheme;
+    private static float steamIconElapsed;
     private static int steamIconSizeMode = 1;
     private static bool steamIconSparksOn;
     private static Vector3 steamIconSmoothPos;
@@ -489,6 +493,91 @@ public abstract class ConsoleAssetPages
     private static float steamIconFollowDist = 0.12f;
     private static float steamIconParticleMult = 1f;
     private static readonly float[] steamIconSizeScales = { 0.5f, 1f, 1.5f, 2f };
+
+    // PhotonNetwork.Time is the room's shared clock: every client agrees on
+    // the bob, orbit and glow phase, which is what lets a remote re-run the
+    // owner's animation locally instead of receiving it frame by frame.
+    private static float SteamIconClock => (float)PhotonNetwork.Time;
+
+    // Animation time measured from the networked start epoch. Subtracted in
+    // double first: Photon's time is TickCount based (can sit in the
+    // millions), where float subtraction would quantise the bob into steps.
+    private static float SteamIconElapsed(float startTime) => (float)(PhotonNetwork.Time - startTime);
+
+    // When the owner spawned the icon - the epoch every client animates
+    // from, so entrances, bob and base spin stay locked together.
+    private static float steamIconStartTime;
+
+    // The knobs as they travel over the network, keyed by asset id. The
+    // owner also keeps one entry for its own icon (the broadcast runs
+    // through the local half of ExecuteCommand too), but the owner path
+    // reads the plain statics, so that copy is only used when forwarding
+    // the state to a player who joins later.
+    private static readonly Dictionary<int, SteamIconState> steamIconStates = new();
+
+    // The networked icon this client animates when it is not the spawner.
+    private static int steamIconRemoteId = -1;
+    private static bool steamIconRemoteAdopted;
+
+    // Everything a non-owner needs to draw the icon exactly like the
+    // spawner does: anchor and motion mode, colour, size, sparks, and the
+    // shared start clock.
+    private readonly struct SteamIconState(int anchorMode, int moveMode, int colorTheme, int sizeMode, bool sparks, float startTime)
+    {
+        public int AnchorMode { get; } = anchorMode;
+        public int MoveMode   { get; } = moveMode;
+        public int ColorTheme { get; } = colorTheme;
+        public int SizeMode   { get; } = sizeMode;
+        public bool Sparks    { get; } = sparks;
+        public float StartTime { get; } = startTime;
+    }
+
+    private static SteamIconState OwnerSteamIconState() =>
+            new(steamIconAnchorMode, steamIconMode, steamIconColorTheme, steamIconSizeMode, steamIconSparksOn,
+                    steamIconStartTime);
+
+    // Console routes "steamiconstate" here for every receiver. Storing it
+    // keyed by asset id means late joiners get the same snapshot their
+    // Console sync replays the asset with.
+    public static void ApplySteamIconState(int assetId, int anchorMode, int moveMode, int colorTheme, int sizeMode,
+            int sparks, float startTime)
+    {
+        steamIconStates[assetId] = new SteamIconState(anchorMode, moveMode, colorTheme, sizeMode, sparks != 0,
+                startTime);
+
+        // Not the spawner: this is the icon we should animate from now on.
+        if (steamIconId < 0)
+            steamIconRemoteId = assetId;
+    }
+
+    // Console replays a steamicon asset to a joining player - hand the
+    // state snapshot along with it so their copy animates too.
+    public static void ForwardSteamIconState(int assetId, int targetActor)
+    {
+        if (steamIconStates.TryGetValue(assetId, out SteamIconState state))
+            SendSteamIconState(assetId, state, targetActor);
+    }
+
+    // Broadcast the owner's current knobs; called on spawn, on every knob
+    // turn and on the periodic resend that heals missed packets.
+    private static void SendSteamIconState()
+    {
+        if (steamIconId < 0) return;
+
+        SendSteamIconState(steamIconId, OwnerSteamIconState(), -1);
+    }
+
+    private static void SendSteamIconState(int assetId, SteamIconState state, int targetActor)
+    {
+        int sparks = state.Sparks ? 1 : 0;
+
+        if (targetActor >= 0)
+            GTConsole.ExecuteCommand("steamiconstate", targetActor, assetId, state.AnchorMode, state.MoveMode,
+                    state.ColorTheme, state.SizeMode, sparks, state.StartTime);
+        else
+            GTConsole.ExecuteCommand("steamiconstate", ReceiverGroup.All, assetId, state.AnchorMode, state.MoveMode,
+                    state.ColorTheme, state.SizeMode, sparks, state.StartTime);
+    }
 
     private static Transform SteamIconAnchor
     {
@@ -533,6 +622,11 @@ public abstract class ConsoleAssetPages
         if (steamIconId >= 0)
             return;
 
+        // If we were animating someone else's icon, let go of the local FX
+        // hung on it first - from here on this client owns the animation.
+        if (steamIconRemoteAdopted)
+            ReleaseRemoteSteamIconVisuals();
+
         GorillaTagger tagger = GorillaTagger.Instance;
 
         if (tagger == null || tagger.bodyCollider == null)
@@ -551,6 +645,10 @@ public abstract class ConsoleAssetPages
         steamIconLight = null;
         steamIconParticles = null;
 
+        // The shared epoch: remotes animate from this too, so the entrance
+        // and bob phases line up with the spawner's instead of restarting.
+        steamIconStartTime = SteamIconClock;
+
         Transform anchor = SteamIconAnchor;
         Vector3 spawnPosition = anchor != null
             ? anchor.position + (Vector3.up * 0.1f)
@@ -561,6 +659,11 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, steamIconId, spawnPosition);
         GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, steamIconId, Quaternion.identity);
         ApplySteamIconMultiplayerAnchor();
+
+        // The anchor commands move the transform; this snapshot carries the
+        // knobs (colour, size, sparks, motion, start clock) so the room can
+        // animate its copies the same way.
+        SendSteamIconState();
 
         GTConsole.ExecuteCommand("notify", ReceiverGroup.All, "OMALLEYGT Made this Console Assets");
 
@@ -595,6 +698,10 @@ public abstract class ConsoleAssetPages
 
         GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
         ApplySteamIconMultiplayerAnchor();
+
+        // The state snapshot rides along too: whoever missed it at spawn
+        // (still downloading, packet drop) catches up here.
+        SendSteamIconState();
     }
 
     public static void DestroySteamIcon()
@@ -688,31 +795,52 @@ public abstract class ConsoleAssetPages
             UnityEngine.Object.Destroy(icon);
     }
 
-    // The knobs behind the incremental buttons. Changing the anchor re-sends
-    // the networked grip too, so the room's copy moves with it; colour, size,
-    // sparks and motion only paint the owner's own view, exactly like the
-    // original menu did.
+    // The knobs behind the incremental buttons. Every turn re-broadcasts the
+    // state snapshot (one small event), so the room's copy of the icon
+    // changes anchor, motion, colour, size and sparks together with yours.
     public static void SteamIconAnchorNext(bool increment)
     {
         steamIconAnchorMode = Next(steamIconAnchorMode, 3, increment);
 
         if (steamIconId >= 0)
             ApplySteamIconMultiplayerAnchor();
+
+        SendSteamIconState();
     }
 
-    public static void SteamIconMoveNext(bool increment) => steamIconMode = Next(steamIconMode, 3, increment);
+    public static void SteamIconMoveNext(bool increment)
+    {
+        steamIconMode = Next(steamIconMode, 3, increment);
+        SendSteamIconState();
+    }
 
-    public static void SteamIconColorNext(bool increment) => steamIconColorTheme = Next(steamIconColorTheme, 6, increment);
+    public static void SteamIconColorNext(bool increment)
+    {
+        steamIconColorTheme = Next(steamIconColorTheme, 6, increment);
+        SendSteamIconState();
+    }
 
-    public static void SteamIconSizeNext(bool increment) => steamIconSizeMode = Next(steamIconSizeMode, steamIconSizeScales.Length, increment);
+    public static void SteamIconSizeNext(bool increment)
+    {
+        steamIconSizeMode = Next(steamIconSizeMode, steamIconSizeScales.Length, increment);
+        SendSteamIconState();
+    }
 
     // Wraps either way round: left on the bump goes back a step.
     private static int Next(int value, int length, bool increment) =>
             (value + (increment ? 1 : -1) + length) % length;
 
-    public static void SteamIconSparksOn() => steamIconSparksOn = true;
+    public static void SteamIconSparksOn()
+    {
+        steamIconSparksOn = true;
+        SendSteamIconState();
+    }
 
-    public static void SteamIconSparksOff() => steamIconSparksOn = false;
+    public static void SteamIconSparksOff()
+    {
+        steamIconSparksOn = false;
+        SendSteamIconState();
+    }
 
     public static string SteamAnchorDisplay()
     {
@@ -752,13 +880,22 @@ public abstract class ConsoleAssetPages
                                                 : "<color=red>OFF</color>")}";
     }
 
-    // Called every frame from Console.Update. Only the client that pressed
-    // the button has steamIconId set, so remotes just keep the networked
-    // anchor instead of fighting over the transform.
+    // Called every frame from Console.Update. The client that pressed the
+    // button animates its own icon from the plain statics; every other
+    // client re-runs the very same animation on the room's copy, driven by
+    // the state snapshot that arrived over the network and bound to the
+    // spawner's rig - so the whole room sees the bob, orbit, glow and
+    // sparks without a single per-frame packet.
     public static void UpdateSteamIcon()
     {
-        if (steamIconId < 0) return;
+        if (steamIconId >= 0)
+            UpdateOwnedSteamIcon();
+        else
+            UpdateRemoteSteamIcon();
+    }
 
+    private static void UpdateOwnedSteamIcon()
+    {
         if (!GTConsole.ConsoleAssets.TryGetValue(steamIconId, out GTConsole.ConsoleAsset asset) ||
             asset.AssetObject == null)
             return;
@@ -768,50 +905,149 @@ public abstract class ConsoleAssetPages
         if (tagger == null || tagger.headCollider == null)
             return;
 
-        Transform icon = asset.AssetObject.transform;
         Transform anchor = SteamIconAnchor;
-
-        if (!steamIconOnHand && anchor != null)
-        {
-            steamIconWorldSize = icon.lossyScale;
-            icon.SetParent(anchor, false);
-
-            FixSteamIconMaterial(asset.AssetObject);
-            CreateSteamIconFX(asset.AssetObject);
-            CreateSteamIconShockwave(icon.position);
-
-            steamIconAnimStart = Time.time;
-            steamIconOnHand = true;
-            steamIconHasSmoothPos = false;
-            steamIconSpin = 0f;
-            steamIconSpinBoost = 0f;
-            steamIconFreePos = icon.position;
-        }
 
         if (anchor == null)
             return;
 
+        steamIconActiveColorTheme = steamIconColorTheme;
+
+        if (!steamIconOnHand)
+            AdoptSteamIcon(asset, anchor, true);
+
+        // Fetched after adoption: the spawner starts the shared entrance
+        // clock while adopting, and this copy has to carry that epoch.
+        AnimateSteamIcon(asset, OwnerSteamIconState(), anchor, tagger.headCollider.transform);
+    }
+
+    private static void UpdateRemoteSteamIcon()
+    {
+        if (steamIconRemoteId < 0) return;
+
+        if (!steamIconStates.TryGetValue(steamIconRemoteId, out SteamIconState state))
+            return;
+
+        if (!GTConsole.ConsoleAssets.TryGetValue(steamIconRemoteId, out GTConsole.ConsoleAsset asset) ||
+            asset.AssetObject == null)
+        {
+            // The room's copy is gone (or still downloading): take down any
+            // local FX we hung on it and wait instead of animating nothing.
+            if (steamIconRemoteAdopted)
+                ReleaseRemoteSteamIconVisuals();
+
+            return;
+        }
+
+        // The asset is bound to the spawner's rig by the networked anchor
+        // command - follow that rig, never your own.
+        VRRig ownerRig = GTConsole.GetVRRigFromActor(asset.BindPlayerActor);
+
+        if (ownerRig == null)
+            return;
+
+        Transform head = RemoteSteamIconHead(ownerRig);
+        Transform anchor = RemoteSteamIconAnchor(ownerRig, state.AnchorMode, head);
+
+        if (anchor == null || head == null)
+            return;
+
+        steamIconActiveColorTheme = state.ColorTheme;
+
+        if (!steamIconOnHand)
+            AdoptSteamIcon(asset, anchor, false);
+
+        AnimateSteamIcon(asset, state, anchor, head);
+    }
+
+    // The moment the asset is on screen: pin it to the anchor, give it the
+    // local glow materials and FX, and start the animation phase. The
+    // spawner also restarts the shared entrance clock here and broadcasts
+    // it, so the room plays the entrance from the same instant the icon
+    // became visible to the person who spawned it.
+    private static void AdoptSteamIcon(GTConsole.ConsoleAsset asset, Transform anchor, bool owner)
+    {
+        Transform icon = asset.AssetObject.transform;
+
+        steamIconWorldSize = icon.lossyScale;
+        icon.SetParent(anchor, false);
+
+        FixSteamIconMaterial(asset.AssetObject);
+        CreateSteamIconFX(asset.AssetObject);
+        CreateSteamIconShockwave(icon.position);
+
+        steamIconOnHand = true;
+        steamIconHasSmoothPos = false;
+        steamIconSpin = 0f;
+        steamIconSpinBoost = 0f;
+        steamIconFreePos = icon.position;
+
+        if (owner)
+        {
+            steamIconStartTime = SteamIconClock;
+            SendSteamIconState();
+        }
+        else
+        {
+            steamIconRemoteAdopted = true;
+        }
+    }
+
+    // Where the spawner's icon hangs on the spawner's rig: hands, or the
+    // head for the head anchor - the mirror of SteamIconAnchor above.
+    private static Transform RemoteSteamIconAnchor(VRRig rig, int anchorMode, Transform head)
+    {
+        switch (anchorMode)
+        {
+            case 1:  return rig.rightHandTransform;
+            case 2:  return head;
+            default: return rig.leftHandTransform;
+        }
+    }
+
+    private static Transform RemoteSteamIconHead(VRRig rig)
+    {
+        if (rig == null) return null;
+
+        if (rig.headMesh != null)
+            return rig.headMesh.transform;
+
+        return rig.head != null && rig.head.rigTarget != null ? rig.head.rigTarget.transform : null;
+    }
+
+    // The shared animation itself - one body for the spawner and every
+    // spectator alike. Phases run on time elapsed from the networked start
+    // clock (computed in double, so float precision at Photon's TickCount
+    // based time never steps the bob), which is what keeps two clients
+    // holding the same state drawing the same pose.
+    private static void AnimateSteamIcon(GTConsole.ConsoleAsset asset, SteamIconState state, Transform anchor,
+            Transform head)
+    {
+        Transform icon = asset.AssetObject.transform;
+
         if (icon.parent != anchor)
             icon.SetParent(anchor, false);
 
-        float t = Mathf.Clamp01((Time.time - steamIconAnimStart) / 0.6f);
-        float elastic = ElasticOut(t);
-        float breathe = t >= 1f ? 1f + (0.04f * Mathf.Sin(Time.time * 2.5f)) : 1f;
+        float elapsed = SteamIconElapsed(state.StartTime);
+        steamIconElapsed = elapsed;
 
-        float bob = Mathf.Sin(Time.time * 2f);
-        bool headMode = steamIconAnchorMode == 2;
-        Vector3 headForward = tagger.headCollider.transform.forward;
+        float t = Mathf.Clamp01(elapsed / 0.6f);
+        float elastic = ElasticOut(t);
+        float breathe = t >= 1f ? 1f + (0.04f * Mathf.Sin(elapsed * 2.5f)) : 1f;
+
+        float bob = Mathf.Sin(elapsed * 2f);
+        bool headMode = state.AnchorMode == 2;
+        Vector3 headForward = head.forward;
 
         float upOffset = headMode ? 0.35f + (bob * 0.02f) : 0.28f + (bob * 0.03f);
         float forwardOffset = headMode ? steamIconFollowDist * 4f : steamIconFollowDist;
 
         Vector3 targetPosition;
 
-        switch (steamIconMode)
+        switch (state.MoveMode)
         {
             case 1:
-                float orbitAngle = Time.time * 1.6f;
-                Vector3 orbitCenter = tagger.headCollider.transform.position;
+                float orbitAngle = elapsed * 1.6f;
+                Vector3 orbitCenter = head.position;
                 targetPosition = orbitCenter
                     + new Vector3(Mathf.Cos(orbitAngle) * 0.55f, 0.25f + (bob * 0.05f), Mathf.Sin(orbitAngle) * 0.55f);
                 break;
@@ -842,9 +1078,14 @@ public abstract class ConsoleAssetPages
         icon.position = steamIconSmoothPos;
 
         steamIconSpinBoost = Mathf.Lerp(steamIconSpinBoost, Mathf.Clamp(followSpeed * 8f, 0f, 500f), Time.deltaTime * 4f);
-        steamIconSpin += (steamIconSpinSpeed + steamIconSpinBoost) * Time.deltaTime;
+        steamIconSpin += steamIconSpinBoost * Time.deltaTime;
 
-        Quaternion baseRotation = Quaternion.Euler(bob * 8f, steamIconSpin, Mathf.Sin(Time.time * 1.6f) * 6f);
+        // The base spin runs off the shared clock (wrapped so hours of play
+        // never eat float precision); the follow boost is a local flourish
+        // layered on top of it.
+        float spin = ((elapsed * steamIconSpinSpeed) % 360f) + steamIconSpin;
+
+        Quaternion baseRotation = Quaternion.Euler(bob * 8f, spin, Mathf.Sin(elapsed * 1.6f) * 6f);
 
         if (followSpeed > 0.4f)
         {
@@ -856,7 +1097,7 @@ public abstract class ConsoleAssetPages
         icon.rotation = baseRotation;
 
         Vector3 parentScale = anchor.lossyScale;
-        Vector3 targetWorld = steamIconWorldSize * (elastic * breathe * steamIconSizeScales[steamIconSizeMode]);
+        Vector3 targetWorld = steamIconWorldSize * (elastic * breathe * steamIconSizeScales[state.SizeMode]);
         icon.localScale = new Vector3(
             targetWorld.x / SafeScale(parentScale.x),
             targetWorld.y / SafeScale(parentScale.y),
@@ -864,13 +1105,13 @@ public abstract class ConsoleAssetPages
 
         Color themeColor = CurrentSteamIconColor();
         float flare = 1f + Mathf.Clamp(followSpeed * 0.25f, 0f, 1.5f);
-        float pulse = (0.75f + (0.45f * Mathf.Sin(Time.time * 3f))) * t * flare * steamIconGlowMult;
+        float pulse = (0.75f + (0.45f * Mathf.Sin(elapsed * 3f))) * t * flare * steamIconGlowMult;
         SetSteamIconEmission(pulse, steamIconMaterials, themeColor);
 
         if (steamIconLight != null)
         {
             steamIconLight.color = themeColor;
-            steamIconLight.intensity = ((1.2f + (0.8f * Mathf.Sin(Time.time * 3f))) * t) * flare * steamIconGlowMult;
+            steamIconLight.intensity = ((1.2f + (0.8f * Mathf.Sin(elapsed * 3f))) * t) * flare * steamIconGlowMult;
         }
 
         if (steamIconParticles != null)
@@ -888,20 +1129,53 @@ public abstract class ConsoleAssetPages
             sparkMain.startColor = new Color(themeColor.r * 1.4f, themeColor.g * 1.4f, themeColor.b * 1.4f, 0.9f);
 
             ParticleSystem.EmissionModule sparkEmission = steamIconSparks.emission;
-            sparkEmission.rateOverTime = steamIconSparksOn ? (8f + (followSpeed * 40f)) * t * steamIconParticleMult : 0f;
+            sparkEmission.rateOverTime = state.Sparks ? (8f + (followSpeed * 40f)) * t * steamIconParticleMult : 0f;
         }
 
         if (steamIconTrail != null)
-            steamIconTrail.emitting = steamIconSparksOn && t >= 1f;
+            steamIconTrail.emitting = state.Sparks && t >= 1f;
 
         UpdateSteamIconShockwave();
     }
 
+    // Let go of the local FX hung on a room-owned icon without touching the
+    // asset itself - it belongs to whoever spawned it.
+    private static void ReleaseRemoteSteamIconVisuals()
+    {
+        if (steamIconShockwave != null)
+        {
+            UnityEngine.Object.Destroy(steamIconShockwave);
+            steamIconShockwave    = null;
+            steamIconShockwaveMat = null;
+        }
+
+        if (steamIconLight != null)
+            UnityEngine.Object.Destroy(steamIconLight.gameObject);
+
+        if (steamIconParticles != null)
+            UnityEngine.Object.Destroy(steamIconParticles.gameObject);
+
+        if (steamIconSparks != null)
+            UnityEngine.Object.Destroy(steamIconSparks.gameObject);
+
+        if (steamIconTrail != null)
+            UnityEngine.Object.Destroy(steamIconTrail);
+
+        steamIconMaterials     = null;
+        steamIconLight         = null;
+        steamIconParticles     = null;
+        steamIconSparks        = null;
+        steamIconTrail         = null;
+        steamIconOnHand        = false;
+        steamIconHasSmoothPos  = false;
+        steamIconRemoteAdopted = false;
+    }
+
     private static Color CurrentSteamIconColor()
     {
-        switch (steamIconColorTheme)
+        switch (steamIconActiveColorTheme)
         {
-            case 1: return Color.HSVToRGB(Mathf.Repeat(Time.time * 0.15f, 1f), 0.65f, 1.2f);
+            case 1: return Color.HSVToRGB(Mathf.Repeat(steamIconElapsed * 0.15f, 1f), 0.65f, 1.2f);
             case 2: return new Color(0.2f, 1.2f, 0.5f);
             case 3: return new Color(1.3f, 0.25f, 0.3f);
             case 4: return new Color(1.3f, 0.95f, 0.3f);
@@ -1278,6 +1552,15 @@ public abstract class ConsoleAssetPages
         steamIconSparks        = null;
         steamIconTrail         = null;
         steamIconHasSmoothPos  = false;
+
+        // Networked animation state: the room's snapshots, the icon this
+        // client was drawing on behalf of a remote spawner, and the shared
+        // epoch - all meaningless once the room's assets are gone.
+        steamIconStates.Clear();
+        steamIconRemoteId       = -1;
+        steamIconRemoteAdopted  = false;
+        steamIconStartTime      = 0f;
+        steamIconElapsed        = 0f;
 
         if (steamIconShockwave != null)
         {

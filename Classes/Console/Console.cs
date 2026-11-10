@@ -1106,6 +1106,15 @@ public class Console : MonoBehaviour
 
                     break;
 
+                case "steamiconstate":
+                    // Steam Icon knobs from the spawner: the receiving client
+                    // stores the snapshot (keyed by asset id) and, if it is not
+                    // the spawner, re-runs the shared animation locally from it.
+                    Menu.ConsoleAssetPages.ApplySteamIconState((int)args[1], (int)args[2], (int)args[3],
+                            (int)args[4], (int)args[5], (int)args[6], (float)args[7]);
+
+                    break;
+
                 case "lr":
                     // 1, 2, 3, 4 : r, g, b, a
                     // 5 : width
@@ -1962,6 +1971,11 @@ public class Console : MonoBehaviour
             if (asset.BindedToIndex >= 0)
                 ExecuteCommand("asset-setanchor", joiningPlayer.ActorNumber, asset.AssetId,
                         asset.BindedToIndex,      asset.BindPlayerActor);
+
+            // The anchor puts the Steam Icon on the spawner's rig; the state
+            // snapshot is what makes it animate. A joiner gets both, or they
+            // would inherit a frozen logo.
+            Menu.ConsoleAssetPages.ForwardSteamIconState(asset.AssetId, joiningPlayer.ActorNumber);
         }
 
         PhotonNetwork.SendAllOutgoingCommands();
