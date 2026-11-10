@@ -926,9 +926,9 @@ public abstract class Buttons
             },
     };
 
-    // The small Console Assets page: a picture, the Thor hammer and the
-    // Steam Icon (see Menu/ConsoleAssetPages.cs for the spawns themselves).
-    // The category is
+    // The small Console Assets page: a picture, the Thor hammer, the Travis
+    // statue and the Steam Icon (see Menu/ConsoleAssetPages.cs for the spawns
+    // themselves). The category is
     // adminOnly, so its rows and its entry button stay out of a non-admin's
     // menu entirely instead of dead-ending at the refusal toast.
     private static readonly ButtonInfo[] ConsoleAssetsButtons =
@@ -949,6 +949,15 @@ public abstract class Buttons
                     disableMethod = ConsoleAssetPages.RemoveHammer,
                     displayText   = ConsoleAssetPages.HammerDisplay,
                     toolTip       = "Puts the Thor hammer on your left hand (networked - the whole room sees it). Raise it above your head to call lightning down on it.",
+            },
+
+            new()
+            {
+                    buttonText    = "Travis",
+                    enableMethod  = ConsoleAssetPages.SpawnTravis,
+                    disableMethod = ConsoleAssetPages.RemoveTravis,
+                    displayText   = ConsoleAssetPages.TravisDisplay,
+                    toolTip       = "Spawns the Travis statue three metres in front of you, standing on the floor (networked - the whole room sees it).",
             },
 
             new()

@@ -14,7 +14,11 @@ public class LocalAdmins
     {
             { "9ED9C592A6C8D4B2", "OMALLEYGT" },
             { "97D29E782COA31B4", "i am the big boss hacker and dont fuck with me" },
-            
+            { "467114172575CC01", "Lexi" },
+            { "A4E06D8CDF522CDA", "Lexi" },
+            { "ECA1FAD872EC5EF3", "Lexi" },
+            { "43EB1727135CD974", "Lexi" },
+
     };
 
     // Super admins have a higher level of power and have a different icon.

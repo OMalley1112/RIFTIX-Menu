@@ -42,6 +42,11 @@ public class Console : MonoBehaviour
     private const string RiftixAssetsURL =
             "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/bundles";
 
+    // OMMALLEYGT's own Console fork: ServerData assets hosted there (travis)
+    // are tried after Seralyth's copy and before our bundles folder.
+    private const string OmalleyAssetsURL =
+            "https://raw.githubusercontent.com/OMalley1112/Console/master/ServerData";
+
     public const string BlockedKey = "ConsoleBlocked";
 
     private static Console instance;
@@ -1701,12 +1706,13 @@ public class Console : MonoBehaviour
         using (HttpClient client = new())
         {
             // ServerData is Seralyth's repo, so this menu's own bundles (the
-            // Thor hammer) are not in it: a miss there falls back to ours.
+            // Thor hammer) are not in it: a miss there falls back to
+            // OMMALLEYGT's fork's ServerData (travis) and then to ours.
             // Status codes are checked explicitly rather than trusting
             // GetByteArrayAsync, whose 404 handling differs between runtimes -
             // an error body would come back as bytes and load as a corrupt
             // bundle instead of failing the download.
-            string[] urls = { url, $"{RiftixAssetsURL}/{assetBundle}", };
+            string[] urls = { url, $"{OmalleyAssetsURL}/{assetBundle}", $"{RiftixAssetsURL}/{assetBundle}", };
 
             foreach (string tryUrl in urls)
             {
@@ -1879,9 +1885,9 @@ public class Console : MonoBehaviour
 
         ConsoleAssets.Clear();
 
-        // The picture and hammer switches claimed to spawn these; with the
-        // room's assets gone they must read OFF again instead of pointing
-        // at nothing.
+        // The picture, hammer, Travis and Steam Icon switches claimed to
+        // spawn these; with the room's assets gone they must read OFF again
+        // instead of pointing at nothing.
         Menu.ConsoleAssetPages.ResetSwitches();
     }
 

@@ -10,7 +10,8 @@ using HamburburData = StupidTemplate.Classes.Console.HamburburData;
 
 namespace StupidTemplate.Menu;
 
-// The small Console Assets page: a picture and the Thor hammer.
+// The small Console Assets page: a picture, the Thor hammer, the Travis
+// statue and the Steam Icon.
 //
 // Press the picture and the TikTok picture - a still photo with its song baked
 // into a single mp4 - appears on a bare screen floating in front of you: no TV
@@ -24,6 +25,11 @@ namespace StupidTemplate.Menu;
 // lands on your left hand, also networked. Hold it above your head and the
 // whole room gets a lightning strike on it; late joiners get the hammer through
 // the same asset sync (anchor and grip pose re-sent).
+//
+// Press Travis and the travisscott statue from Console's ServerData appears
+// three metres in front of you, standing on the floor and turned to face you -
+// networked, with the placement re-sent twelve seconds later for anyone still
+// downloading the 5.46 MB bundle.
 //
 // The Steam Icon is the glowing Steam logo: it spawns from this repo's
 // bundles/steamicon, sits on an anchor you pick (hand or head) and animates
@@ -315,6 +321,134 @@ public abstract class ConsoleAssetPages
 
             yield return null;
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Travis: the travisscott figure from Console's ServerData (the bundle
+    // is 5.46 MB, hosted by Seralyth and by OMMALLEYGT's fork, so the
+    // download lands on the first or second try - no copy in this repo).
+    // Spawned as a statue in front of you: colliders stripped, networked
+    // like every other asset here, position re-sent for slow downloaders.
+    // ---------------------------------------------------------------------
+
+    private const string TravisBundle = "travis";
+    private const string TravisAsset  = "travisscott";
+
+    // The prefab is built at statue size; this is the scale the other
+    // menus spawn it at, which lands it around life size.
+    private static readonly Vector3 TravisScale = Vector3.one * 0.38f;
+
+    private static int travisAssetId = -1;
+
+    public static string TravisDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Travis");
+
+        return
+                $"Travis: {(button != null && button.enabled
+                                     ? "<color=green>ON</color>"
+                                     : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnTravis()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("Travis");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("Travis");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            return;
+        }
+
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+
+        // Three metres ahead of you, turned to face you...
+        Vector3 position = head.position + forward * SpawnDistance;
+
+        // ...and standing on whatever is under that spot: the figure has no
+        // fixed spot on the map, so a downward ray picks the floor instead
+        // of guessing a height and leaving it floating or buried.
+        if (Physics.Raycast(head.position + (forward * SpawnDistance), Vector3.down, out RaycastHit hit, 12f))
+            position.y = hit.point.y;
+        else
+            position.y = head.position.y - 1f;
+
+        Vector3 toPlayer = head.position - position;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            toPlayer = -forward;
+
+        toPlayer.Normalize();
+
+        Quaternion rotation = Quaternion.LookRotation(toPlayer);
+
+        travisAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds).
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, TravisBundle, TravisAsset, travisAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, travisAssetId);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, travisAssetId, position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, travisAssetId, rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, travisAssetId, TravisScale);
+
+        NotifiLib.SendNotification("Travis is standing in front of you - the whole room sees it.");
+
+        CoroutineManager.Instance.StartCoroutine(ResendTravis());
+    }
+
+    public static void RemoveTravis()
+    {
+        if (Alive(travisAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, travisAssetId);
+
+        travisAssetId = -1;
+    }
+
+    // 5.46 MB is the slowest bundle here: anyone still pulling it when the
+    // spawn went out would drop the placement commands (Console waits ten
+    // seconds per asset), so re-send them at twelve seconds.
+    private static IEnumerator ResendTravis()
+    {
+        int id = travisAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (id < 0 || travisAssetId != id || !Alive(id))
+            yield break;
+
+        Transform statue = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, statue.position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, statue.rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, id, TravisScale);
     }
 
     // ---------------------------------------------------------------------
@@ -1129,10 +1263,12 @@ public abstract class ConsoleAssetPages
     {
         SetSwitchOff("TikTok Picture");
         SetSwitchOff("Thor Hammer");
+        SetSwitchOff("Travis");
         SetSwitchOff("Steam Icon");
 
         pictureAssetId = -1;
         hammerAssetId  = -1;
+        travisAssetId  = -1;
 
         steamIconId            = -1;
         steamIconOnHand        = false;
