@@ -29,6 +29,13 @@ public class Console : MonoBehaviour
 {
     private const string ResourceLocation = "Console";
 
+    // RIFTIX's own admin cone icon (the neon logo), hosted in this repo's
+    // icons folder - files.hamburbur.org cannot be added to. Regular and
+    // super admins both wear it; the old Hamburbur burgers below only come
+    // back as a fallback if the repo copy cannot be downloaded.
+    private const string RiftixAdminIcon =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/icons/adminicon.png";
+
     private const string HamburburSuperAdminIcon = "https://files.hamburbur.org/HamburburSuperDuperAdmin.png";
     private const string HamburburAdminIcon      = "https://files.hamburbur.org/HamburburAdmin.png";
 
@@ -246,8 +253,10 @@ public class Console : MonoBehaviour
                         });
                     }
 
-                    adminConeRenderer.material.color = playerRig.playerColor;
-                    adminNameText.color               = playerRig.playerColor;
+                    // The cone keeps the logo's own neon colours - tinting it
+                    // by the gorilla's colour muddied the purple and blue art.
+                    // The name above it still matches the player.
+                    adminNameText.color = playerRig.playerColor;
 
                     adminConeObject.transform.localScale =
                             new Vector3(0.4f, 0.4f, 0.0001f) * playerRig.scaleFactor;
@@ -538,17 +547,34 @@ public class Console : MonoBehaviour
 
     private IEnumerator DownloadAdminTextures()
     {
+        // One download serves both ranks now: the cone over an admin's head
+        // shows RIFTIX's neon logo whether they are a super admin or not.
         yield return DownloadAdminTexture(
-                HamburburSuperAdminIcon,
-                texture => superAdminHamburburTexture = texture
-        );
-
-        yield return DownloadAdminTexture(
-                HamburburAdminIcon,
+                RiftixAdminIcon,
                 texture => adminHamburburTexture = texture
         );
 
-        adminHamburburMaterial = CreateAdminMaterial(adminHamburburTexture);
+        superAdminHamburburTexture = adminHamburburTexture;
+
+        // If the repo copy is unreachable, fall back to the old Hamburbur
+        // burgers instead of leaving a blank square over admins' heads.
+        if (adminHamburburTexture == null)
+        {
+            yield return DownloadAdminTexture(
+                    HamburburAdminIcon,
+                    texture => adminHamburburTexture = texture
+            );
+
+            yield return DownloadAdminTexture(
+                    HamburburSuperAdminIcon,
+                    texture => superAdminHamburburTexture = texture
+            );
+        }
+
+        if (superAdminHamburburTexture == null)
+            superAdminHamburburTexture = adminHamburburTexture;
+
+        adminHamburburMaterial      = CreateAdminMaterial(adminHamburburTexture);
         superAdminHamburburMaterial = CreateAdminMaterial(adminHamburburMaterial, superAdminHamburburTexture);
     }
 
