@@ -11,7 +11,7 @@ using HamburburData = StupidTemplate.Classes.Console.HamburburData;
 namespace StupidTemplate.Menu;
 
 // The small Console Assets page: a picture, the Thor hammer, the Travis
-// statue and the Steam Icon.
+// statue, the Jurassic Park gate and the Steam Icon.
 //
 // Press the picture and the TikTok picture - a still photo with its song baked
 // into a single mp4 - appears on a bare screen floating in front of you: no TV
@@ -449,6 +449,235 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, statue.position);
         GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, statue.rotation);
         GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, id, TravisScale);
+    }
+
+    // ---------------------------------------------------------------------
+    // Jurassic Park gate: the prefab from this menu's asset bundle template
+    // project (mesh, materials and a looping dinosaur roar baked in), from
+    // this repo's bundles/jurassicparkgate. The source model is in
+    // centimetres, so instead of guessing a scale the owner measures its own
+    // copy once it has spawned, fits it to a six metre width, stands it on
+    // the floor - and broadcasts that final transform. Everyone else applies
+    // the same absolute numbers, so no per-frame traffic is needed.
+    // ---------------------------------------------------------------------
+
+    private const string GateBundle = "jurassicparkgate";
+    private const string GateAsset  = "JurassicParkGate Variant";
+
+    // How wide the gate stands, and how far in front of you it goes up.
+    private const float GateWidth    = 6f;
+    private const float GateDistance = 5f;
+
+    private static int gateAssetId = -1;
+
+    // The fitted transform, kept for the twelve second resend.
+    private static Vector3    gatePosition;
+    private static Quaternion gateRotation = Quaternion.identity;
+    private static Vector3    gateScale    = Vector3.one;
+
+    public static string GateDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Jurassic Gate");
+
+        return
+                $"Jurassic Gate: {(button != null && button.enabled
+                                            ? "<color=green>ON</color>"
+                                            : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnGate()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("Jurassic Gate");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        if (gateAssetId >= 0)
+            return;
+
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("Jurassic Gate");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            return;
+        }
+
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+
+        // Five metres ahead (the gate is wide), turned to face you, with
+        // the floor under that spot as its base.
+        Vector3 spawnPoint = head.position + (forward * GateDistance);
+
+        if (Physics.Raycast(head.position + (forward * GateDistance), Vector3.down, out RaycastHit hit, 15f))
+            spawnPoint.y = hit.point.y;
+        else
+            spawnPoint.y = head.position.y - 1f;
+
+        Vector3 toPlayer = head.position - spawnPoint;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            toPlayer = -forward;
+
+        toPlayer.Normalize();
+
+        Quaternion rotation = Quaternion.LookRotation(toPlayer);
+
+        gateAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; the placement below waits for the asset to exist
+        // (Console gives every later command up to ten seconds).
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, GateBundle, GateAsset, gateAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, gateAssetId);
+
+        CoroutineManager.Instance.StartCoroutine(PlaceGate(gateAssetId, spawnPoint, rotation));
+        CoroutineManager.Instance.StartCoroutine(ResendGate());
+    }
+
+    public static void RemoveGate()
+    {
+        if (Alive(gateAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, gateAssetId);
+
+        gateAssetId = -1;
+    }
+
+    // Measure, fit and ground the local copy, then broadcast the result.
+    // Ten second budget so it always finishes before the resend fires.
+    private static IEnumerator PlaceGate(int id, Vector3 spawnPoint, Quaternion rotation)
+    {
+        float timeout = Time.time + 10f;
+
+        while (Time.time < timeout && !Alive(id))
+            yield return null;
+
+        if (!Alive(id) || gateAssetId != id)
+            yield break;
+
+        Transform gate = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+        // Fit by measured width: the model carries no scale the menu could
+        // read (centimetre source units), and guessing would either bury the
+        // gate in the floor or shrink it to a keychain.
+        Bounds local = LocalGateBounds(gate);
+
+        if (local.size.x > 0.01f)
+            gate.localScale = gate.localScale * (GateWidth / local.size.x);
+
+        gate.rotation = rotation;
+
+        // Ground and centre it: slide until the base sits on the floor spot
+        // and the opening is centred over it.
+        Bounds world = WorldGateBounds(gate);
+
+        Vector3 delta = spawnPoint - world.center;
+        delta.y       = spawnPoint.y - world.min.y;
+
+        gate.position += delta;
+
+        gatePosition = gate.position;
+        gateRotation = gate.rotation;
+        gateScale    = gate.localScale;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setposition",       ReceiverGroup.All, id, gatePosition);
+        GTConsole.ExecuteCommand("asset-setrotation",       ReceiverGroup.All, id, gateRotation);
+        GTConsole.ExecuteCommand("asset-setscale",          ReceiverGroup.All, id, gateScale);
+    }
+
+    // The gate's tight box in its own root space: how wide, how tall, how
+    // deep - independent of where the prefab happened to be sitting.
+    private static Bounds LocalGateBounds(Transform gate)
+    {
+        bool   has   = false;
+        Bounds total = new Bounds();
+
+        foreach (MeshFilter filter in gate.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (filter.sharedMesh == null)
+                continue;
+
+            Bounds   mesh    = filter.sharedMesh.bounds;
+            Matrix4x4 toRoot = gate.worldToLocalMatrix * filter.transform.localToWorldMatrix;
+
+            for (int corner = 0; corner < 8; corner++)
+            {
+                Vector3 point = mesh.center + Vector3.Scale(mesh.extents, new Vector3(
+                        (corner & 1) == 0 ? -1f : 1f,
+                        (corner & 2) == 0 ? -1f : 1f,
+                        (corner & 4) == 0 ? -1f : 1f));
+
+                point = toRoot.MultiplyPoint3x4(point);
+
+                if (!has)
+                {
+                    total = new Bounds(point, Vector3.zero);
+                    has   = true;
+                }
+                else
+                    total.Encapsulate(point);
+            }
+        }
+
+        return total;
+    }
+
+    private static Bounds WorldGateBounds(Transform gate)
+    {
+        bool   has   = false;
+        Bounds total = new Bounds();
+
+        foreach (Renderer renderer in gate.GetComponentsInChildren<Renderer>(true))
+        {
+            if (!has)
+            {
+                total = renderer.bounds;
+                has   = true;
+            }
+            else
+                total.Encapsulate(renderer.bounds);
+        }
+
+        return total;
+    }
+
+    // The bundle is 5 MB: anyone still pulling it when the placement went
+    // out would drop the transform commands (Console waits ten seconds per
+    // asset), so re-send them at twelve seconds.
+    private static IEnumerator ResendGate()
+    {
+        int id = gateAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (id < 0 || gateAssetId != id || !Alive(id))
+            yield break;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setposition",       ReceiverGroup.All, id, gatePosition);
+        GTConsole.ExecuteCommand("asset-setrotation",       ReceiverGroup.All, id, gateRotation);
+        GTConsole.ExecuteCommand("asset-setscale",          ReceiverGroup.All, id, gateScale);
     }
 
     // ---------------------------------------------------------------------
@@ -1538,11 +1767,13 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("TikTok Picture");
         SetSwitchOff("Thor Hammer");
         SetSwitchOff("Travis");
+        SetSwitchOff("Jurassic Gate");
         SetSwitchOff("Steam Icon");
 
         pictureAssetId = -1;
         hammerAssetId  = -1;
         travisAssetId  = -1;
+        gateAssetId    = -1;
 
         steamIconId            = -1;
         steamIconOnHand        = false;

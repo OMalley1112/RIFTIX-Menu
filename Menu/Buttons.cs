@@ -927,7 +927,8 @@ public abstract class Buttons
     };
 
     // The small Console Assets page: a picture, the Thor hammer, the Travis
-    // statue and the Steam Icon (see Menu/ConsoleAssetPages.cs for the spawns
+    // statue, the Jurassic Park gate and the Steam Icon (see
+    // Menu/ConsoleAssetPages.cs for the spawns
     // themselves). The category is
     // adminOnly, so its rows and its entry button stay out of a non-admin's
     // menu entirely instead of dead-ending at the refusal toast.
@@ -958,6 +959,15 @@ public abstract class Buttons
                     disableMethod = ConsoleAssetPages.RemoveTravis,
                     displayText   = ConsoleAssetPages.TravisDisplay,
                     toolTip       = "Spawns the Travis statue three metres in front of you, standing on the floor (networked - the whole room sees it).",
+            },
+
+            new()
+            {
+                    buttonText    = "Jurassic Gate",
+                    enableMethod  = ConsoleAssetPages.SpawnGate,
+                    disableMethod = ConsoleAssetPages.RemoveGate,
+                    displayText   = ConsoleAssetPages.GateDisplay,
+                    toolTip       = "Puts the Jurassic Park gate up five metres in front of you, fitted to size and standing on the floor (networked - the whole room sees it, roar included).",
             },
 
             new()
