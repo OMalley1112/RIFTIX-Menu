@@ -465,7 +465,10 @@ public abstract class ConsoleAssetPages
     private const string GateAsset  = "JurassicParkGate Variant";
 
     // How wide the gate stands, and how far in front of you it goes up.
-    private const float GateWidth    = 6f;
+    // Nine metres matches the model's own proportions (9.27 x 9.74 at the
+    // prefab's authored scale), so the fit barely nudges it - it exists to
+    // guarantee the same size everywhere, not to restyle it.
+    private const float GateWidth    = 9f;
     private const float GateDistance = 5f;
 
     private static int gateAssetId = -1;
@@ -572,8 +575,20 @@ public abstract class ConsoleAssetPages
         while (Time.time < timeout && !Alive(id))
             yield return null;
 
-        if (!Alive(id) || gateAssetId != id)
+        // Switched off while still loading: nothing to report.
+        if (gateAssetId != id)
             yield break;
+
+        if (!Alive(id))
+        {
+            // This used to be a silent no-op: no bundle, no asset, no gate,
+            // and the button simply appeared broken. Say what happened.
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(
+                        "<color=red>Jurassic Gate</color> did not load - bundle download or asset problem.");
+
+            yield break;
+        }
 
         Transform gate = GTConsole.ConsoleAssets[id].AssetObject.transform;
 
@@ -604,6 +619,9 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setposition",       ReceiverGroup.All, id, gatePosition);
         GTConsole.ExecuteCommand("asset-setrotation",       ReceiverGroup.All, id, gateRotation);
         GTConsole.ExecuteCommand("asset-setscale",          ReceiverGroup.All, id, gateScale);
+
+        if (!Preferences.RestoringButtonStates)
+            NotifiLib.SendNotification("The gate is standing in front of you - the whole room sees it.");
     }
 
     // The gate's tight box in its own root space: how wide, how tall, how

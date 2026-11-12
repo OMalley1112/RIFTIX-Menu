@@ -1805,7 +1805,28 @@ public class Console : MonoBehaviour
         while (!assetLoadRequest.isDone)
             await Task.Yield();
 
-        return assetLoadRequest.asset as GameObject;
+        if (assetLoadRequest.asset is GameObject asset)
+            return asset;
+
+        // The name did not resolve as given (spaces, case, path vs plain
+        // filename). Match it against the filenames actually inside the
+        // bundle instead of giving up - otherwise the spawn silently
+        // produces nothing and the button just looks broken.
+        foreach (string path in AssetBundlePool[assetBundle].GetAllAssetNames())
+        {
+            if (!path.EndsWith("/" + assetName + ".prefab", StringComparison.OrdinalIgnoreCase) &&
+                !path.EndsWith("/" + assetName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            AssetBundleRequest retry = AssetBundlePool[assetBundle].LoadAssetAsync<GameObject>(path);
+            while (!retry.isDone)
+                await Task.Yield();
+
+            if (retry.asset is GameObject found)
+                return found;
+        }
+
+        return null;
     }
 
     private IEnumerator SpawnConsoleAsset(string assetBundle, string assetName, int id, string uniqueKey,
@@ -1822,6 +1843,16 @@ public class Console : MonoBehaviour
         if (loadTask.Exception != null)
         {
             Log($"Failed to load {assetBundle}.{assetName}");
+
+            yield break;
+        }
+
+        if (loadTask.Result == null)
+        {
+            // No asset of that name in the bundle: say so instead of
+            // Instantiate(null) throwing every time someone presses the
+            // button, which reads as "the button does nothing".
+            Log($"Asset {assetName} not found in {assetBundle}");
 
             yield break;
         }
