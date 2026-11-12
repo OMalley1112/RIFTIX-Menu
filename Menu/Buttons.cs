@@ -927,7 +927,7 @@ public abstract class Buttons
     };
 
     // The small Console Assets page: a picture, the Thor hammer, the Travis
-    // statue and the Steam Icon (see Menu/ConsoleAssetPages.cs for the spawns
+    // statue, the Steam Icon and the Jurassic logo (see Menu/ConsoleAssetPages.cs for the spawns
     // themselves). The category is
     // adminOnly, so its rows and its entry button stay out of a non-admin's
     // menu entirely instead of dead-ending at the refusal toast.
@@ -1012,6 +1012,15 @@ public abstract class Buttons
                     disableMethod = ConsoleAssetPages.SteamIconSparksOff,
                     displayText   = ConsoleAssetPages.SteamSparksDisplay,
                     toolTip       = "Extra sparks and a trail when the Steam Icon is moving fast.",
+            },
+
+            new()
+            {
+                    buttonText    = "Jurassic Logo",
+                    enableMethod  = ConsoleAssetPages.SpawnJpLogo,
+                    disableMethod = ConsoleAssetPages.RemoveJpLogo,
+                    displayText   = ConsoleAssetPages.JpLogoDisplay,
+                    toolTip       = "Puts the Jurassic World logo on your left hand with its song - it pops in, floats and turns (networked - the whole room sees and hears it).",
             },
 
             new()

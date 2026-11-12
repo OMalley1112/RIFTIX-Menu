@@ -11,7 +11,7 @@ using HamburburData = StupidTemplate.Classes.Console.HamburburData;
 namespace StupidTemplate.Menu;
 
 // The small Console Assets page: a picture, the Thor hammer, the Travis
-// statue and the Steam Icon.
+// statue, the Steam Icon and the Jurassic logo.
 //
 // Press the picture and the TikTok picture - a still photo with its song baked
 // into a single mp4 - appears on a bare screen floating in front of you: no TV
@@ -1525,6 +1525,111 @@ public abstract class ConsoleAssetPages
         return steamParticleTexture;
     }
 
+    // ---------------------------------------------------------------------
+    // Jurassic Logo: the Jurassic World logo from this menu's asset bundle
+    // template project (Logo_joind), fitted to 1.4 m by the bundle build
+    // itself and anchored to your left hand like the hammer, with the song
+    // baked in as a looping AudioSource that plays on awake. The rig
+    // inside the asset carries an Animator that plays its own entrance
+    // (scale pop with a -140 degree spin-in) and then floats and turns
+    // forever - every client runs that Animator locally from its own
+    // instantiate, so no animation frames ever cross the wire.
+    // ---------------------------------------------------------------------
+
+    private const string LogoBundle = "logo_joind";
+    private const string LogoAsset  = "JurassicLogo";
+    private const string LogoSound  = "Song";
+    private const string LogoClip   = "jp_logo_song";
+
+    // BindObject's anchor slots: 0 head, 1 left hand, 2 right hand, 3 body.
+    // The logo hangs off the left hand like the hammer does.
+    private const int LogoAnchor = 1;
+
+    private static int logoAssetId = -1;
+
+    public static string JpLogoDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Jurassic Logo");
+
+        return
+                $"Jurassic Logo: {(button != null && button.enabled
+                                        ? "<color=green>ON</color>"
+                                        : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnJpLogo()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("Jurassic Logo");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        if (logoAssetId >= 0)
+            return;
+
+        logoAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds). The anchor lands the
+        // logo on your left hand - BindObject's slot 1 - and the zero pose
+        // puts it in the palm; the baked animator then floats and turns it
+        // around that point. The song's AudioSource plays on awake inside
+        // the bundle, so every client hears it the moment their copy
+        // exists, with the playsound command as a backstop for anyone the
+        // first pass missed.
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, LogoBundle, LogoAsset, logoAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, logoAssetId);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, logoAssetId, LogoAnchor,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, logoAssetId, Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, logoAssetId,
+                Quaternion.identity);
+        GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, logoAssetId, LogoSound, LogoClip);
+
+        NotifiLib.SendNotification("The Jurassic logo is on your left hand - the whole room sees and hears it.");
+
+        CoroutineManager.Instance.StartCoroutine(ResendJpLogo());
+    }
+
+    public static void RemoveJpLogo()
+    {
+        if (Alive(logoAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, logoAssetId);
+
+        logoAssetId = -1;
+    }
+
+    // Anyone still downloading the bundle when the spawn went out would drop
+    // the follow-ups (Console waits ten seconds per asset), so re-send
+    // everything once everyone has had twelve seconds to catch up. The
+    // anchor goes first: BindObject re-parents, so the zero pose must land
+    // after it rather than be re-parented away (same order as the hammer).
+    // PlayAudioSource skips a source that is already playing, so the song
+    // does not restart on this pass.
+    private static IEnumerator ResendJpLogo()
+    {
+        yield return new WaitForSeconds(12f);
+
+        if (!Alive(logoAssetId))
+            yield break;
+
+        int id = logoAssetId;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, id, LogoAnchor,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, id, Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, id, Quaternion.identity);
+        GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, id, LogoSound, LogoClip);
+    }
+
     private static bool Alive(int assetId) =>
             assetId >= 0 &&
             GTConsole.ConsoleAssets.TryGetValue(assetId, out GTConsole.ConsoleAsset asset) &&
@@ -1539,10 +1644,12 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Thor Hammer");
         SetSwitchOff("Travis");
         SetSwitchOff("Steam Icon");
+        SetSwitchOff("Jurassic Logo");
 
         pictureAssetId = -1;
         hammerAssetId  = -1;
         travisAssetId  = -1;
+        logoAssetId    = -1;
 
         steamIconId            = -1;
         steamIconOnHand        = false;

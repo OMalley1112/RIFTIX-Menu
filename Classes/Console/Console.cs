@@ -1951,9 +1951,9 @@ public class Console : MonoBehaviour
 
         ConsoleAssets.Clear();
 
-        // The picture, hammer, Travis and Steam Icon switches claimed to
-        // spawn these; with the room's assets gone they must read OFF again
-        // instead of pointing at nothing.
+        // The picture, hammer, Travis, Steam Icon and Jurassic logo switches
+        // claimed to spawn these; with the room's assets gone they must read
+        // OFF again instead of pointing at nothing.
         Menu.ConsoleAssetPages.ResetSwitches();
     }
 
@@ -2025,6 +2025,12 @@ public class Console : MonoBehaviour
                 ExecuteCommand("asset-setvideo", joiningPlayer.ActorNumber, asset.AssetId,
                         asset.VideoObject, asset.VideoUrl);
 
+            // The Jurassic logo's song is baked into the asset; the joiner
+            // needs the play command or their copy sits silent.
+            if (asset.ModifiedSound)
+                ExecuteCommand("asset-playsound", joiningPlayer.ActorNumber, asset.AssetId,
+                        asset.SoundObject);
+
             if (asset.BindedToIndex >= 0)
                 ExecuteCommand("asset-setanchor", joiningPlayer.ActorNumber, asset.AssetId,
                         asset.BindedToIndex,      asset.BindPlayerActor);
@@ -2072,6 +2078,8 @@ public class Console : MonoBehaviour
 
         public bool ModifiedVideo;
 
+        public bool ModifiedSound;
+
         public bool PauseAudioUpdates;
 
         public string TextureObject;
@@ -2081,6 +2089,8 @@ public class Console : MonoBehaviour
         public string VideoObject;
 
         public string VideoUrl;
+
+        public string SoundObject;
 
         public int AssetId { get; } = assetId;
 
@@ -2138,8 +2148,23 @@ public class Console : MonoBehaviour
         {
             AudioSource audioSource = AssetObject.transform.Find(objectName).GetComponent<AudioSource>();
 
-            if (audioClipName != null)
-                audioSource.clip = AssetBundlePool[AssetBundle].LoadAsset<AudioClip>(audioClipName);
+            // An explicit clip name is a backstop for sources whose baked-in
+            // clip did not come through; never overwrite a working clip with
+            // a failed lookup (that would silence a source that plays fine).
+            if (audioClipName != null &&
+                AssetBundlePool[AssetBundle].LoadAsset<AudioClip>(audioClipName) is AudioClip loaded)
+                audioSource.clip = loaded;
+
+            // A resend of the clip that is already playing must not restart
+            // the song (same rule as SetVideoURL): the Jurassic logo re-sends
+            // its sound with the placement for clients still downloading.
+            if (audioSource.isPlaying)
+                return;
+
+            // Remembered so SyncConsoleAssets can hand the same song to
+            // players who join after the sound went out.
+            ModifiedSound = true;
+            SoundObject   = objectName;
 
             audioSource.Play();
         }
