@@ -1025,6 +1025,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Snowflake",
+                    enableMethod  = ConsoleAssetPages.SpawnSnowflake,
+                    disableMethod = ConsoleAssetPages.DestroySnowflake,
+                    displayText   = ConsoleAssetPages.SnowflakeDisplay,
+                    toolTip       = "Drops a snowflake into your right hand - pull the right trigger to send it flying up, where it spins and sheds falling snow (networked - the whole room sees it, and players who join later catch up too).",
+            },
+
+            new()
+            {
                     buttonText = "Return to Main",
                     method     = () => SetCategory("Main"),
                     mode       = ButtonMode.Action,

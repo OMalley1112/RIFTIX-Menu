@@ -299,6 +299,7 @@ public class Console : MonoBehaviour
         }
 
         Menu.ConsoleAssetPages.UpdateSteamIcon();
+        Menu.ConsoleAssetPages.UpdateSnowflake();
         SanitizeConsoleAssets();
     }
 
@@ -1138,6 +1139,16 @@ public class Console : MonoBehaviour
                     // the spawner, re-runs the shared animation locally from it.
                     Menu.ConsoleAssetPages.ApplySteamIconState((int)args[1], (int)args[2], (int)args[3],
                             (int)args[4], (int)args[5], (int)args[6], (float)args[7]);
+
+                    break;
+
+                case "snowflakestate":
+                    // Snowflake flight from the spawner: the receiving client
+                    // stores the snapshot (keyed by asset id) and, if it is not
+                    // the spawner, re-runs the shared flight locally from it -
+                    // entrance, launch, spin and snow all off one clock.
+                    Menu.ConsoleAssetPages.ApplySnowflakeState((int)args[1], (float)args[2], (float)args[3],
+                            (Vector3)args[4]);
 
                     break;
 
@@ -2039,6 +2050,11 @@ public class Console : MonoBehaviour
             // snapshot is what makes it animate. A joiner gets both, or they
             // would inherit a frozen logo.
             Menu.ConsoleAssetPages.ForwardSteamIconState(asset.AssetId, joiningPlayer.ActorNumber);
+
+            // Same for the snowflake: the snapshot is what turns a joiner's
+            // static copy into one that flies, spins and snows in step with
+            // the room (launch point and clock included).
+            Menu.ConsoleAssetPages.ForwardSnowflakeState(asset.AssetId, joiningPlayer.ActorNumber);
         }
 
         PhotonNetwork.SendAllOutgoingCommands();
