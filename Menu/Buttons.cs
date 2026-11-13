@@ -207,16 +207,6 @@ public abstract class Buttons
 
             new()
             {
-                    buttonText    = "FPS Counter",
-                    enableMethod  = () => fpsCounter = true,
-                    disableMethod = () => fpsCounter = false,
-                    enabled       = fpsCounter,
-                    toolTip       = "Toggles the FPS counter.",
-            },
-
-
-            new()
-            {
                     buttonText    = "Disconnect Button",
                     enableMethod  = () => disconnectButton = true,
                     disableMethod = () => disconnectButton = false,

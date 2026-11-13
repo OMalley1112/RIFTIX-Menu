@@ -86,18 +86,9 @@ public class Main : MonoBehaviour
     // Smoothed FPS so the VR menu counter stops jumping every single frame
     private static float fpsSmoothed = 60f;
 
-    // Header card text elements (greeting, menu name, stats, clock and date)
-    private static Text greetingText;
+    // Menu wordmark + the search bar page counter
     private static Text riftixText;
-    private static Text stayedTimeText;
-    private static Text playerNumberText;
-    private static Text clockText;
-    private static Text dateText;
     private static Text pageCounterText;
-    private static Text pagerCounterText;
-
-    // Throttle so the header strings are only rebuilt about once per second
-    private static float nextHeaderUpdateTime;
 
     // Writing fpsObject.text every single frame forces a canvas rebuild every
     // frame, so the counter is only rewritten when the number changes anyway.
@@ -114,16 +105,14 @@ public class Main : MonoBehaviour
     private static Shader   spritesShader;
     private static Material chromeCardMaterial;
     private static Material scrollTrackMaterial;
+    private static Material pagerPillMaterial;
+    private static Material statusLedMaterial;
 
     // Camera lookups (desktop / keyboard mode). GameObject.Find is expensive and
     // used to run every frame, so the results are cached here.
     private static Transform cachedVirtualCamera;
     private static float     nextCameraLookupTime;
     private static float     nextVcamLookupTime;
-
-    // Room session tracking for the "Stayed Time" stat
-    private static Photon.Realtime.Room trackedRoom;
-    private static float                roomJoinRealtime;
 
     private static GameObject   GunPointer;
     private static LineRenderer GunLine;
@@ -340,27 +329,10 @@ public class Main : MonoBehaviour
             if (title == null)
                 return;
 
-            if (mode == ButtonMode.Incremental)
-            {
-                // Value rows show the plain value and never take the star prefix.
-                title.text  = target.GetDisplayText();
-                title.color = textColors[0];
-            }
-            else
-            {
-                string titleValue =
-                        target.GetDisplayText();
-
-                if (target.favorite)
-                    titleValue =
-                            "<color=#C79BFF>♥</color> " +
-                            titleValue;
-
-                title.text  = titleValue;
-                title.color = target.enabled
-                                      ? textColors[1]
-                                      : textColors[0];
-            }
+            // Screenshot style rows: one white line, the state lives in the
+            // bullet colour (RowBulletText).
+            title.text  = RowBulletText(target);
+            title.color = Color.white;
 
             if (subtitle != null)
                 subtitle.text = GetRowSubtitle(target);
@@ -507,15 +479,6 @@ public class Main : MonoBehaviour
                 }
             }
 
-            if (Time.unscaledTime >= nextHeaderUpdateTime)
-            {
-                nextHeaderUpdateTime =
-                        Time.unscaledTime +
-                        1f;
-
-                UpdateHeaderInfo();
-            }
-
             // Deferred preference writes (marked by button presses).
             Preferences.FlushDirty();
 
@@ -572,6 +535,44 @@ public class Main : MonoBehaviour
         }
 
         return chromeCardMaterial;
+    }
+
+    // Flat pink pager pills (screenshot style footer).
+    private static Material GetPagerPillMaterial()
+    {
+        if (pagerPillMaterial == null)
+        {
+            pagerPillMaterial =
+                    new Material(GetSpritesShader())
+                    {
+                            color = new Color32(
+                                    226,
+                                    78,
+                                    204,
+                                    255),
+                    };
+        }
+
+        return pagerPillMaterial;
+    }
+
+    // Unlit green for the status LED next to the wordmark.
+    private static Material GetStatusLedMaterial()
+    {
+        if (statusLedMaterial == null)
+        {
+            statusLedMaterial =
+                    new Material(GetSpritesShader())
+                    {
+                            color = new Color32(
+                                    91,
+                                    228,
+                                    155,
+                                    255),
+                    };
+        }
+
+        return statusLedMaterial;
     }
 
     private static Material GetScrollTrackMaterial()
@@ -689,48 +690,6 @@ public class Main : MonoBehaviour
                     menuSize;
         }
 
-        CreateOutline(
-                menu.transform,
-                menuBackground.transform.localPosition,
-                menuSize,
-                menuCornerRadius,
-                roundedButtons);
-
-        // Cool detail: thin accent frame ringing the whole panel.
-        Vector3 panelFrameSize = new(
-                0.096f,
-                menuSize.y + 0.05f,
-                menuSize.z + 0.05f);
-
-        GameObject panelFrame =
-                GameObject.CreatePrimitive(PrimitiveType.Cube);
-
-        panelFrame.name  = $"{Constants.Name}_AccentFrame";
-        panelFrame.layer = 2;
-
-        Destroy(panelFrame.GetComponent<Rigidbody>());
-        Destroy(panelFrame.GetComponent<BoxCollider>());
-
-        panelFrame.transform.SetParent(menu.transform, false);
-        panelFrame.transform.localRotation = Quaternion.identity;
-        panelFrame.transform.localPosition  = new Vector3(0.498f, 0f, 0f);
-
-        if (roundedButtons)
-        {
-            RoundedButtonMesh.Apply(
-                    panelFrame,
-                    panelFrameSize,
-                    menuCornerRadius,
-                    buttonCornerSegments);
-        }
-        else
-            panelFrame.transform.localScale = panelFrameSize;
-
-        ColorChanger panelFrameChanger =
-                panelFrame.AddComponent<ColorChanger>();
-
-        panelFrameChanger.colors = buttonColors[1];
-
         ColorChanger colorChanger =
                 menuBackground.AddComponent<ColorChanger>();
 
@@ -742,8 +701,6 @@ public class Main : MonoBehaviour
 
         colorChanger.verticalGradient =
                 verticalButtonGradients;
-
-        CreateWatermark();
 
         // Canvas
         canvasObject =
@@ -767,323 +724,77 @@ public class Main : MonoBehaviour
         canvasScaler.dynamicPixelsPerUnit =
                 1500f;
 
-        // (The old floating title row was replaced by the HOME / FAVORITES tab bar.
-        //  The nickname moved into the header greeting.)
-
-        // FPS
-        if (fpsCounter)
-        {
-            fpsObject = new GameObject
-            {
-                    transform =
-                    {
-                            parent = canvasObject.transform,
-                    },
-            }.AddComponent<Text>();
-
-            fpsObject.font =
-                    currentFont;
-
-            fpsObject.text =
-                    "FPS: " +
-                    Mathf.Ceil(
-                            1f /
-                            Time.unscaledDeltaTime);
-
-            // New text object, so force the next counter write.
-            lastFpsValue = -1;
-
-            fpsObject.color =
-                    textColors[0];
-
-            fpsObject.fontSize =
-                    1;
-
-            fpsObject.supportRichText =
-                    true;
-
-            fpsObject.fontStyle =
-                    FontStyle.Italic;
-
-            fpsObject.alignment =
-                    TextAnchor.MiddleRight;
-
-            fpsObject.horizontalOverflow =
-                    HorizontalWrapMode.Overflow;
-
-            fpsObject.resizeTextForBestFit =
-                    true;
-
-            fpsObject.resizeTextMinSize =
-                    0;
-
-            RectTransform fpsTransform =
-                    fpsObject.GetComponent<RectTransform>();
-
-            fpsTransform.localPosition =
-                    Vector3.zero;
-
-            fpsTransform.sizeDelta =
-                    new Vector2(
-                            0.12f,
-                            0.0064f);
-
-            // Top right of the header card, on the same line as the clock
-            fpsTransform.localPosition =
-                    new Vector3(
-                            0.064f,
-                            -0.065f,
-                            0.1357f);
-
-            fpsTransform.localRotation =
-                    Quaternion.Euler(
-                            180f,
-                            90f,
-                            90f);
-        }
-
-        // Header Card
-        GameObject headerCard =
-                GameObject.CreatePrimitive(
-                        PrimitiveType.Cube);
-
-        headerCard.name =
-                $"{Constants.Name}_HeaderCard";
-
-        headerCard.layer = 2;
-
-        Destroy(headerCard.GetComponent<Rigidbody>());
-        Destroy(headerCard.GetComponent<BoxCollider>());
-
-        headerCard.transform.SetParent(
-                menu.transform,
-                false);
-
-        headerCard.transform.localRotation =
-                Quaternion.identity;
-
-        headerCard.transform.localPosition =
-                new Vector3(
-                        0.535f,
-                        0f,
-                        0.4035f);
-
-        Vector3 headerCardSize =
-                new(
-                        0.06f,
-                        0.86f,
-                        0.185f);
-
-        if (roundedButtons)
-        {
-            RoundedButtonMesh.Apply(
-                    headerCard,
-                    headerCardSize,
-                    0.03f,
-                    buttonCornerSegments);
-        }
-        else
-        {
-            headerCard.transform.localScale =
-                    headerCardSize;
-        }
-
-        // Dark translucent panel behind the header text
-        headerCard.GetComponent<Renderer>().material =
-                GetChromeCardMaterial();
-
-        CreateOutline(
-                menu.transform,
-                headerCard.transform.localPosition,
-                headerCardSize,
-                0.03f,
-                roundedButtons);
-
-        // Cool detail: accent border hugging the header card.
-        Vector3 headerFrameSize = new(
-                0.056f,
-                headerCardSize.y + 0.016f,
-                headerCardSize.z + 0.016f);
-
-        GameObject headerFrame =
-                GameObject.CreatePrimitive(PrimitiveType.Cube);
-
-        headerFrame.name  = $"{Constants.Name}_HeaderFrame";
-        headerFrame.layer = 2;
-
-        Destroy(headerFrame.GetComponent<Rigidbody>());
-        Destroy(headerFrame.GetComponent<BoxCollider>());
-
-        headerFrame.transform.SetParent(menu.transform, false);
-        headerFrame.transform.localRotation = Quaternion.identity;
-        headerFrame.transform.localPosition  =
-                new Vector3(
-                        0.533f,
-                        0f,
-                        0.4035f);
-
-        if (roundedButtons)
-        {
-            RoundedButtonMesh.Apply(
-                    headerFrame,
-                    headerFrameSize,
-                    0.035f,
-                    buttonCornerSegments);
-        }
-        else
-            headerFrame.transform.localScale = headerFrameSize;
-
-        ColorChanger headerFrameChanger =
-                headerFrame.AddComponent<ColorChanger>();
-
-        headerFrameChanger.colors = buttonColors[1];
-
-        // Greeting (small grey line picked by time of day, top left of the card)
-        greetingText = CreateHeaderText(
-                new Vector3(
-                        0.064f,
-                        0.065f,
-                        0.183f),
-                new Vector2(
-                        0.12f,
-                        0.0054f),
-                TextAnchor.MiddleLeft,
-                FontStyle.Italic,
-                new Color32(
-                        170,
-                        170,
-                        170,
-                        255));
-
-        // Big accent menu name (left aligned, Qubit style)
+        // Screenshot style header: centred white wordmark with a small green
+        // LED dot floating just off its right end.
         riftixText = CreateHeaderText(
                 new Vector3(
                         0.064f,
-                        0.05f,
+                        0f,
                         0.1688f),
                 new Vector2(
-                        0.15f,
+                        0.3f,
                         0.017f),
-                TextAnchor.MiddleLeft,
-                FontStyle.Bold | FontStyle.Italic,
-                new Color32(
-                        199,
-                        155,
-                        255,
-                        255));
-
-        // Cool detail: soft violet glow behind the wordmark (Atlas style).
-        UnityEngine.UI.Outline riftixGlow =
-                riftixText.gameObject.AddComponent<UnityEngine.UI.Outline>();
-
-        riftixGlow.effectColor     =
-                new Color32(
-                        124,
-                        92,
-                        255,
-                        210);
-
-        riftixGlow.effectDistance  =
-                new Vector2(
-                        0.0016f,
-                        -0.0016f);
-
-        riftixGlow.useGraphicAlpha = false;
-
-        // Stat row labels (left side of the card)
-        Text stayedLabel = CreateHeaderText(
-                new Vector3(
-                        0.064f,
-                        0.065f,
-                        0.1543f),
-                new Vector2(
-                        0.12f,
-                        0.0064f),
-                TextAnchor.MiddleLeft,
-                FontStyle.Italic,
-                new Color32(
-                        150,
-                        150,
-                        150,
-                        255));
-
-        stayedLabel.text =
-                "<color=#C79BFF>•</color> Stayed Time";
-
-        Text playersLabel = CreateHeaderText(
-                new Vector3(
-                        0.064f,
-                        0.065f,
-                        0.1459f),
-                new Vector2(
-                        0.12f,
-                        0.0064f),
-                TextAnchor.MiddleLeft,
-                FontStyle.Italic,
-                new Color32(
-                        150,
-                        150,
-                        150,
-                        255));
-
-        playersLabel.text =
-                "<color=#C79BFF>•</color> Player Number";
-
-        // Stat row values (right side of the card)
-        stayedTimeText = CreateHeaderText(
-                new Vector3(
-                        0.064f,
-                        -0.065f,
-                        0.1543f),
-                new Vector2(
-                        0.12f,
-                        0.0064f),
-                TextAnchor.MiddleRight,
-                FontStyle.Italic,
-                textColors[0]);
-
-        playerNumberText = CreateHeaderText(
-                new Vector3(
-                        0.064f,
-                        -0.065f,
-                        0.1459f),
-                new Vector2(
-                        0.12f,
-                        0.0064f),
-                TextAnchor.MiddleRight,
-                FontStyle.Italic,
-                textColors[0]);
-
-        // Clock and date
-        clockText = CreateHeaderText(
-                new Vector3(
-                        0.064f,
-                        0f,
-                        0.1357f),
-                new Vector2(
-                        0.2f,
-                        0.0084f),
                 TextAnchor.MiddleCenter,
-                FontStyle.Italic,
-                textColors[0]);
+                FontStyle.Bold,
+                Color.white);
 
-        dateText = CreateHeaderText(
+        riftixText.text = "RIFTIX";
+
+        GameObject statusLed =
+                GameObject.CreatePrimitive(PrimitiveType.Sphere);
+
+        statusLed.name  = $"{Constants.Name}_StatusLed";
+        statusLed.layer = 2;
+
+        Destroy(statusLed.GetComponent<Rigidbody>());
+        Destroy(statusLed.GetComponent<Collider>());
+
+        statusLed.transform.SetParent(
+                menu.transform,
+                false);
+
+        statusLed.transform.localRotation =
+                Quaternion.identity;
+
+        statusLed.transform.localPosition =
                 new Vector3(
-                        0.064f,
-                        0f,
-                        0.1269f),
-                new Vector2(
-                        0.2f,
-                        0.0056f),
-                TextAnchor.MiddleCenter,
-                FontStyle.Italic,
-                new Color32(
-                        170,
-                        170,
-                        170,
-                        255));
+                        0.56f,
+                        -0.40f,
+                        0.455f);
 
-        UpdateHeaderInfo();
+        // Local scale: the menu scales its three axes differently, so these
+        // numbers make the sphere come out perfectly round on screen.
+        statusLed.transform.localScale =
+                new Vector3(
+                        0.3f,
+                        0.1f,
+                        0.0784f);
+
+        statusLed.GetComponent<Renderer>().material =
+                GetStatusLedMaterial();
+
+        // Tiny green glow so the LED reads as "live" on the panel.
+        GameObject ledLight =
+                new($"{Constants.Name}_StatusLedLight");
+
+        ledLight.transform.SetParent(
+                menu.transform,
+                false);
+
+        ledLight.transform.localPosition =
+                new Vector3(
+                        0.56f,
+                        -0.40f,
+                        0.455f);
+
+        Light glow =
+                ledLight.AddComponent<Light>();
+
+        glow.type      = LightType.Point;
+        glow.color     = new Color32(91, 228, 155, 255);
+        glow.range     = 0.12f;
+        glow.intensity = 0.7f;
+        glow.shadows   = LightShadows.None;
 
         // Disconnect
         if (disconnectButton)
@@ -1111,13 +822,14 @@ public class Main : MonoBehaviour
             disconnectbutton.transform.localRotation =
                     Quaternion.identity;
 
+            // Screenshot style: a small "Leave" pill floating outside the
+            // panel's right edge, near the top.
             disconnectbutton.transform.localPosition =
                     new Vector3(
                             0.56f,
-                            -0.29f,
-                            0.4631f);
+                            -0.67f,
+                            0.40f);
 
-            // Small pill tucked into the top right of the header card
             Vector3 disconnectSize =
                     new(
                             0.09f,
@@ -1144,13 +856,6 @@ public class Main : MonoBehaviour
             disconnectPress.relatedButton =
                     GetIndex("Disconnect");
 
-            CreateOutline(
-                    menu.transform,
-                    disconnectbutton.transform.localPosition,
-                    disconnectSize,
-                    buttonCornerRadius,
-                    roundedButtons);
-
             colorChanger =
                     disconnectbutton.AddComponent<ColorChanger>();
 
@@ -1172,7 +877,7 @@ public class Main : MonoBehaviour
             }.AddComponent<Text>();
 
             disconnectText.text =
-                    "Disconnect";
+                    "Leave";
 
             disconnectText.font =
                     currentFont;
@@ -1181,7 +886,7 @@ public class Main : MonoBehaviour
                     1;
 
             disconnectText.color =
-                    textColors[0];
+                    Color.white;
 
             disconnectText.alignment =
                     TextAnchor.MiddleCenter;
@@ -1198,8 +903,8 @@ public class Main : MonoBehaviour
             disconnectTransform.localPosition =
                     new Vector3(
                             0.064f,
-                            -0.087f,
-                            0.17713f);
+                            -0.201f,
+                            0.153f);
 
             disconnectTransform.sizeDelta =
                     new Vector2(
@@ -1297,90 +1002,6 @@ public class Main : MonoBehaviour
                         90f);
 
         return text;
-    }
-
-    // Refreshes the greeting, clock, date, stayed time and player count strings.
-    public static void UpdateHeaderInfo()
-    {
-        DateTime now = DateTime.Now;
-
-        int hour = now.Hour;
-
-        if (greetingText != null)
-        {
-            string playerName =
-                    Photon.Pun.PhotonNetwork.LocalPlayer != null &&
-                    !string.IsNullOrEmpty(Photon.Pun.PhotonNetwork.LocalPlayer.NickName)
-                            ? Photon.Pun.PhotonNetwork.LocalPlayer.NickName
-                            : "OMALLEYGHT";
-
-            greetingText.text =
-                    (hour >= 5  && hour <= 11 ? "Good morning~"   :
-                     hour >= 12 && hour <= 17 ? "Good afternoon~" :
-                     hour >= 18 && hour <= 22 ? "Good evening~"   :
-                                                "Good night~")     +
-                    "  <color=#7F7F7F>•</color>  "                 +
-                    playerName                                     +
-                    (HamburburData.LocalAdminAccess
-                             ? " <color=grey>[</color><color=#C79BFF>Owner</color><color=grey>]</color>"
-                             : "");
-        }
-
-        if (clockText != null)
-        {
-            clockText.text =
-                    "- "                     +
-                    now.ToString("hh:mm tt") +
-                    " -";
-        }
-
-        if (dateText != null)
-        {
-            dateText.text =
-                    now.ToString("yyyy/MM/dd") +
-                    " - "                     +
-                    now.ToString("ddd")       +
-                    ".";
-        }
-
-        Photon.Realtime.Room room =
-                Photon.Pun.PhotonNetwork.CurrentRoom;
-
-        if (room != trackedRoom)
-        {
-            trackedRoom      = room;
-            roomJoinRealtime = Time.realtimeSinceStartup;
-        }
-
-        string stayedValue = "0m";
-        string playerValue = "1ppl";
-
-        if (room != null)
-        {
-            float elapsed =
-                    Time.realtimeSinceStartup -
-                    roomJoinRealtime;
-
-            int totalMinutes =
-                    Mathf.Max(
-                            0,
-                            (int)(elapsed / 60f));
-
-            stayedValue =
-                    totalMinutes >= 60
-                            ? $"{totalMinutes / 60}h {totalMinutes % 60:00}m"
-                            : $"{totalMinutes}m";
-
-            playerValue =
-                    room.PlayerCount +
-                    "ppl";
-        }
-
-        if (stayedTimeText != null)
-            stayedTimeText.text = stayedValue;
-
-        if (playerNumberText != null)
-            playerNumberText.text = playerValue;
     }
 
     private static void CreateWatermark()
@@ -1623,8 +1244,6 @@ public class Main : MonoBehaviour
 
             if (pageNumber > lastPage)
                 pageNumber = lastPage;
-
-            CreatePageScrollbar();
 
             int startIndex = pageNumber * pageSize;
 
@@ -1942,182 +1561,106 @@ public class Main : MonoBehaviour
     // Bottom bar: home button + previous / page counter / next (Atlas + Qubit).
     private static void CreateFooterBar()
     {
-        Vector3 footerSize = new(
-                0.06f,
-                0.9f,
-                0.09f);
-
-        Vector3 footerPosition = new(
-                0.535f,
-                0f,
-                -0.451f);
-
-        GameObject footerCard =
-                GameObject.CreatePrimitive(
-                        PrimitiveType.Cube);
-
-        footerCard.name =
-                $"{Constants.Name}_FooterCard";
-
-        footerCard.layer = 2;
-
-        Destroy(footerCard.GetComponent<Rigidbody>());
-        Destroy(footerCard.GetComponent<BoxCollider>());
-
-        footerCard.transform.SetParent(
-                menu.transform,
-                false);
-
-        footerCard.transform.localRotation =
-                Quaternion.identity;
-
-        footerCard.transform.localPosition =
-                footerPosition;
-
-        if (roundedButtons)
-        {
-            RoundedButtonMesh.Apply(
-                    footerCard,
-                    footerSize,
-                    0.03f,
-                    buttonCornerSegments);
-        }
-        else
-            footerCard.transform.localScale =
-                    footerSize;
-
-        footerCard.GetComponent<Renderer>().material =
-                GetChromeCardMaterial();
-
-        CreateOutline(
-                menu.transform,
-                footerPosition,
-                footerSize,
-                0.03f,
-                roundedButtons);
-
         float footerWorldZ =
                 -0.451f *
                 MenuScale.z;
 
-        Vector3 footerKeySize = new(
-                buttonSize.x,
-                0.16f,
-                0.09f);
-
-        CreateButtonObject(
+        // Screenshot style pager: small pink pills, < on the left, home in
+        // the middle, > on the right.
+        CreateFooterPill(
                 homeBarButton,
-                footerKeySize,
-                new Vector3(
-                        0.56f,
-                        0.36f,
-                        -0.451f),
-                true,
-                false,
-                false);
-
-        CreateRowText(
+                0f,
                 "⌂",
-                new Vector2(
-                        0.06f,
-                        0.02f),
-                TextAnchor.MiddleCenter,
-                FontStyle.Bold,
-                textColors[0],
-                footerWorldZ,
-                0.108f);
+                footerWorldZ);
 
         // With "Top Page Buttons" on, the prev/next pair lives in the first
         // two list rows instead (CreateList) - drawing it here as well showed
         // both copies of the page controls at once.
         if (!pageButtonsAtTop)
         {
-            CreateButtonObject(
+            CreateFooterPill(
                     previousPageButton,
-                    new Vector3(
-                            buttonSize.x,
-                            0.16f,
-                            0.07f),
-                    new Vector3(
-                            0.56f,
-                            0.19f,
-                            -0.451f),
-                    true,
-                    false,
-                    false);
+                    0.30f,
+                    "<",
+                    footerWorldZ);
 
-            CreateRowText(
-                    "‹",
-                    new Vector2(
-                            0.06f,
-                            0.02f),
-                    TextAnchor.MiddleCenter,
-                    FontStyle.Bold,
-                    textColors[0],
-                    footerWorldZ,
-                    0.057f);
-
-            CreateButtonObject(
+            CreateFooterPill(
                     nextPageButton,
-                    new Vector3(
-                            buttonSize.x,
-                            0.16f,
-                            0.07f),
-                    new Vector3(
-                            0.56f,
-                            -0.19f,
-                            -0.451f),
-                    true,
-                    false,
-                    false);
-
-            CreateRowText(
-                    "›",
-                    new Vector2(
-                            0.06f,
-                            0.02f),
-                    TextAnchor.MiddleCenter,
-                    FontStyle.Bold,
-                    textColors[0],
-                    footerWorldZ,
-                    -0.057f);
+                    -0.30f,
+                    ">",
+                    footerWorldZ);
         }
+    }
 
-        pagerCounterText = CreateHeaderText(
+    // One round pink pager pill: collider + glyph, no outline, no counter.
+    private static void CreateFooterPill(
+            ButtonInfo button,
+            float      menuY,
+            string     glyph,
+            float      worldZ)
+    {
+        Vector3 pillSize = new(
+                buttonSize.x,
+                0.16f,
+                0.09f);
+
+        GameObject pill =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+        pill.name  = $"{Constants.Name}_PagerPill";
+        pill.layer = 2;
+
+        Destroy(pill.GetComponent<Rigidbody>());
+
+        BoxCollider pillCollider =
+                pill.GetComponent<BoxCollider>();
+
+        pillCollider.isTrigger = true;
+
+        pill.transform.SetParent(
+                menu.transform,
+                false);
+
+        pill.transform.localRotation =
+                Quaternion.identity;
+
+        pill.transform.localPosition =
                 new Vector3(
-                        0.064f,
-                        0f,
-                        footerWorldZ),
-                new Vector2(
-                        0.1f,
-                        0.014f),
-                TextAnchor.MiddleCenter,
-                FontStyle.Bold,
-                new Color32(
-                        205,
-                        205,
-                        205,
-                        255));
+                        0.56f,
+                        menuY,
+                        -0.451f);
 
-        pagerCounterText.text =
-                PageCounterValue();
+        if (roundedButtons)
+        {
+            // The radius caps at half the pill's height, which rounds the
+            // short ends all the way into a pill shape.
+            RoundedButtonMesh.Apply(
+                    pill,
+                    pillSize,
+                    Mathf.Min(pillSize.y, pillSize.z) / 2f,
+                    buttonCornerSegments);
+        }
+        else
+            pill.transform.localScale = pillSize;
 
-        // Cool detail: small accent wordmark balancing the right end of the bar.
-        CreateHeaderText(
-                new Vector3(
-                        0.064f,
-                        -0.108f,
-                        footerWorldZ),
+        pill.GetComponent<Renderer>().material =
+                GetPagerPillMaterial();
+
+        Button press =
+                pill.AddComponent<Button>();
+
+        press.relatedButton = button;
+
+        CreateRowText(
+                glyph,
                 new Vector2(
                         0.06f,
-                        0.012f),
+                        0.02f),
                 TextAnchor.MiddleCenter,
-                FontStyle.Bold | FontStyle.Italic,
-                new Color32(
-                        199,
-                        155,
-                        255,
-                        255)).text = "RIFTIX";
+                FontStyle.Bold,
+                Color.white,
+                worldZ,
+                menuY * MenuScale.y);
     }
 
     // Shown on the FAVORITES tab when nothing has been starred yet.
@@ -2470,7 +2013,8 @@ public class Main : MonoBehaviour
                                     zPosition),
                             true,
                             true,
-                            false);
+                            false,
+                            chrome: true);
 
             GameObject incrementCenter =
                     CreateButtonObject(
@@ -2485,7 +2029,8 @@ public class Main : MonoBehaviour
                                     zPosition),
                             false,
                             false,
-                            false);
+                            false,
+                            chrome: true);
 
             GameObject incrementPlus =
                     CreateButtonObject(
@@ -2500,14 +2045,15 @@ public class Main : MonoBehaviour
                                     zPosition),
                             true,
                             true,
-                            true);
+                            true,
+                            chrome: true);
 
             CreateButtonText(
                     "-",
                     IncrementOffset * TextScale,
                     offset,
                     0.04f,
-                    textColors[0]);
+                    Color.white);
 
             Text valueText =
                     CreateButtonText(
@@ -2515,15 +2061,14 @@ public class Main : MonoBehaviour
                             0f,
                             offset,
                             0.12f,
-                            textColors[0],
-                            true);
+                            Color.white);
 
             CreateButtonText(
                     "+",
                     -IncrementOffset * TextScale,
                     offset,
                     0.04f,
-                    textColors[0]);
+                    Color.white);
 
             RegisterRow(
                     method,
@@ -2547,88 +2092,25 @@ public class Main : MonoBehaviour
                                 zPosition),
                         true,
                         false,
-                        false);
+                        false,
+                        chrome: true);
 
-        // Qubit style row: bold title left, grey subtitle under it, chevron on the right.
-        string titleValue =
-                method.GetDisplayText();
-
-        if (method.favorite)
-            titleValue =
-                    "<color=#C79BFF>♥</color> " +
-                    titleValue;
-
+        // Screenshot style row: one line - coloured bullet, then a plain white
+        // title. No plate, no subtitle, no ON/OFF badge.
         Text rowTitle =
                 CreateRowText(
-                        titleValue,
+                        RowBulletText(method),
                         new Vector2(0.19f, 0.015f),
                         TextAnchor.MiddleLeft,
                         FontStyle.Bold,
-                        method.enabled
-                                ? textColors[1]
-                                : textColors[0],
-                        rowWorldZ + 0.005f,
-                        gradient: true);
-
-        Text rowSubtitle =
-                CreateRowText(
-                        GetRowSubtitle(method),
-                        new Vector2(0.19f, 0.0085f),
-                        TextAnchor.MiddleLeft,
-                        FontStyle.Normal,
-                        new Color32(
-                                150,
-                                150,
-                                150,
-                                255),
-                        rowWorldZ - 0.0075f);
-
-        Text rowState =
-                null;
-
-        if (method.mode == ButtonMode.Action)
-        {
-            rowState =
-                    CreateRowText(
-                            ">",
-                            new Vector2(0.03f, 0.016f),
-                            TextAnchor.MiddleRight,
-                            FontStyle.Bold,
-                            new Color32(
-                                    199,
-                                    155,
-                                    255,
-                                    255),
-                            rowWorldZ + 0.001f,
-                            -0.11f);
-        }
-        else if (method.mode == ButtonMode.Incremental)
-        {
-            // Steppers have no on/off state: with the incremental layout off
-            // they still only increment on press, so the ON/OFF badge (always
-            // a grey "OFF") was claiming a state they never hold.
-            rowState = null;
-        }
-        else
-        {
-            rowState =
-                    CreateRowText(
-                            method.enabled ? "ON" : "OFF",
-                            new Vector2(0.045f, 0.0105f),
-                            TextAnchor.MiddleRight,
-                            FontStyle.Bold,
-                            method.enabled
-                                    ? new Color32(199, 155, 255, 255)
-                                    : new Color32(140, 140, 140, 255),
-                            rowWorldZ + 0.001f,
-                            -0.1025f);
-        }
+                        Color.white,
+                        rowWorldZ);
 
         RegisterRow(
                 method,
                 rowTitle,
-                rowSubtitle,
-                rowState,
+                null,
+                null,
                 rowObject);
     }
 
@@ -2737,6 +2219,30 @@ public class Main : MonoBehaviour
                         $"{Constants.Name} // Error refreshing row {pair.Key.buttonText}: {exc}");
             }
         }
+    }
+
+    // Screenshot style row line: state bullet first, then the title. Value
+    // rows (incremental) stay a plain value with no bullet and no star.
+    private static string RowBulletText(ButtonInfo target)
+    {
+        if (target.mode == ButtonMode.Incremental)
+            return target.GetDisplayText();
+
+        string bullet =
+                target.mode == ButtonMode.Toggle
+                        ? target.enabled ? "<color=#5BE49B>•</color>"
+                                  : "<color=#8F8F8F>•</color>"
+                        : "<color=#FFFFFF>•</color>";
+
+        string titleValue =
+                target.GetDisplayText();
+
+        if (target.favorite)
+            titleValue =
+                    "<color=#C79BFF>♥</color> " +
+                    titleValue;
+
+        return bullet + " " + titleValue;
     }
 
     // Short one line subtitle shown under a row title (Qubit style list rows).
@@ -2856,7 +2362,8 @@ public class Main : MonoBehaviour
             Vector3    localPosition,
             bool       clickable,
             bool       incremental,
-            bool       positive)
+            bool       positive,
+            bool       chrome = false)
     {
         GameObject buttonObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
 
@@ -2899,6 +2406,20 @@ public class Main : MonoBehaviour
             RoundedButtonMesh.Apply(buttonObject, size, buttonCornerRadius, buttonCornerSegments);
         else
             buttonObject.transform.localScale = size;
+
+        if (chrome)
+        {
+            // Screenshot style rows: the plate keeps its collider so the row
+            // can still be pressed, but it draws nothing - no fill, no
+            // outline, no colour cycling.
+            Renderer rowRenderer =
+                    buttonObject.GetComponent<Renderer>();
+
+            if (rowRenderer != null)
+                rowRenderer.enabled = false;
+
+            return buttonObject;
+        }
 
         CreateOutline(
                 menu.transform,
@@ -3044,9 +2565,6 @@ public class Main : MonoBehaviour
         // Counters and the search label live in the chrome, so update them by hand.
         if (pageCounterText != null)
             pageCounterText.text = PageCounterValue();
-
-        if (pagerCounterText != null)
-            pagerCounterText.text = PageCounterValue();
 
         if (searchLabel != null)
             searchLabel.text = searchButton.GetDisplayText();
@@ -3501,8 +3019,6 @@ public class Main : MonoBehaviour
         RefreshAllRows();
 
         lastFpsValue = -1;
-
-        UpdateHeaderInfo();
     }
 
     private static void CreateReferences()
