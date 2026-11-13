@@ -1547,6 +1547,16 @@ public abstract class ConsoleAssetPages
     // The logo hangs off the left hand like the hammer does.
     private const int LogoAnchor = 1;
 
+    // The bundle bakes the logo 1.4 m wide. At arm's length that is far
+    // wider than two eyes can fuse: each eye lands on a different part of
+    // it, so it only reads with one eye shut and doubles up with two. The
+    // root scale cuts it to 0.5 m, and the pose lifts it clear of the panel
+    // and out past the hand to roughly 0.7 m from the face, where both eyes
+    // land on the same picture. Axes follow the hand rig the menu uses:
+    // -X runs away from your face, +Z is up, +Y is left.
+    private static readonly Vector3 LogoLocalPose = new(-0.3f, 0f, 0.45f);
+    private static readonly Vector3 LogoRootScale = new(0.357f, 0.357f, 0.357f);
+
     private static int logoAssetId = -1;
 
     public static string JpLogoDisplay()
@@ -1580,19 +1590,20 @@ public abstract class ConsoleAssetPages
 
         // Spawn first; every command after it waits for the asset to exist
         // (Console gives each one up to ten seconds). The anchor lands the
-        // logo on your left hand - BindObject's slot 1 - and the zero pose
-        // puts it in the palm; the baked animator then floats and turns it
-        // around that point. The song's AudioSource plays on awake inside
-        // the bundle, so every client hears it the moment their copy
-        // exists, with the playsound command as a backstop for anyone the
-        // first pass missed.
+        // logo on your left hand - BindObject's slot 1 - and the pose then
+        // parks it above and past the hand at a size the eyes can fuse; the
+        // baked animator floats and turns it around that point. The song's
+        // AudioSource plays on awake inside the bundle, so every client
+        // hears it the moment their copy exists, with the playsound command
+        // as a backstop for anyone the first pass missed.
         GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, LogoBundle, LogoAsset, logoAssetId);
         GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, logoAssetId);
         GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, logoAssetId, LogoAnchor,
                 PhotonNetwork.LocalPlayer.ActorNumber);
-        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, logoAssetId, Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, logoAssetId, LogoLocalPose);
         GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, logoAssetId,
                 Quaternion.identity);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, logoAssetId, LogoRootScale);
         GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, logoAssetId, LogoSound, LogoClip);
 
         NotifiLib.SendNotification("The Jurassic logo is on your left hand - the whole room sees and hears it.");
@@ -1611,8 +1622,9 @@ public abstract class ConsoleAssetPages
     // Anyone still downloading the bundle when the spawn went out would drop
     // the follow-ups (Console waits ten seconds per asset), so re-send
     // everything once everyone has had twelve seconds to catch up. The
-    // anchor goes first: BindObject re-parents, so the zero pose must land
-    // after it rather than be re-parented away (same order as the hammer).
+    // anchor goes first: BindObject re-parents, so the pose and scale must
+    // land after it rather than be re-parented away (same order as the
+    // hammer).
     // PlayAudioSource skips a source that is already playing, so the song
     // does not restart on this pass.
     private static IEnumerator ResendJpLogo()
@@ -1627,620 +1639,10 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
         GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, id, LogoAnchor,
                 PhotonNetwork.LocalPlayer.ActorNumber);
-        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, id, Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, id, LogoLocalPose);
         GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, id, Quaternion.identity);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, id, LogoRootScale);
         GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, id, LogoSound, LogoClip);
-    }
-
-    // ---------------------------------------------------------------------
-    // Snowflake: this menu's own asset (bundles/snowflake, a six-arm flake
-    // baked at 0.55 m by the 2022.3.2f1 build). The switch drops it into
-    // your right hand; pulling the right trigger launches it - it flies up
-    // into the air, spins there for good and sheds falling snow the whole
-    // time. The flight rides the shared PhotonNetwork.Time clock in one
-    // state snapshot, so every client plays it from the same instant
-    // instead of receiving positions frame by frame. Like every other
-    // console asset, only an admin's commands are processed by the room,
-    // so it appears for everyone exactly when the spawner is on the list.
-    // ---------------------------------------------------------------------
-
-    private const string SnowBundle = "snowflake";
-    private const string SnowAsset  = "Snowflake";
-
-    // BindObject's anchor slots: 0 head, 1 left hand, 2 right hand, 3 body.
-    // The flake sits in the right hand - the trigger hand - so the launch
-    // pull is always in reach of the thing it launches.
-    private const int SnowAnchor = 2;
-
-    // Where the flake hovers above the palm, local to the hand rig.
-    private static readonly Vector3 SnowIdleLocalPos = new(0f, 0.22f, 0.10f);
-
-    // The ice glow the material pulses with.
-    private static readonly Color SnowGlow = new(0.45f, 0.75f, 1.2f);
-
-    private static int    snowflakeId = -1;
-    private static bool   snowflakeOnHand;
-    private static float  snowflakeStartTime;
-    private static float  snowflakeLaunchTime;   // 0 = still resting in the hand
-    private static Vector3 snowflakeLaunchPos;
-    private static bool   snowflakeTriggerWasDown;
-    private static Vector3 snowflakeWorldSize = Vector3.one;
-    private static Material[] snowflakeMaterials;
-    private static Light  snowflakeLight;
-    private static ParticleSystem snowflakeSnow;
-
-    private static float SnowflakeClock => (float)PhotonNetwork.Time;
-
-    // Animation time measured from a networked epoch, subtracted in double
-    // first: Photon's time is TickCount based (can sit in the millions),
-    // where float subtraction would quantise the motion into visible steps.
-    private static float SnowflakeElapsed(float startTime) => (float)(PhotonNetwork.Time - startTime);
-
-    // The flight as it travels over the wire, keyed by asset id - the shape
-    // SteamIconState takes: one snapshot, replayed locally by every
-    // receiver and forwarded to whoever joins later.
-    private static readonly Dictionary<int, SnowflakeState> snowflakeStates = new();
-
-    // The networked flake this client animates when it is not the spawner.
-    private static int  snowflakeRemoteId = -1;
-    private static bool snowflakeRemoteAdopted;
-
-    private readonly struct SnowflakeState(float startTime, float launchTime, Vector3 launchPos)
-    {
-        public float   StartTime  { get; } = startTime;
-        public float   LaunchTime { get; } = launchTime;
-        public Vector3 LaunchPos  { get; } = launchPos;
-    }
-
-    private static SnowflakeState OwnerSnowflakeState() =>
-            new(snowflakeStartTime, snowflakeLaunchTime, snowflakeLaunchPos);
-
-    // Console routes "snowflakestate" here for every receiver. Storing it
-    // keyed by asset id means late joiners get the same snapshot their
-    // Console sync replays the asset with.
-    public static void ApplySnowflakeState(int assetId, float startTime, float launchTime, Vector3 launchPos)
-    {
-        snowflakeStates[assetId] = new SnowflakeState(startTime, launchTime, launchPos);
-
-        // Not the spawner: this is the flake we should animate from now on.
-        if (snowflakeId < 0)
-            snowflakeRemoteId = assetId;
-    }
-
-    // Console replays a snowflake asset to a joining player - hand the
-    // state snapshot along with it so their copy flies too.
-    public static void ForwardSnowflakeState(int assetId, int targetActor)
-    {
-        if (snowflakeStates.TryGetValue(assetId, out SnowflakeState state))
-            SendSnowflakeState(assetId, state, targetActor);
-    }
-
-    // Broadcast the owner's snapshot; called on spawn, on the launch and
-    // on the periodic resend that heals missed packets.
-    private static void SendSnowflakeState()
-    {
-        if (snowflakeId < 0) return;
-
-        SendSnowflakeState(snowflakeId, OwnerSnowflakeState(), -1);
-    }
-
-    private static void SendSnowflakeState(int assetId, SnowflakeState state, int targetActor)
-    {
-        if (targetActor >= 0)
-            GTConsole.ExecuteCommand("snowflakestate", targetActor, assetId, state.StartTime, state.LaunchTime,
-                    state.LaunchPos);
-        else
-            GTConsole.ExecuteCommand("snowflakestate", ReceiverGroup.All, assetId, state.StartTime,
-                    state.LaunchTime, state.LaunchPos);
-    }
-
-    public static string SnowflakeDisplay()
-    {
-        ButtonInfo button = Buttons.GetIndex("Snowflake");
-
-        return
-                $"Snowflake: {(button != null && button.enabled
-                                        ? "<color=green>ON</color>"
-                                        : "<color=red>OFF</color>")}";
-    }
-
-    public static void SpawnSnowflake()
-    {
-        if (!CanSpawn(out string reason))
-        {
-            // Saved switch states replay at startup before a room exists;
-            // a real press gets the refusal reason.
-            SetSwitchOff("Snowflake");
-
-            if (!Preferences.RestoringButtonStates)
-                NotifiLib.SendNotification(reason);
-
-            return;
-        }
-
-        if (snowflakeId >= 0)
-            return;
-
-        // If we were animating someone else's flake, let go of the local FX
-        // hung on it first - from here on this client owns the animation.
-        if (snowflakeRemoteAdopted)
-            ReleaseRemoteSnowflakeVisuals();
-
-        GorillaTagger tagger = GorillaTagger.Instance;
-
-        if (tagger == null || tagger.bodyCollider == null)
-        {
-            SetSwitchOff("Snowflake");
-
-            if (!Preferences.RestoringButtonStates)
-                NotifiLib.SendNotification("Could not find your body - try again inside a room.");
-
-            return;
-        }
-
-        snowflakeId        = GTConsole.GetFreeAssetID();
-        snowflakeOnHand    = false;
-        snowflakeMaterials = null;
-        snowflakeLight     = null;
-        snowflakeSnow      = null;
-
-        // Sample the trigger now so one already held down cannot launch the
-        // flake the instant it appears - the launch wants a fresh pull.
-        snowflakeTriggerWasDown = ControllerInputPoller.TriggerFloat(XRNode.RightHand) > 0.5f;
-
-        // The shared epoch: remotes animate from this too, so the entrance
-        // lines up with the spawner's instead of restarting on their own.
-        snowflakeStartTime  = SnowflakeClock;
-        snowflakeLaunchTime = 0f;
-        snowflakeLaunchPos  = Vector3.zero;
-
-        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, SnowBundle, SnowAsset, snowflakeId);
-        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, snowflakeId);
-        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, snowflakeId, SnowAnchor,
-                PhotonNetwork.LocalPlayer.ActorNumber);
-        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, snowflakeId, SnowIdleLocalPos);
-        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, snowflakeId, Quaternion.identity);
-
-        // The snapshot carries the epoch (and the launch clock, still zero),
-        // so the room can animate its copy the same way from the start.
-        SendSnowflakeState();
-
-        NotifiLib.SendNotification("Snowflake in your right hand - pull the RIGHT TRIGGER to launch it.");
-
-        CoroutineManager.Instance.StartCoroutine(ResendSnowflake());
-    }
-
-    // Anyone still downloading the bundle when the spawn went out would drop
-    // the anchor commands (Console waits ten seconds for the asset), so
-    // re-send the grip once everyone has had twelve seconds to catch up.
-    private static IEnumerator ResendSnowflake()
-    {
-        int id = snowflakeId;
-
-        yield return new WaitForSeconds(12f);
-
-        if (id < 0 || snowflakeId != id || !Alive(id))
-            yield break;
-
-        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
-        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, id, SnowAnchor,
-                PhotonNetwork.LocalPlayer.ActorNumber);
-        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, id, SnowIdleLocalPos);
-        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, id, Quaternion.identity);
-
-        // The state snapshot rides along too: whoever missed it at spawn
-        // (still downloading, packet drop) catches up here - launch and all.
-        SendSnowflakeState();
-    }
-
-    public static void DestroySnowflake()
-    {
-        if (snowflakeId < 0) return;
-
-        int            id        = snowflakeId;
-        Material[]     materials = snowflakeMaterials;
-        Light          light     = snowflakeLight;
-        ParticleSystem snow      = snowflakeSnow;
-
-        snowflakeId         = -1;
-        snowflakeOnHand     = false;
-        snowflakeMaterials  = null;
-        snowflakeLight      = null;
-        snowflakeSnow       = null;
-        snowflakeLaunchTime = 0f;
-
-        if (GTConsole.ConsoleAssets.TryGetValue(id, out GTConsole.ConsoleAsset asset) &&
-            asset.AssetObject != null &&
-            GorillaTagger.Instance != null)
-        {
-            asset.AssetObject.transform.SetParent(null, true);
-
-            if (snow != null)
-            {
-                ParticleSystem.EmissionModule emission = snow.emission;
-                emission.rateOverTime = 0f;
-            }
-
-            CoroutineManager.Instance.StartCoroutine(DespawnSnowflakeRoutine(asset.AssetObject, id, materials, light));
-        }
-        else
-        {
-            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, id);
-        }
-    }
-
-    private static IEnumerator DespawnSnowflakeRoutine(GameObject flake, int id, Material[] materials, Light light)
-    {
-        float elapsed = 0f;
-        const float duration = 0.35f;
-        Vector3 startScale = flake.transform.localScale;
-
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-
-            float t = Mathf.Clamp01(elapsed / duration);
-            float glow = 1f - t;
-
-            flake.transform.localScale = startScale * (1f - (t * t));
-            flake.transform.Rotate(0f, 540f * Time.deltaTime, 0f, Space.World);
-
-            SetSnowflakeEmission(glow, materials);
-
-            if (light != null)
-                light.intensity = 2f * glow;
-
-            yield return null;
-        }
-
-        SetSnowflakeEmission(0f, materials);
-
-        if (light != null)
-            light.intensity = 0f;
-
-        GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, id);
-
-        if (flake != null)
-            UnityEngine.Object.Destroy(flake);
-    }
-
-    // Called from Console.Update every frame, right after the Steam Icon:
-    // the owner polls the right trigger for the launch edge, then the owner
-    // and every spectator run the same animation off their shared snapshot.
-    public static void UpdateSnowflake()
-    {
-        bool triggerDown = ControllerInputPoller.TriggerFloat(XRNode.RightHand) > 0.5f;
-        bool launchEdge  = triggerDown && !snowflakeTriggerWasDown;
-
-        snowflakeTriggerWasDown = triggerDown;
-
-        if (snowflakeId >= 0)
-        {
-            // The launch: one fresh edge on the trigger, one snapshot to the
-            // room, and every client flies its copy up from the same world
-            // point on the same clock.
-            if (launchEdge &&
-                snowflakeLaunchTime <= 0f &&
-                GTConsole.ConsoleAssets.TryGetValue(snowflakeId, out GTConsole.ConsoleAsset owned) &&
-                owned.AssetObject != null)
-            {
-                snowflakeLaunchPos  = owned.AssetObject.transform.position;
-                snowflakeLaunchTime = SnowflakeClock;
-
-                SendSnowflakeState();
-            }
-
-            UpdateOwnedSnowflake();
-        }
-        else
-            UpdateRemoteSnowflake();
-    }
-
-    private static void UpdateOwnedSnowflake()
-    {
-        if (!GTConsole.ConsoleAssets.TryGetValue(snowflakeId, out GTConsole.ConsoleAsset asset) ||
-            asset.AssetObject == null)
-            return;
-
-        GorillaTagger tagger = GorillaTagger.Instance;
-
-        if (tagger == null || tagger.rightHandTransform == null)
-            return;
-
-        Transform anchor = tagger.rightHandTransform;
-
-        if (!snowflakeOnHand)
-            AdoptSnowflake(asset, anchor, true);
-
-        AnimateSnowflake(asset, OwnerSnowflakeState(), anchor);
-    }
-
-    private static void UpdateRemoteSnowflake()
-    {
-        if (snowflakeRemoteId < 0) return;
-
-        if (!snowflakeStates.TryGetValue(snowflakeRemoteId, out SnowflakeState state))
-            return;
-
-        if (!GTConsole.ConsoleAssets.TryGetValue(snowflakeRemoteId, out GTConsole.ConsoleAsset asset) ||
-            asset.AssetObject == null)
-        {
-            // The room's copy is gone (or still downloading): take down any
-            // local FX we hung on it and wait instead of animating nothing.
-            if (snowflakeRemoteAdopted)
-                ReleaseRemoteSnowflakeVisuals();
-
-            return;
-        }
-
-        // The asset is bound to the spawner's rig by the networked anchor
-        // command - follow that rig, never your own.
-        VRRig ownerRig = GTConsole.GetVRRigFromActor(asset.BindPlayerActor);
-
-        if (ownerRig == null || ownerRig.rightHandTransform == null)
-            return;
-
-        Transform anchor = ownerRig.rightHandTransform;
-
-        if (!snowflakeOnHand)
-            AdoptSnowflake(asset, anchor, false);
-
-        AnimateSnowflake(asset, state, anchor);
-    }
-
-    // The moment the flake is on screen: pin it to the anchor, take the
-    // bundle's ice materials for the glow pulse, hang the light and snow
-    // FX on it, and start the shared entrance clock (spawner only - the
-    // spawner's clock is what every client animates from).
-    private static void AdoptSnowflake(GTConsole.ConsoleAsset asset, Transform anchor, bool owner)
-    {
-        Transform flake = asset.AssetObject.transform;
-
-        snowflakeWorldSize = flake.lossyScale;
-        flake.SetParent(anchor, false);
-
-        FixSnowflakeMaterials(asset.AssetObject);
-        CreateSnowflakeFX(asset.AssetObject);
-
-        snowflakeOnHand = true;
-
-        if (owner)
-        {
-            snowflakeStartTime = SnowflakeClock;
-            SendSnowflakeState();
-        }
-        else
-            snowflakeRemoteAdopted = true;
-    }
-
-    // The shared animation - one body for the spawner and every spectator
-    // alike. The entrance and idle phases run from the spawn epoch; the
-    // flight runs from the launch epoch, both measured off Photon's shared
-    // clock so two clients holding the same state draw the same pose.
-    private static void AnimateSnowflake(GTConsole.ConsoleAsset asset, SnowflakeState state, Transform anchor)
-    {
-        Transform flake = asset.AssetObject.transform;
-
-        float spawnElapsed = SnowflakeElapsed(state.StartTime);
-        float t = Mathf.Clamp01(spawnElapsed / 0.6f);   // entrance window
-        float elastic = ElasticOut(t);
-        float breathe = t >= 1f ? 1f + (0.04f * Mathf.Sin(spawnElapsed * 2.5f)) : 1f;
-
-        bool  launched = state.LaunchTime > 0f;
-        float flight   = launched ? SnowflakeElapsed(state.LaunchTime) : 0f;
-
-        if (launched)
-        {
-            // In the air: the hand no longer owns it - unparent and fly
-            // from the world point the launch captured.
-            if (flake.parent != null)
-                flake.SetParent(null, true);
-
-            float rise  = 2.3f * EaseOutCubic(Mathf.Clamp01(flight / 1.5f));
-            float hover = flight > 1.5f ? Mathf.Sin((flight - 1.5f) * 1.2f) * 0.06f : 0f;
-
-            flake.position = state.LaunchPos + (Vector3.up * (rise + hover));
-
-            // A fast turntable with a lazy tumble - a pure function of the
-            // shared clock, so every copy in the room spins as one.
-            flake.rotation = Quaternion.Euler(
-                    Mathf.Sin(flight * 1.1f) * 28f,
-                    (flight * 170f) % 360f,
-                    Mathf.Cos(flight * 0.8f) * 22f);
-        }
-        else
-        {
-            // Resting above the right palm: rigid to the hand, slow
-            // turntable, a breath of bob.
-            if (flake.parent != anchor)
-                flake.SetParent(anchor, false);
-
-            flake.localPosition = SnowIdleLocalPos + (Vector3.up * (Mathf.Sin(spawnElapsed * 2f) * 0.02f));
-            flake.localRotation = Quaternion.Euler(
-                    Mathf.Sin(spawnElapsed * 1.5f) * 6f,
-                    (spawnElapsed * 45f) % 360f,
-                    0f);
-        }
-
-        // Keep the world size constant whatever the hand's rig scale is.
-        Vector3 parentScale = flake.parent != null ? flake.parent.lossyScale : Vector3.one;
-        Vector3 targetWorld = snowflakeWorldSize * (elastic * breathe);
-
-        flake.localScale = new Vector3(
-                targetWorld.x / SafeScale(parentScale.x),
-                targetWorld.y / SafeScale(parentScale.y),
-                targetWorld.z / SafeScale(parentScale.z));
-
-        // Glow: a slow breath in the hand, a hard pulse once it is flying.
-        float pulse = launched
-                ? (0.9f + (0.5f * Mathf.Sin(flight * 5f))) * elastic
-                : (0.35f + (0.15f * Mathf.Sin(spawnElapsed * 3f))) * elastic;
-
-        SetSnowflakeEmission(pulse, snowflakeMaterials);
-
-        if (snowflakeLight != null)
-        {
-            snowflakeLight.color = new Color(0.6f, 0.85f, 1f);
-            snowflakeLight.intensity = (launched
-                    ? 1.4f + (0.8f * Mathf.Sin(flight * 5f))
-                    : 0.6f + (0.2f * Mathf.Sin(spawnElapsed * 3f))) * elastic;
-        }
-
-        if (snowflakeSnow != null)
-        {
-            // Snow only once it is airborne: a burst off the launch, then a
-            // steady fall for as long as it hangs up there.
-            ParticleSystem.EmissionModule snowEmission = snowflakeSnow.emission;
-            snowEmission.rateOverTime = !launched ? 0f : flight < 0.5f ? 90f : 34f;
-        }
-    }
-
-    private static void SetSnowflakeEmission(float intensity, Material[] materials)
-    {
-        if (materials == null) return;
-
-        Color emission = SnowGlow * intensity;
-
-        foreach (Material material in materials)
-        {
-            if (material != null)
-                material.SetColor("_EmissionColor", emission);
-        }
-    }
-
-    // The bundle ships the flake on URP/Lit with emission already enabled
-    // (verified by the GT-version load test); all this does is take the
-    // material references for the pulse and turn shadows off.
-    private static void FixSnowflakeMaterials(GameObject flakeObject)
-    {
-        List<Material> materials = new List<Material>();
-
-        foreach (Renderer renderer in flakeObject.GetComponentsInChildren<Renderer>(true))
-        {
-            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            renderer.receiveShadows = false;
-
-            foreach (Material material in renderer.sharedMaterials)
-            {
-                if (material == null) continue;
-
-                material.EnableKeyword("_EMISSION");
-                materials.Add(material);
-            }
-        }
-
-        snowflakeMaterials = materials.ToArray();
-    }
-
-    // The light that makes the ice glow and the snow that falls off it -
-    // local FX hung on this client's copy, built the same way as the Steam
-    // Icon's so every room member's flake sheds its own snow without a
-    // single particle crossing the wire.
-    private static void CreateSnowflakeFX(GameObject flakeObject)
-    {
-        GameObject lightObject = new GameObject("SnowflakeLight");
-        lightObject.transform.SetParent(flakeObject.transform, false);
-
-        Light light = lightObject.AddComponent<Light>();
-        light.type = LightType.Point;
-        light.color = new Color(0.6f, 0.85f, 1f);
-        light.range = 3f;
-        light.intensity = 0f;
-        light.shadows = LightShadows.None;
-
-        snowflakeLight = light;
-
-        GameObject snowObject = new GameObject("SnowflakeSnow");
-        snowObject.transform.SetParent(flakeObject.transform, false);
-
-        ParticleSystem snow = snowObject.AddComponent<ParticleSystem>();
-
-        ParticleSystem.MainModule main = snow.main;
-        main.loop = true;
-        main.playOnAwake = true;
-        main.startLifetime = 3.2f;
-        main.startSpeed = 0.25f;
-        main.startSize = new ParticleSystem.MinMaxCurve(0.03f, 0.09f);
-        main.startColor = new Color(0.95f, 0.98f, 1f, 0.9f);
-        main.maxParticles = 220;
-        main.simulationSpace = ParticleSystemSimulationSpace.World;
-        main.gravityModifier = 0.35f;
-        main.scalingMode = ParticleSystemScalingMode.Hierarchy;
-
-        ParticleSystem.EmissionModule emission = snow.emission;
-        emission.rateOverTime = 0f;
-
-        ParticleSystem.ShapeModule shape = snow.shape;
-        shape.shapeType = ParticleSystemShapeType.Sphere;
-        shape.radius = 0.18f;
-
-        // A soft puff up and out first; gravity then pulls every flake
-        // down past the one that spawned it.
-        ParticleSystem.VelocityOverLifetimeModule velocity = snow.velocityOverLifetime;
-        velocity.enabled = true;
-        velocity.space = ParticleSystemSimulationSpace.World;
-        velocity.x = new ParticleSystem.MinMaxCurve(-0.05f, 0.05f);
-        velocity.y = new ParticleSystem.MinMaxCurve(0.05f, 0.3f);
-        velocity.z = new ParticleSystem.MinMaxCurve(-0.05f, 0.05f);
-
-        ParticleSystem.SizeOverLifetimeModule size = snow.sizeOverLifetime;
-        size.enabled = true;
-        size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 1f, 1f, 0.4f));
-
-        ParticleSystem.ColorOverLifetimeModule colorOverLife = snow.colorOverLifetime;
-        colorOverLife.enabled = true;
-
-        Gradient gradient = new Gradient();
-        gradient.SetKeys(
-                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-                new[] { new GradientAlphaKey(0.9f, 0f), new GradientAlphaKey(0.7f, 0.6f), new GradientAlphaKey(0f, 1f) });
-        colorOverLife.color = new ParticleSystem.MinMaxGradient(gradient);
-
-        ParticleSystemRenderer snowRenderer = snowObject.GetComponent<ParticleSystemRenderer>();
-
-        Shader particleShader =
-                Shader.Find("Universal Render Pipeline/Particles/Unlit")
-                ?? Shader.Find("Universal Render Pipeline/Particles/Lit")
-                ?? Shader.Find("Particles/Standard Unlit")
-                ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended")
-                ?? Shader.Find("Sprites/Default");
-
-        if (particleShader != null)
-        {
-            Material particleMaterial = new Material(particleShader);
-
-            // Same soft dot the steam puff uses - a white round flake at
-            // this size reads as a snow crystal coming down.
-            particleMaterial.mainTexture = GetSteamParticleTexture();
-            snowRenderer.material = particleMaterial;
-        }
-
-        snowRenderer.renderMode = ParticleSystemRenderMode.Billboard;
-        snowRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        snowRenderer.receiveShadows = false;
-
-        snowflakeSnow = snow;
-    }
-
-    // Let go of the local FX hung on a room-owned flake without touching
-    // the asset itself - it belongs to whoever spawned it.
-    private static void ReleaseRemoteSnowflakeVisuals()
-    {
-        if (snowflakeLight != null)
-        {
-            UnityEngine.Object.Destroy(snowflakeLight.gameObject);
-            snowflakeLight = null;
-        }
-
-        if (snowflakeSnow != null)
-        {
-            UnityEngine.Object.Destroy(snowflakeSnow.gameObject);
-            snowflakeSnow = null;
-        }
-
-        snowflakeMaterials     = null;
-        snowflakeOnHand        = false;
-        snowflakeRemoteAdopted = false;
     }
 
     private static bool Alive(int assetId) =>
@@ -2258,7 +1660,6 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Travis");
         SetSwitchOff("Steam Icon");
         SetSwitchOff("Jurassic Logo");
-        SetSwitchOff("Snowflake");
 
         pictureAssetId = -1;
         hammerAssetId  = -1;
@@ -2282,21 +1683,6 @@ public abstract class ConsoleAssetPages
         steamIconRemoteAdopted  = false;
         steamIconStartTime      = 0f;
         steamIconElapsed        = 0f;
-
-        // Same story for the snowflake: its flight clock, the world point
-        // it launched from and the room's snapshots all die with the room.
-        snowflakeId         = -1;
-        snowflakeOnHand     = false;
-        snowflakeMaterials  = null;
-        snowflakeLight      = null;
-        snowflakeSnow       = null;
-        snowflakeStartTime  = 0f;
-        snowflakeLaunchTime = 0f;
-        snowflakeLaunchPos  = Vector3.zero;
-
-        snowflakeStates.Clear();
-        snowflakeRemoteId      = -1;
-        snowflakeRemoteAdopted = false;
 
         if (steamIconShockwave != null)
         {
