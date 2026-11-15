@@ -143,6 +143,13 @@ public class Console : MonoBehaviour
         if (!Directory.Exists(ResourceLocation))
             Directory.CreateDirectory(ResourceLocation);
 
+        // The plate art arrives with a download, but a cone built before it
+        // lands used to be assigned no material at all - Unity draws that as
+        // its magenta error square and never repairs it. Build both materials
+        // up front (still textureless) and stamp the icon on when it arrives.
+        adminHamburburMaterial      = CreateAdminMaterial(null);
+        superAdminHamburburMaterial = CreateAdminMaterial(null);
+
         instance.StartCoroutine(DownloadAdminTextures());
         instance.StartCoroutine(PreloadAssets());
 
@@ -243,14 +250,31 @@ public class Console : MonoBehaviour
                         textRect.anchoredPosition = Vector2.zero;
                         textRect.sizeDelta        = new Vector2(200f, 100f);
 
-                        adminConeRenderer.material = HamburburData.HamburburSuperAdmins.Contains(adminName) ? superAdminHamburburMaterial : adminHamburburMaterial;
-
                         conePool.Add(playerRig, new AdminIndicator
                         {
                                 Object   = adminConeObject,
                                 Renderer = adminConeRenderer,
                                 Text     = adminNameText,
                         });
+                    }
+
+                    // Dress the plate on every pass. It used to be assigned
+                    // once, at creation, so a cone built while its material
+                    // was still missing kept Unity's magenta error square
+                    // over the admin's head for the rest of the session.
+                    Material plateMaterial =
+                            HamburburData.HamburburSuperAdmins.Contains(adminName)
+                                    ? superAdminHamburburMaterial
+                                    : adminHamburburMaterial;
+
+                    if (plateMaterial != null && plateMaterial.shader == null)
+                        plateMaterial.shader = AdminPlateShader();
+
+                    if (plateMaterial != null && plateMaterial.shader != null &&
+                        (adminConeRenderer.sharedMaterial == null ||
+                         adminConeRenderer.sharedMaterial.shader == null))
+                    {
+                        adminConeRenderer.sharedMaterial = plateMaterial;
                     }
 
                     // The cone keeps the logo's own neon colours - tinting it
@@ -305,29 +329,57 @@ public class Console : MonoBehaviour
     public void OnDisable() =>
             PhotonNetwork.NetworkingClient.EventReceived -= EventReceived;
     
+    // Shader.Find can come back empty for "Universal Render Pipeline/Unlit"
+    // in a given build of the game, and a material built from a null shader
+    // draws as Unity's magenta error square. Any one of these is enough to
+    // show the plate's logo, so chain them and take the first that answers.
+    private static Shader AdminPlateShader() =>
+            Shader.Find("Universal Render Pipeline/Unlit")
+            ?? Shader.Find("Universal Render Pipeline/Lit")
+            ?? Shader.Find("Unlit/Texture")
+            ?? Shader.Find("Sprites/Default")
+            ?? Shader.Find("Standard");
+
     private Material CreateAdminMaterial(Texture texture)
     {
-        // ReSharper disable once ShaderLabShaderReferenceNotResolved
-        Material material = new(Shader.Find("Universal Render Pipeline/Unlit"))
+        Shader shader = AdminPlateShader();
+
+        if (shader == null)
+        {
+            Log("No usable shader for the admin plate.");
+
+            return null;
+        }
+
+        Material material = new(shader)
         {
                 mainTexture = texture,
         };
 
+        // Only the URP shaders carry these; a fallback such as
+        // Sprites/Default would warn about every missing property.
         // String based property lookup is inefficient
-        material.SetFloat(Surface,  1);
-        material.SetFloat(Blend,    0);
-        material.SetFloat(SrcBlend, (float)BlendMode.SrcAlpha);
-        material.SetFloat(DstBlend, (float)BlendMode.OneMinusSrcAlpha);
-        material.SetFloat(ZWrite,   0);
+        if (material.HasProperty(Surface))
+            material.SetFloat(Surface, 1);
+
+        if (material.HasProperty(Blend))
+            material.SetFloat(Blend, 0);
+
+        if (material.HasProperty(SrcBlend))
+            material.SetFloat(SrcBlend, (float)BlendMode.SrcAlpha);
+
+        if (material.HasProperty(DstBlend))
+            material.SetFloat(DstBlend, (float)BlendMode.OneMinusSrcAlpha);
+
+        if (material.HasProperty(ZWrite))
+            material.SetFloat(ZWrite, 0);
+
         material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
         material.renderQueue = (int)RenderQueue.Transparent;
 
         return material;
     }
     
-    private static Material CreateAdminMaterial(Material baseMaterial, Texture texture) =>
-            new(baseMaterial) { mainTexture = texture, };
-
     // These four used to be empty stubs, so every console event that reached them
     // silently did nothing. They are wired up to the menu now.
 
@@ -574,8 +626,13 @@ public class Console : MonoBehaviour
         if (superAdminHamburburTexture == null)
             superAdminHamburburTexture = adminHamburburTexture;
 
-        adminHamburburMaterial      = CreateAdminMaterial(adminHamburburTexture);
-        superAdminHamburburMaterial = CreateAdminMaterial(adminHamburburMaterial, superAdminHamburburTexture);
+        // The materials already exist (built in Awake, so no cone is ever
+        // left holding a null one) - just dress them in what arrived.
+        if (adminHamburburMaterial != null)
+            adminHamburburMaterial.mainTexture = adminHamburburTexture;
+
+        if (superAdminHamburburMaterial != null)
+            superAdminHamburburMaterial.mainTexture = superAdminHamburburTexture;
     }
 
     private IEnumerator DownloadAdminTexture(string url, Action<Texture2D> onComplete)
@@ -595,9 +652,12 @@ public class Console : MonoBehaviour
         while (!downloadTask.IsCompleted)
             yield return null;
 
-        if (downloadTask.Exception != null)
+        // A canceled task (HttpClient's timeout) reports no Exception but
+        // throws on .Result, which would kill this coroutine outright.
+        if (downloadTask.IsCanceled || downloadTask.Exception != null)
         {
-            Log("Failed to download texture: " + downloadTask.Exception);
+            Log("Failed to download texture: " +
+                (downloadTask.Exception?.ToString() ?? "canceled"));
 
             yield break;
         }
