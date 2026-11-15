@@ -881,6 +881,140 @@ public class Console : MonoBehaviour
             ?? Shader.Find("GUI/Text Shader")
             ?? Shader.Find("Unlit/Texture");
 
+    // ---------------------------------------------------------------------
+    // King Minos's animation: additive life for the length of his song.
+    // Each bone's rolled stance is captured at spawn and re-based every
+    // frame, so the motion rides ON TOP of whichever pose the room picked
+    // instead of flattening it. Offsets are designed in the asset's own
+    // wrapper space (he faces wrapper +Z there) and mapped through the
+    // wrapper's current world rotation, so the sway stays relative to how
+    // he stands in the room - not to the room's axes. Amplitude starts at
+    // zero (no jump), eases in over two and a half seconds behind a
+    // rear-back, chin-up roar, then breathes and sways until the last
+    // three seconds of the 63 second clip, where he settles back into the
+    // still stance. Runs locally on every client that receives the spawn,
+    // so no bone data ever crosses the network.
+    // ---------------------------------------------------------------------
+    private IEnumerator MinosAnimate(GameObject target)
+    {
+        if (target == null)
+            yield break;
+
+        // Bone, sway amplitude (degrees per axis), phase, rate (rad/s).
+        // Wrapper-space axes: +X leans him forward, +Y turns him, +Z tips
+        // him sideways; on the arms +X swings them forward/back and +Z
+        // opens them out from the body.
+        (string name, Vector3 amp, Vector3 phase, Vector3 rate)[] spec =
+        {
+                ("Spine",          new Vector3(2.2f, 3.0f, 2.2f), new Vector3(0.0f, 0.9f, 1.8f), new Vector3(1.60f, 1.10f, 1.30f)),
+                ("Neck",           new Vector3(3.5f, 8.0f, 1.5f), new Vector3(1.2f, 0.4f, 2.1f), new Vector3(1.00f, 0.70f, 0.90f)),
+                ("Head",           new Vector3(1.8f, 3.5f, 1.0f), new Vector3(0.5f, 1.6f, 0.7f), new Vector3(1.10f, 1.30f, 1.20f)),
+                ("UpperArm_Right", new Vector3(3.0f, 2.0f, 4.5f), new Vector3(2.0f, 0.3f, 1.1f), new Vector3(1.30f, 1.00f, 1.50f)),
+                ("LowerArm_Right", new Vector3(6.0f, 2.0f, 2.0f), new Vector3(0.6f, 1.4f, 2.4f), new Vector3(1.70f, 1.20f, 1.30f)),
+                ("UpperArm_Left",  new Vector3(3.0f, 2.0f, 4.5f), new Vector3(3.1f, 1.9f, 0.2f), new Vector3(1.25f, 1.10f, 1.40f)),
+                ("LowerArm_Left",  new Vector3(7.0f, 2.0f, 2.0f), new Vector3(1.7f, 0.8f, 2.9f), new Vector3(1.60f, 1.00f, 1.40f)),
+        };
+
+        Transform[]  bones     = new Transform[spec.Length];
+        Quaternion[] baseLocal = new Quaternion[spec.Length];
+        Vector3[]    amps      = new Vector3[spec.Length];
+        Vector3[]    phases    = new Vector3[spec.Length];
+        Vector3[]    rates     = new Vector3[spec.Length];
+
+        for (int i = 0; i < spec.Length; i++)
+        {
+            bones[i] = FindDeep(target.transform, spec[i].name);
+
+            if (bones[i] == null)
+                continue;
+
+            baseLocal[i] = bones[i].localRotation;
+            amps[i]      = spec[i].amp;
+            phases[i]    = spec[i].phase;
+            rates[i]     = spec[i].rate;
+        }
+
+        Transform wrapper   = target.transform;
+        Transform model     = FindDeep(wrapper, "Model");
+        Vector3   modelBase = model != null ? model.localPosition : Vector3.zero;
+
+        const float intro   = 2.5f;                 // ease in from stillness
+        const float songEnd = 63f;                  // the 0:27-1:30 clip
+        const float outro   = 3f;                   // settle over the tail
+
+        float t = 0f;
+
+        while (target != null && t < songEnd)
+        {
+            t += Time.deltaTime;
+
+            float ease = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / intro)) *
+                         (1f - Mathf.SmoothStep(0f, 1f,
+                                                 Mathf.Clamp01((t - (songEnd - outro)) / outro)));
+
+            // Opening flourish: over the first three seconds he rears back
+            // with his chin up - the boss intro - then settles into sway.
+            float flare = Mathf.Sin(Mathf.PI * Mathf.Clamp01(t / 3f));
+
+            Quaternion wrapperRot   = wrapper.rotation;
+            Quaternion wrapperRotInv = Quaternion.Inverse(wrapperRot);
+
+            for (int i = 0; i < spec.Length; i++)
+            {
+                Transform bone = bones[i];
+
+                if (bone == null)
+                    continue;
+
+                Vector3 e = new(amps[i].x * Mathf.Sin(t * rates[i].x + phases[i].x),
+                                amps[i].y * Mathf.Sin(t * rates[i].y + phases[i].y),
+                                amps[i].z * Mathf.Sin(t * rates[i].z + phases[i].z));
+
+                e *= ease;
+
+                if (i == 0)
+                    e.x -= 7f * flare;             // spine: chest out, back arched
+                else if (i == 1)
+                    e.x -= 9f * flare;             // neck: chin up with the roar
+
+                // Where the bone would stand in its parent with this stance
+                // re-applied (parents earlier in the list are already moving),
+                // pulled into wrapper space, swung by the wrapper-space
+                // offset, then written back out in world space - the same
+                // world-turn trick the pose baking uses, carried live down
+                // the hierarchy.
+                Quaternion current = bone.parent != null
+                                             ? bone.parent.rotation * baseLocal[i]
+                                             : baseLocal[i];
+
+                bone.rotation = wrapperRot * Quaternion.Euler(e) * wrapperRotInv * current;
+            }
+
+            if (model != null)
+                model.localPosition = modelBase + Vector3.up * (Mathf.Sin(t * 1.5f) * 0.012f * ease);
+
+            yield return null;
+        }
+
+        // Park him back in the stance the room rolled.
+        for (int i = 0; i < spec.Length; i++)
+            if (bones[i] != null)
+                bones[i].localRotation = baseLocal[i];
+
+        if (model != null)
+            model.localPosition = modelBase;
+    }
+
+    // Depth-first child lookup by exact name; the asset trees are tiny.
+    private static Transform FindDeep(Transform root, string name)
+    {
+        foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+            if (t.name == name)
+                return t;
+
+        return null;
+    }
+
     private IEnumerator RenderLaser(bool rightHand, VRRig rigTarget)
     {
         float stoplasar = Time.time + 0.2f;
@@ -2041,6 +2175,13 @@ public class Console : MonoBehaviour
             }
 
         ConsoleAssets.Add(id, new ConsoleAsset(id, targetObject, assetName, assetBundle));
+
+        // King Minos is the one asset that gets to move: he rears up on
+        // spawn and then sways, breathes and works his arms for the length
+        // of his song instead of standing frozen. Runs locally on every
+        // client that receives the spawn, so no bone data crosses the wire.
+        if (assetBundle == "riftix_minos")
+            StartCoroutine(MinosAnimate(targetObject));
     }
 
     private IEnumerator ModifyConsoleAsset(int id, Action<ConsoleAsset> action, bool isAudio = false)

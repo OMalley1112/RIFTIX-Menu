@@ -570,8 +570,8 @@ public abstract class ConsoleAssetPages
 
     // Re-send the placement at twelve seconds for anyone still pulling
     // the bundle. The sound is deliberately left out: replaying it would
-    // restart the 38.7 second song and push the end-of-song flash out
-    // by another half minute.
+    // restart the 63 second song and push the end-of-song flash out by
+    // another minute.
     private static IEnumerator ResendKingMinos()
     {
         int id = minosAssetId;
@@ -609,7 +609,8 @@ public abstract class ConsoleAssetPages
             yield break;
 
         // playOnAwake starts it on instantiate; wait until it is actually
-        // running, then until the 38.7 second clip runs out.
+        // running, then until the 63 second clip (the 0:27-1:30 stretch of
+        // the Minos Prime intro animation) runs out.
         while (Time.time < giveUp && minosAssetId == id && Alive(id) && !source.isPlaying)
             yield return null;
 
