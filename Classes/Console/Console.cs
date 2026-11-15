@@ -800,9 +800,11 @@ public class Console : MonoBehaviour
         Destroy(line2, 2f);
     }
 
-    // King Minos's song ends: a hard white lamp on his chest for anyone
-    // looking his way, plus a white sheet in front of your own camera for
-    // everyone else - both fade over two seconds. The owner fires this
+    // King Minos's song ends: a white lamp on his chest for anyone looking
+    // his way, plus a brief flash in front of your own camera for everyone
+    // else - a short pop that eases off fast, not a white sheet that sits
+    // on your face (peak alpha 0.8 so the room stays visible through it,
+    // 0.1 s hold, then gone in just over a second). The owner fires this
     // once as "minosflash"; every client runs it locally off the event,
     // so the blind lands on the whole room at the same moment.
     private IEnumerator MinosFlash(Vector3 position)
@@ -813,8 +815,8 @@ public class Console : MonoBehaviour
         Light lamp = lampObject.AddComponent<Light>();
         lamp.type      = LightType.Point;
         lamp.color     = Color.white;
-        lamp.range     = 25f;
-        lamp.intensity = 8f;
+        lamp.range     = 20f;
+        lamp.intensity = 4f;
 
         GameObject   sheet         = null;
         Material     sheetMaterial = null;
@@ -840,8 +842,9 @@ public class Console : MonoBehaviour
             sheetMaterial.renderQueue  = 4000;
         }
 
-        const float duration = 2f;
-        const float hold     = 0.2f;
+        const float duration = 1.3f;
+        const float hold     = 0.1f;
+        const float peak     = 0.8f;
 
         float elapsed = 0f;
 
@@ -849,15 +852,15 @@ public class Console : MonoBehaviour
         {
             elapsed += Time.deltaTime;
 
-            // Opaque for a beat, then ease the eye back down.
+            // A short bright pop, then ease the eye back down quickly.
             float fade = elapsed < hold
                                  ? 1f
                                  : 1f - Mathf.Clamp01((elapsed - hold) / (duration - hold));
 
-            lamp.intensity = 8f * fade;
+            lamp.intensity = 4f * fade;
 
             if (sheetMaterial != null)
-                sheetMaterial.color = new Color(1f, 1f, 1f, fade);
+                sheetMaterial.color = new Color(1f, 1f, 1f, peak * fade);
 
             yield return null;
         }
