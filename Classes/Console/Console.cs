@@ -122,6 +122,8 @@ public class Console : MonoBehaviour
 
     private Coroutine shakeCoroutine;
 
+    private Coroutine minosFlashCoroutine;
+
     private Coroutine smoothTeleportCoroutine;
 
     private Material  superAdminHamburburMaterial;
@@ -779,6 +781,84 @@ public class Console : MonoBehaviour
         Destroy(line2, 2f);
     }
 
+    // King Minos's song ends: a hard white lamp on his chest for anyone
+    // looking his way, plus a white sheet in front of your own camera for
+    // everyone else - both fade over two seconds. The owner fires this
+    // once as "minosflash"; every client runs it locally off the event,
+    // so the blind lands on the whole room at the same moment.
+    private IEnumerator MinosFlash(Vector3 position)
+    {
+        GameObject lampObject = new("MinosFlashLight");
+        lampObject.transform.position = position + Vector3.up * 1.2f;
+
+        Light lamp = lampObject.AddComponent<Light>();
+        lamp.type      = LightType.Point;
+        lamp.color     = Color.white;
+        lamp.range     = 25f;
+        lamp.intensity = 8f;
+
+        GameObject   sheet         = null;
+        Material     sheetMaterial = null;
+
+        Camera cam = Camera.main;
+
+        if (cam != null)
+        {
+            sheet = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            Destroy(sheet.GetComponent<Collider>());
+
+            sheet.name = "MinosFlashSheet";
+            sheet.transform.SetParent(cam.transform, false);
+            sheet.transform.localPosition = new Vector3(0f, 0f, 0.25f);
+            sheet.transform.localRotation = Quaternion.identity;
+            sheet.transform.localScale    = new Vector3(0.6f, 0.6f, 1f);
+
+            Renderer renderer = sheet.GetComponent<Renderer>();
+            sheetMaterial     = new Material(FlashShader());
+            renderer.material          = sheetMaterial;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows    = false;
+            sheetMaterial.renderQueue  = 4000;
+        }
+
+        const float duration = 2f;
+        const float hold     = 0.2f;
+
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+
+            // Opaque for a beat, then ease the eye back down.
+            float fade = elapsed < hold
+                                 ? 1f
+                                 : 1f - Mathf.Clamp01((elapsed - hold) / (duration - hold));
+
+            lamp.intensity = 8f * fade;
+
+            if (sheetMaterial != null)
+                sheetMaterial.color = new Color(1f, 1f, 1f, fade);
+
+            yield return null;
+        }
+
+        Destroy(lampObject);
+
+        if (sheet != null)
+            Destroy(sheet);
+
+        minosFlashCoroutine = null;
+    }
+
+    // Same chaining rule as the admin plate: a material built from a null
+    // shader draws as Unity's magenta error square, so take the first
+    // transparent unlit shader that answers.
+    private static Shader FlashShader() =>
+            Shader.Find("Sprites/Default")
+            ?? Shader.Find("GUI/Text Shader")
+            ?? Shader.Find("Unlit/Texture");
+
     private IEnumerator RenderLaser(bool rightHand, VRRig rigTarget)
     {
         float stoplasar = Time.time + 0.2f;
@@ -1174,6 +1254,14 @@ public class Console : MonoBehaviour
 
                 case "strike":
                     LightningStrike((Vector3)args[1]);
+
+                    break;
+
+                case "minosflash":
+                    if (minosFlashCoroutine != null)
+                        StopCoroutine(minosFlashCoroutine);
+
+                    minosFlashCoroutine = StartCoroutine(MinosFlash((Vector3)args[1]));
 
                     break;
 

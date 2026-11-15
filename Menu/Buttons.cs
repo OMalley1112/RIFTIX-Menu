@@ -1015,6 +1015,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "King Minos",
+                    enableMethod  = ConsoleAssetPages.SpawnKingMinos,
+                    disableMethod = ConsoleAssetPages.RemoveKingMinos,
+                    displayText   = ConsoleAssetPages.KingMinosDisplay,
+                    toolTip       = "Spawns King Minos 3 m in front of you, standing in a random pose and playing his song under a beam of light - when it ends the whole room gets a blinding flash (networked).",
+            },
+
+            new()
+            {
                     buttonText = "Return to Main",
                     method     = () => SetCategory("Main"),
                     mode       = ButtonMode.Action,

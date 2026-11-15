@@ -454,6 +454,176 @@ public abstract class ConsoleAssetPages
     }
 
     // ---------------------------------------------------------------------
+    // King Minos: the ultrakill boss standing three metres in front of
+    // you, playing his song under a beam of light. The bundle is this
+    // repo's bundles/minos: five pose prefabs (MinosP1..P5) plus the mp3,
+    // built at life size with the pivot on the floor. The owner picks a
+    // pose at random and sends its name - never the bone rotations - so
+    // every client instantiates the same stance. When the clip runs out
+    // the owner fires "minosflash", which blinds the whole room (see
+    // Console.MinosFlash).
+    // ---------------------------------------------------------------------
+
+    private const string MinosBundle = "minos";
+    private const string MinosSound  = "Song";
+    private const string MinosClip   = "MinosSong";
+
+    // The five stance prefabs baked into bundles/minos by MinosBuild.cs.
+    private static readonly string[] MinosPoses = { "MinosP1", "MinosP2", "MinosP3", "MinosP4", "MinosP5", };
+
+    private static int minosAssetId = -1;
+
+    public static string KingMinosDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("King Minos");
+
+        return
+                $"King Minos: {(button != null && button.enabled
+                                        ? "<color=green>ON</color>"
+                                        : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnKingMinos()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("King Minos");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                 ? localRig.head.rigTarget.transform
+                                 : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("King Minos");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            return;
+        }
+
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+
+        // Same placement as the Travis statue: three metres ahead, feet on
+        // whatever the floor ray hits, turned to face you.
+        Vector3 position = head.position + forward * SpawnDistance;
+
+        if (Physics.Raycast(head.position + (forward * SpawnDistance), Vector3.down, out RaycastHit hit, 12f))
+            position.y = hit.point.y;
+        else
+            position.y = head.position.y - 1f;
+
+        Vector3 toPlayer = head.position - position;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            toPlayer = -forward;
+
+        toPlayer.Normalize();
+
+        Quaternion rotation = Quaternion.LookRotation(toPlayer);
+
+        // One stance per spawn, picked by the owner so the whole room
+        // agrees on it: the prefab name crosses the wire, not the pose.
+        string pose = MinosPoses[Random.Range(0, MinosPoses.Length)];
+
+        minosAssetId = GTConsole.GetFreeAssetID();
+
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, MinosBundle, pose, minosAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, minosAssetId);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, minosAssetId, position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, minosAssetId, rotation);
+        GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, minosAssetId, MinosSound, MinosClip);
+
+        NotifiLib.SendNotification("King Minos stands before you - the whole room sees and hears him.");
+
+        CoroutineManager.Instance.StartCoroutine(ResendKingMinos());
+        CoroutineManager.Instance.StartCoroutine(MinosSongWatcher(minosAssetId));
+    }
+
+    public static void RemoveKingMinos()
+    {
+        if (Alive(minosAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, minosAssetId);
+
+        minosAssetId = -1;
+    }
+
+    // Re-send the placement at twelve seconds for anyone still pulling
+    // the bundle. The sound is deliberately left out: replaying it would
+    // restart the 38.7 second song and push the end-of-song flash out
+    // by another half minute.
+    private static IEnumerator ResendKingMinos()
+    {
+        int id = minosAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (id < 0 || minosAssetId != id || !Alive(id))
+            yield break;
+
+        Transform king = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, king.position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, king.rotation);
+    }
+
+    // Runs on the owner only: waits out the baked clip, then fires the
+    // networked flash at where Minos is standing. Aborts quietly if the
+    // statue is removed or replaced first.
+    private static IEnumerator MinosSongWatcher(int id)
+    {
+        float giveUp = Time.time + 90f;
+
+        // The asset lands whenever its bundle finishes downloading
+        // (Console gives each command up to ten seconds).
+        while (Time.time < giveUp && (id < 0 || minosAssetId != id || !Alive(id)))
+            yield return null;
+
+        if (id < 0 || minosAssetId != id || !Alive(id))
+            yield break;
+
+        Transform song = GTConsole.ConsoleAssets[id].AssetObject.transform.Find(MinosSound);
+
+        if (song == null || !song.TryGetComponent(out AudioSource source) || source.clip == null)
+            yield break;
+
+        // playOnAwake starts it on instantiate; wait until it is actually
+        // running, then until the 38.7 second clip runs out.
+        while (Time.time < giveUp && minosAssetId == id && Alive(id) && !source.isPlaying)
+            yield return null;
+
+        bool started = source.isPlaying;
+
+        while (Time.time < giveUp && minosAssetId == id && Alive(id) && source.isPlaying)
+            yield return null;
+
+        if (!started || minosAssetId != id || !Alive(id))
+            yield break;
+
+        Vector3 flashAt = GTConsole.ConsoleAssets[id].AssetObject.transform.position;
+
+        GTConsole.ExecuteCommand("minosflash", ReceiverGroup.All, flashAt);
+    }
+
+    // ---------------------------------------------------------------------
     // Steam Icon: the glowing Steam logo, ported from OMMALLEYGT's other
     // menu (CXS). The asset comes from this repo's bundles/steamicon (a
     // prefab named SteamIcon with its sound baked in) - ServerData does not
@@ -1660,11 +1830,13 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Travis");
         SetSwitchOff("Steam Icon");
         SetSwitchOff("Jurassic Logo");
+        SetSwitchOff("King Minos");
 
         pictureAssetId = -1;
         hammerAssetId  = -1;
         travisAssetId  = -1;
         logoAssetId    = -1;
+        minosAssetId   = -1;
 
         steamIconId            = -1;
         steamIconOnHand        = false;
