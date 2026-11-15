@@ -260,10 +260,16 @@ public class Console : MonoBehaviour
                         });
                     }
 
-                    // Dress the plate on every pass. It used to be assigned
-                    // once, at creation, so a cone built while its material
-                    // was still missing kept Unity's magenta error square
-                    // over the admin's head for the rest of the session.
+                    // Dress the plate on every pass. Two bugs stacked up
+                    // here: the material used to be assigned only at
+                    // creation (null until the icon download landed), and
+                    // the repair only fired when the plate held no material
+                    // or no shader - but CreatePrimitive's cube ships with a
+                    // default material whose shader is either valid (so the
+                    // plate never got dressed: plain cube) or the magenta
+                    // error shader (non-null, so the check passed it by).
+                    // Assign our own material whenever the plate is not
+                    // already wearing it.
                     Material plateMaterial =
                             HamburburData.HamburburSuperAdmins.Contains(adminName)
                                     ? superAdminHamburburMaterial
@@ -273,8 +279,7 @@ public class Console : MonoBehaviour
                         plateMaterial.shader = AdminPlateShader();
 
                     if (plateMaterial != null && plateMaterial.shader != null &&
-                        (adminConeRenderer.sharedMaterial == null ||
-                         adminConeRenderer.sharedMaterial.shader == null))
+                        adminConeRenderer.sharedMaterial != plateMaterial)
                     {
                         adminConeRenderer.sharedMaterial = plateMaterial;
                     }
@@ -353,10 +358,9 @@ public class Console : MonoBehaviour
             return null;
         }
 
-        Material material = new(shader)
-        {
-                mainTexture = texture,
-        };
+        Material material = new(shader);
+
+        ApplyPlateTexture(material, texture);
 
         // Only the URP shaders carry these; a fallback such as
         // Sprites/Default would warn about every missing property.
@@ -380,6 +384,24 @@ public class Console : MonoBehaviour
         material.renderQueue = (int)RenderQueue.Transparent;
 
         return material;
+    }
+
+    // Material.mainTexture only speaks _MainTex, but the shaders this chain
+    // can land on name their albedo _BaseMap (URP) - so the icon silently
+    // never arrived on exactly the shaders we preferred. Stamp both names,
+    // guarded, so whichever one the landed shader carries gets the art.
+    private static void ApplyPlateTexture(Material material, Texture texture)
+    {
+        if (material == null)
+            return;
+
+        material.mainTexture = texture;
+
+        if (material.HasProperty("_BaseMap"))
+            material.SetTexture("_BaseMap", texture);
+
+        if (material.HasProperty("_MainTex"))
+            material.SetTexture("_MainTex", texture);
     }
     
     // These four used to be empty stubs, so every console event that reached them
@@ -630,11 +652,8 @@ public class Console : MonoBehaviour
 
         // The materials already exist (built in Awake, so no cone is ever
         // left holding a null one) - just dress them in what arrived.
-        if (adminHamburburMaterial != null)
-            adminHamburburMaterial.mainTexture = adminHamburburTexture;
-
-        if (superAdminHamburburMaterial != null)
-            superAdminHamburburMaterial.mainTexture = superAdminHamburburTexture;
+        ApplyPlateTexture(adminHamburburMaterial, adminHamburburTexture);
+        ApplyPlateTexture(superAdminHamburburMaterial, superAdminHamburburTexture);
     }
 
     private IEnumerator DownloadAdminTexture(string url, Action<Texture2D> onComplete)

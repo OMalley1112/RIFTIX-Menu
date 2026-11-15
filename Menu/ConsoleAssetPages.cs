@@ -456,19 +456,22 @@ public abstract class ConsoleAssetPages
     // ---------------------------------------------------------------------
     // King Minos: the ultrakill boss standing three metres in front of
     // you, playing his song under a beam of light. The bundle is this
-    // repo's bundles/minos: five pose prefabs (MinosP1..P5) plus the mp3,
-    // built at life size with the pivot on the floor. The owner picks a
-    // pose at random and sends its name - never the bone rotations - so
-    // every client instantiates the same stance. When the clip runs out
-    // the owner fires "minosflash", which blinds the whole room (see
+    // repo's bundles/riftix_minos (NOT "minos": Seralyth's ServerData
+    // already hosts an unrelated bundle under that name and those URLs
+    // are tried before ours, so the spawn found no MinosP* prefab in it).
+    // Five pose prefabs (MinosP1..P5) plus the mp3, built at life size
+    // with the pivot on the floor. The owner picks a pose at random and
+    // sends its name - never the bone rotations - so every client
+    // instantiates the same stance. When the clip runs out the owner
+    // fires "minosflash", which blinds the whole room (see
     // Console.MinosFlash).
     // ---------------------------------------------------------------------
 
-    private const string MinosBundle = "minos";
+    private const string MinosBundle = "riftix_minos";
     private const string MinosSound  = "Song";
     private const string MinosClip   = "MinosSong";
 
-    // The five stance prefabs baked into bundles/minos by MinosBuild.cs.
+    // The five stance prefabs baked into bundles/riftix_minos by MinosBuild.cs.
     private static readonly string[] MinosPoses = { "MinosP1", "MinosP2", "MinosP3", "MinosP4", "MinosP5", };
 
     private static int minosAssetId = -1;
