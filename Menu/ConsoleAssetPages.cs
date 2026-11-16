@@ -720,6 +720,7 @@ public abstract class ConsoleAssetPages
 
         ripHolding     = false;
         ripVictimActor = -1;
+        dummyHeld      = false;
     }
 
     private static void SendRip(int action, int victimActor, int extra) =>
@@ -947,6 +948,14 @@ public abstract class ConsoleAssetPages
             return;
         }
 
+        // Holding the practice dummy: same grip rules, no network at all.
+        if (dummyHeld)
+        {
+            DummyHoldTick(gripL, gripR);
+
+            return;
+        }
+
         if (!freshL && !freshR)
             return;
 
@@ -966,8 +975,13 @@ public abstract class ConsoleAssetPages
         if (freshR && tagger.rightHandTransform != null)
             TryRipVictim(tagger.rightHandTransform.position, ref victim, ref best, ref hand, 1);
 
+        // No player in reach - see if it's the practice dummy instead.
         if (victim == null || victim.Creator == null)
+        {
+            TryGrabDummy(freshL, freshR, gripL, gripR, tagger);
+
             return;
+        }
 
         ripHolding      = true;
         ripVictimActor  = victim.Creator.ActorNumber;
@@ -1309,6 +1323,8 @@ public abstract class ConsoleAssetPages
 
             RipTickHidden();
 
+            DummyTick();
+
             // Holds whose grabber left the room go stale.
             if (ripHeldBy.Count > 0)
             {
@@ -1355,6 +1371,417 @@ public abstract class ConsoleAssetPages
         {
             // never let an input hiccup break the frame
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Practice dummy: a local grey mannequin for the Ripper to grab. Only
+    // this client ever sees it - no command goes out - so it works as a
+    // solo target anywhere. Grip near it (Ripper on) to grab, hold it in
+    // the air, then grip with your other hand on it to tear it: arm off or
+    // straight down the middle, same rules as a player. It reassembles
+    // three seconds later.
+    // ---------------------------------------------------------------------
+
+    private const float DummyHeadHeight   = 1.45f;
+    private const float DummyRespawnDelay = 3f;
+
+    private static GameObject   dummyRoot;
+    private static Renderer[]   dummyRends;
+    private static Renderer     dummyArmL;
+    private static Renderer     dummyArmR;
+    private static Material     dummyMaterial;
+    private static bool         dummyRipped;
+    private static float        dummyRipUntil;
+    private static bool         dummyHeld;
+    private static int          dummyHand;
+    private static bool         dummyOtherWasGrip;
+    private static bool         dummyFollowInit;
+    private static Vector3      dummyFollowPos;
+
+    public static string DummyDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Dummy");
+
+        if (button == null || !button.enabled || dummyRoot == null)
+            return "Dummy: <color=red>OFF</color>";
+
+        if (dummyRipped)
+            return "Dummy: <color=green>ON</color> <color=yellow>- in pieces!</color>";
+
+        return dummyHeld
+                   ? "Dummy: <color=green>ON</color> <color=yellow>- held!</color>"
+                   : "Dummy: <color=green>ON</color>";
+    }
+
+    public static void SpawnDummy()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            SetSwitchOff("Dummy");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        RemoveDummy();
+        BuildDummy();
+
+        if (dummyRoot == null)
+        {
+            SetSwitchOff("Dummy");
+            NotifiLib.SendNotification("Could not place the dummy.");
+
+            return;
+        }
+
+        NotifiLib.SendNotification(
+                "Practice dummy spawned - turn on the Ripper and grip near it to grab it.");
+    }
+
+    public static void RemoveDummy()
+    {
+        dummyHeld      = false;
+        dummyRipped    = false;
+        dummyFollowInit = false;
+
+        if (dummyRoot != null)
+            Object.Destroy(dummyRoot);
+
+        dummyRoot   = null;
+        dummyRends  = null;
+        dummyArmL   = null;
+        dummyArmR   = null;
+
+        if (dummyMaterial != null)
+            Object.Destroy(dummyMaterial);
+
+        dummyMaterial = null;
+    }
+
+    private static void BuildDummy()
+    {
+        GorillaTagger tagger = GorillaTagger.Instance;
+
+        if (tagger == null || tagger.bodyCollider == null)
+            return;
+
+        Vector3 origin = tagger.bodyCollider.transform.position;
+
+        // A random spot 2-4 m ahead, within +-75 degrees of the way you face.
+        Vector3 fwd = Camera.main != null ? Camera.main.transform.forward
+                                          : tagger.bodyCollider.transform.forward;
+
+        fwd.y = 0f;
+
+        if (fwd.sqrMagnitude < 0.001f)
+            fwd = Vector3.forward;
+
+        fwd.Normalize();
+
+        Vector3 dir    = Quaternion.AngleAxis(Random.Range(-75f, 75f), Vector3.up) * fwd;
+        Vector3 spawn  = origin + dir * Random.Range(2f, 4f);
+
+        spawn.y = origin.y - 1.15f;
+
+        dummyRoot = new GameObject("RIFTIX_Dummy");
+        dummyRoot.transform.position = spawn;
+
+        // Turn it to face you.
+        Vector3 toPlayer = origin - spawn;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude > 0.001f)
+            dummyRoot.transform.rotation = Quaternion.LookRotation(toPlayer);
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit")
+                        ?? Shader.Find("Standard")
+                        ?? Shader.Find("Sprites/Default");
+
+        dummyMaterial = new Material(shader);
+
+        Color grey = new(0.55f, 0.55f, 0.58f);
+
+        if (dummyMaterial.HasProperty("_BaseColor"))
+            dummyMaterial.SetColor("_BaseColor", grey);
+
+        if (dummyMaterial.HasProperty("_Color"))
+            dummyMaterial.SetColor("_Color", grey);
+
+        List<Renderer> parts = new();
+
+        parts.Add(AddDummyPart(PrimitiveType.Capsule, new Vector3(0f, 0.95f, 0f),
+                new Vector3(0.34f, 0.26f, 0.24f), Vector3.zero));
+
+        parts.Add(AddDummyPart(PrimitiveType.Cube, new Vector3(0f, 1.27f, 0f),
+                new Vector3(0.1f, 0.14f, 0.1f), Vector3.zero));
+
+        parts.Add(AddDummyPart(PrimitiveType.Sphere, new Vector3(0f, DummyHeadHeight, 0f),
+                new Vector3(0.26f, 0.26f, 0.26f), Vector3.zero));
+
+        dummyArmL = AddDummyPart(PrimitiveType.Capsule, new Vector3(-0.33f, 0.95f, 0f),
+                new Vector3(0.09f, 0.26f, 0.09f), new Vector3(0f, 0f, -25f));
+
+        dummyArmR = AddDummyPart(PrimitiveType.Capsule, new Vector3(0.33f, 0.95f, 0f),
+                new Vector3(0.09f, 0.26f, 0.09f), new Vector3(0f, 0f, 25f));
+
+        parts.Add(dummyArmL);
+        parts.Add(dummyArmR);
+
+        parts.Add(AddDummyPart(PrimitiveType.Capsule, new Vector3(-0.12f, 0.45f, 0f),
+                new Vector3(0.14f, 0.45f, 0.14f), Vector3.zero));
+
+        parts.Add(AddDummyPart(PrimitiveType.Capsule, new Vector3(0.12f, 0.45f, 0f),
+                new Vector3(0.14f, 0.45f, 0.14f), Vector3.zero));
+
+        dummyRends = parts.ToArray();
+        dummyRipped = false;
+    }
+
+    private static Renderer AddDummyPart(PrimitiveType type, Vector3 localPos, Vector3 scale,
+            Vector3 localEuler)
+    {
+        GameObject part = GameObject.CreatePrimitive(type);
+        part.name                 = "RIFTIX_DummyPart";
+        part.transform.SetParent(dummyRoot.transform, false);
+        part.transform.localPosition  = localPos;
+        part.transform.localEulerAngles = localEuler;
+        part.transform.localScale = scale;
+
+        // The dummy is a target, not an obstacle - no colliders.
+        Collider col = part.GetComponent<Collider>();
+
+        if (col != null)
+            Object.Destroy(col);
+
+        Renderer rend = part.GetComponent<Renderer>();
+
+        if (rend != null && dummyMaterial != null)
+            rend.sharedMaterial = dummyMaterial;
+
+        return rend;
+    }
+
+    private static Vector3 DummyCentre() =>
+            dummyRoot != null
+                ? dummyRoot.transform.position + Vector3.up * 0.95f
+                : Vector3.zero;
+
+    // Called from RipTickGrabber while the dummy is in hand: same grip
+    // rules as holding a player - open the holding hand to drop it, close
+    // the other hand ON it to tear it.
+    private static void DummyHoldTick(bool gripL, bool gripR)
+    {
+        if (dummyRoot == null)
+        {
+            dummyHeld = false;
+
+            return;
+        }
+
+        GorillaTagger tagger = GorillaTagger.Instance;
+
+        if (tagger == null)
+            return;
+
+        bool holdGrip   = dummyHand == 0 ? gripL : gripR;
+        bool otherGrip  = dummyHand == 0 ? gripR : gripL;
+        bool otherFresh = otherGrip && !dummyOtherWasGrip;
+
+        dummyOtherWasGrip = otherGrip;
+
+        // Let go: it hangs where you dropped it until the next grab.
+        if (!holdGrip)
+        {
+            dummyHeld = false;
+
+            return;
+        }
+
+        // Follow the holding hand, hanging just under it by the head.
+        Transform hand = dummyHand == 0 ? tagger.leftHandTransform : tagger.rightHandTransform;
+
+        if (hand != null)
+        {
+            Vector3 target = hand.position - Vector3.up * (DummyHeadHeight + 0.15f);
+
+            if (!dummyFollowInit)
+            {
+                dummyFollowPos = target;
+                dummyFollowInit = true;
+            }
+            else
+            {
+                float k = 1f - Mathf.Exp(-20f * Time.deltaTime);
+
+                dummyFollowPos = Vector3.Lerp(dummyFollowPos, target, k);
+            }
+
+            dummyRoot.transform.position = dummyFollowPos;
+        }
+
+        if (otherFresh)
+        {
+            Transform other = dummyHand == 0
+                                      ? tagger.rightHandTransform
+                                      : tagger.leftHandTransform;
+
+            if (other != null)
+                TearDummy(DummyTearAction(other.position));
+        }
+    }
+
+    // Arm if the tearing hand found one of its tips, down the middle else.
+    private static int DummyTearAction(Vector3 at)
+    {
+        if (dummyRoot == null)
+            return RipActionHalf;
+
+        float toLeft  = Vector3.Distance(at, dummyRoot.transform.TransformPoint(-0.45f, 0.85f, 0f));
+        float toRight = Vector3.Distance(at, dummyRoot.transform.TransformPoint(0.45f, 0.85f, 0f));
+
+        return toLeft < RipArmRange && toLeft <= toRight
+                   ? RipActionArmL
+                   : toRight < RipArmRange
+                           ? RipActionArmR
+                           : RipActionHalf;
+    }
+
+    private static void TearDummy(int action)
+    {
+        if (dummyRoot == null || dummyRipped)
+            return;
+
+        Renderer[] targets;
+
+        if (action == RipActionArmL && dummyArmL != null)
+            targets = new[] { dummyArmL };
+        else if (action == RipActionArmR && dummyArmR != null)
+            targets = new[] { dummyArmR };
+        else
+        {
+            action   = RipActionHalf;
+            targets  = dummyRends;
+        }
+
+        Vector3 centre = DummyCentre();
+
+        // Bounds first: they read zero the moment the parts are hidden.
+        foreach (Renderer r in targets)
+        {
+            if (r == null)
+                continue;
+
+            Bounds b     = r.bounds;
+            Vector3 fling = (b.center - centre).normalized * 4f + Vector3.up * 2f;
+
+            RipChunk(b.center, b.size * 0.8f, fling);
+        }
+
+        if (action == RipActionHalf)
+            RipBurst(centre);
+
+        foreach (Renderer r in targets)
+        {
+            if (r != null)
+                r.enabled = false;
+        }
+
+        dummyRipped   = true;
+        dummyRipUntil = Time.time + DummyRespawnDelay;
+
+        // Half leaves nothing to hold; an arm-off body stays in your grip.
+        if (action == RipActionHalf)
+            dummyHeld = false;
+
+        try
+        {
+            GorillaTagger.Instance.StartVibration(dummyHand != 0,
+                    GorillaTagger.Instance.tagHapticStrength,
+                    GorillaTagger.Instance.tagHapticDuration);
+        }
+        catch
+        {
+            // ignored - haptics are garnish
+        }
+
+        NotifiLib.SendNotification(
+                action == RipActionHalf
+                    ? "Dummy torn in half! It reassembles in 3 seconds."
+                    : "Dummy's arm torn off! It reassembles in 3 seconds.");
+    }
+
+    // No real victim in reach - see if it's the practice dummy instead.
+    private static void TryGrabDummy(bool freshL, bool freshR, bool gripL, bool gripR,
+            GorillaTagger tagger)
+    {
+        if (dummyRoot == null || dummyRipped || dummyHeld)
+            return;
+
+        if (!freshL && !freshR)
+            return;
+
+        Vector3 centre = DummyCentre();
+        float   range  = RipGrabRange * 1.5f;
+
+        float dL = freshL && tagger.leftHandTransform != null
+                       ? Vector3.Distance(tagger.leftHandTransform.position, centre)
+                       : float.MaxValue;
+
+        float dR = freshR && tagger.rightHandTransform != null
+                       ? Vector3.Distance(tagger.rightHandTransform.position, centre)
+                       : float.MaxValue;
+
+        int hand;
+
+        if (dL < range && dL <= dR)
+            hand = 0;
+        else if (dR < range)
+            hand = 1;
+        else
+            return;
+
+        dummyHeld         = true;
+        dummyHand         = hand;
+        // If the other hand is already squeezed it must open again before
+        // a rip can start - grabbing with both hands at once must not tear.
+        dummyOtherWasGrip = hand == 0 ? gripR : gripL;
+        dummyFollowInit   = false;
+
+        try
+        {
+            GorillaTagger.Instance.StartVibration(hand == 0, GorillaTagger.Instance.tagHapticStrength,
+                    GorillaTagger.Instance.tagHapticDuration);
+        }
+        catch
+        {
+            // ignored - haptics are garnish
+        }
+
+        NotifiLib.SendNotification(
+                "Grabbed the dummy - hold it up, then grip with your other hand on it to rip!");
+    }
+
+    // Called from RipperTick: put the pieces back together when the timer
+    // runs out.
+    private static void DummyTick()
+    {
+        if (!dummyRipped || dummyRoot == null)
+            return;
+
+        if (Time.time < dummyRipUntil)
+            return;
+
+        foreach (Renderer r in dummyRends)
+        {
+            if (r != null)
+                r.enabled = true;
+        }
+
+        dummyRipped = false;
+
+        NotifiLib.SendNotification("The dummy reassembles.");
     }
 
     // ---------------------------------------------------------------------
@@ -2566,6 +2993,7 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Jurassic Logo");
         SetSwitchOff("King Minos");
         SetSwitchOff("Ripper");
+        SetSwitchOff("Dummy");
 
         pictureAssetId = -1;
         hammerAssetId  = -1;
@@ -2574,6 +3002,8 @@ public abstract class ConsoleAssetPages
         minosAssetId   = -1;
 
         RipperReset();
+
+        RemoveDummy();
 
         steamIconId            = -1;
         steamIconOnHand        = false;

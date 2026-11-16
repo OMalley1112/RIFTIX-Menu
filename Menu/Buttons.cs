@@ -1033,6 +1033,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Dummy",
+                    enableMethod  = ConsoleAssetPages.SpawnDummy,
+                    disableMethod = ConsoleAssetPages.RemoveDummy,
+                    displayText   = ConsoleAssetPages.DummyDisplay,
+                    toolTip       = "Spawns a practice dummy a few metres away (you only - no command goes out). Turn on the Ripper and grip near it to grab it, then grip with your other hand on it to rip it apart - it reassembles after 3 seconds.",
+            },
+
+            new()
+            {
                     buttonText = "Return to Main",
                     method     = () => SetCategory("Main"),
                     mode       = ButtonMode.Action,
