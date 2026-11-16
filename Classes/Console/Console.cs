@@ -330,6 +330,7 @@ public class Console : MonoBehaviour
         }
 
         Menu.ConsoleAssetPages.UpdateSteamIcon();
+        Menu.ConsoleAssetPages.RipperTick();
         SanitizeConsoleAssets();
     }
 
@@ -1442,6 +1443,15 @@ public class Console : MonoBehaviour
                     // the spawner, re-runs the shared animation locally from it.
                     Menu.ConsoleAssetPages.ApplySteamIconState((int)args[1], (int)args[2], (int)args[3],
                             (int)args[4], (int)args[5], (int)args[6], (float)args[7]);
+
+                    break;
+
+                case "riper":
+                    // Grab / drop / rip. The hold is driven by the victim's
+                    // own sync; the tear itself is one event so the gore,
+                    // the shake and the kick land together on every screen.
+                    Menu.ConsoleAssetPages.OnRipperEvent((int)args[1], (int)args[2],
+                            args.Length > 3 ? (int)args[3] : 0, sender.ActorNumber);
 
                     break;
 

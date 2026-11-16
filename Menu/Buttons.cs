@@ -1024,6 +1024,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Ripper",
+                    enableMethod  = ConsoleAssetPages.EnableRipper,
+                    disableMethod = ConsoleAssetPages.DisableRipper,
+                    displayText   = ConsoleAssetPages.RipperDisplay,
+                    toolTip       = "Grip near a player to grab them and hold them helpless in the air; grip with your other hand on them to tear them apart - body in half or arm off - and they get kicked to the lobby (networked - the whole room sees the gore).",
+            },
+
+            new()
+            {
                     buttonText = "Return to Main",
                     method     = () => SetCategory("Main"),
                     mode       = ButtonMode.Action,

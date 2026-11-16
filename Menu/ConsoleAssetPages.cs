@@ -628,6 +628,736 @@ public abstract class ConsoleAssetPages
     }
 
     // ---------------------------------------------------------------------
+    // Ripper: grab a player out of the air, hold them helpless, then tear
+    // them apart with both hands. The hold runs on the VICTIM's own client
+    // - locomotion is cut and the body is dragged under the grabbing hand
+    // every frame - so their normal position sync carries the hold to every
+    // other client without a stream of teleport events. The tear is one
+    // networked command: gore, lightning, shake, headline and the kick to
+    // the lobby all land on every screen at once.
+    // ---------------------------------------------------------------------
+
+    // Grab: either hand this close to the victim's body, head or hands.
+    private const float RipGrabRange = 0.75f;
+    // The second hand closing this close to one of their hands = that arm.
+    private const float RipArmRange = 0.55f;
+    // Failsafes: nobody stays frozen past this (an admin victim can refuse
+    // the kick), and a grabber who vanishes gets three seconds of grace
+    // before their victim drops out of the air.
+    private const float RipFreezeMax    = 15f;
+    private const float RipGrabberGrace = 3f;
+
+    // Wire actions for the "riper" command.
+    private const int RipActionGrab = 0;
+    private const int RipActionDrop = 1;
+    private const int RipActionHalf = 2;
+    private const int RipActionArmL = 3;
+    private const int RipActionArmR = 4;
+
+    // victim actor -> grabber actor, kept on every client so two ripers
+    // cannot claim the same player.
+    private static readonly Dictionary<int, int> ripHeldBy = new();
+
+    // Grabber side (only while the switch is on).
+    private static bool ripHolding;
+    private static int  ripVictimActor = -1;
+    private static int  ripHoldHand; // the grabbing hand: 0 left, 1 right
+    private static bool ripWasGripL;
+    private static bool ripWasGripR;
+    private static bool ripOtherWasGrip;
+
+    // Victim side (forced on us by the grabber's command).
+    private static bool    ripFrozen;
+    private static int     ripFrozenBy = -1;
+    private static int     ripFrozenHand;
+    private static float   ripFrozenAt;
+    private static float   ripGrabberSeenAt;
+    private static bool    ripLocoWasEnabled;
+    private static Vector3 ripHeadOffset;
+    private static Vector3 ripFollowPos;
+    private static bool    ripFollowInit;
+
+    // Bodies replaced by gore on this screen, with the renderers to put
+    // back and the moment they may show again.
+    private static readonly Dictionary<VRRig, (Renderer[] rends, float until)> ripHidden = new();
+
+    public static string RipperDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Ripper");
+
+        if (button == null || !button.enabled)
+            return "Ripper: <color=red>OFF</color>";
+
+        return ripHolding
+                   ? "Ripper: <color=green>ON</color> <color=yellow>- holding!</color>"
+                   : "Ripper: <color=green>ON</color>";
+    }
+
+    public static void EnableRipper()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            SetSwitchOff("Ripper");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        // A grip already squeezed must not read as a fresh grab press.
+        ripWasGripL = ControllerInputPoller.instance.leftGrab;
+        ripWasGripR = ControllerInputPoller.instance.rightGrab;
+
+        NotifiLib.SendNotification(
+                "Ripper ready: grip near a player to grab them, then grip with your other hand on them to rip.");
+    }
+
+    public static void DisableRipper()
+    {
+        if (ripHolding)
+            SendRip(RipActionDrop, ripVictimActor, 0);
+
+        ripHolding     = false;
+        ripVictimActor = -1;
+    }
+
+    private static void SendRip(int action, int victimActor, int extra) =>
+            GTConsole.ExecuteCommand("riper", ReceiverGroup.All, action, victimActor, extra);
+
+    // One command in, three jobs out: remember the hold on every screen,
+    // freeze the victim if that is us, and turn a tear into local gore.
+    public static void OnRipperEvent(int action, int victimActor, int extra, int senderActor)
+    {
+        switch (action)
+        {
+            case RipActionGrab:
+                ripHeldBy[victimActor] = senderActor;
+
+                if (victimActor == PhotonNetwork.LocalPlayer.ActorNumber)
+                    RipStartFrozen(senderActor, extra);
+
+                break;
+
+            case RipActionDrop:
+                ripHeldBy.Remove(victimActor);
+
+                if (victimActor == PhotonNetwork.LocalPlayer.ActorNumber)
+                    RipUnfreeze();
+
+                break;
+
+            default:
+                ripHeldBy.Remove(victimActor);
+                RipApply(victimActor, action);
+
+                break;
+        }
+    }
+
+    // The victim's client: cut locomotion and physics, then drag the body
+    // under the grabber's hand each frame - their own sync does the rest.
+    private static void RipStartFrozen(int grabberActor, int grabberHand)
+    {
+        // We were holding somebody when we got caught: let them fall first.
+        if (ripHolding)
+        {
+            SendRip(RipActionDrop, ripVictimActor, 0);
+            ripHolding     = false;
+            ripVictimActor = -1;
+        }
+
+        GTPlayer player = GTPlayer.Instance;
+
+        if (player == null)
+            return;
+
+        ripLocoWasEnabled = player.enabled;
+        ripFrozen         = true;
+        ripFrozenBy       = grabberActor;
+        ripFrozenHand     = grabberHand;
+        ripFrozenAt       = Time.time;
+        ripGrabberSeenAt  = Time.time;
+        ripFollowInit     = false;
+
+        Transform head = GorillaTagger.Instance != null && GorillaTagger.Instance.headCollider != null
+                                 ? GorillaTagger.Instance.headCollider.transform
+                                 : null;
+
+        // Where the head sits relative to the player root, so the grabber's
+        // fist ends up at the collar rather than inside the skull.
+        ripHeadOffset = head != null
+                                ? head.position - player.transform.position
+                                : Vector3.up * 1.4f;
+
+        NotifiLib.SendNotification("<color=red>You are grabbed!</color> You cannot move until they let go.");
+    }
+
+    private static void RipUnfreeze()
+    {
+        if (!ripFrozen)
+            return;
+
+        ripFrozen     = false;
+        ripFrozenBy   = -1;
+        ripFollowInit = false;
+
+        GTPlayer player = GTPlayer.Instance;
+
+        if (player != null)
+        {
+            if (player.enabled != ripLocoWasEnabled)
+                player.enabled = ripLocoWasEnabled;
+
+            FreezeRb(player.GetComponent<Rigidbody>());
+        }
+
+        FreezeRb(GorillaTagger.Instance != null ? GorillaTagger.Instance.rigidbody : null);
+
+        ripHeldBy.Remove(PhotonNetwork.LocalPlayer.ActorNumber);
+    }
+
+    private static void FreezeRb(Rigidbody rb)
+    {
+        if (rb == null || rb.isKinematic)
+            return;
+
+        rb.linearVelocity  = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        rb.isKinematic     = true;
+    }
+
+    private static void RipTickFrozen()
+    {
+        GTPlayer player  = GTPlayer.Instance;
+        VRRig    grabber = GTConsole.GetVRRigFromActor(ripFrozenBy);
+
+        if (grabber != null)
+            ripGrabberSeenAt = Time.time;
+
+        // Failsafe first: a vanished grabber or an unkickable victim must
+        // never leave a player suspended for the rest of the room.
+        if (Time.time - ripFrozenAt    > RipFreezeMax ||
+            Time.time - ripGrabberSeenAt > RipGrabberGrace)
+        {
+            RipUnfreeze();
+
+            return;
+        }
+
+        if (player == null || grabber == null)
+            return;
+
+        Transform hand = ripFrozenHand == 0
+                                 ? grabber.leftHandTransform
+                                 : grabber.rightHandTransform;
+
+        if (hand == null)
+            return;
+
+        if (player.enabled)
+            player.enabled = false;
+
+        FreezeRb(player.GetComponent<Rigidbody>());
+        FreezeRb(GorillaTagger.Instance != null ? GorillaTagger.Instance.rigidbody : null);
+
+        Vector3 wanted = hand.position - ripHeadOffset + Vector3.down * 0.15f;
+
+        if (!ripFollowInit)
+        {
+            ripFollowPos  = player.transform.position;
+            ripFollowInit = true;
+        }
+
+        // Tight exponential follow: the remote hand jitters a little, the
+        // held body should not shake along with it.
+        float k = 1f - Mathf.Exp(-20f * Time.deltaTime);
+
+        ripFollowPos       = Vector3.Lerp(ripFollowPos, wanted, k);
+        player.transform.position = ripFollowPos;
+    }
+
+    private static void RipTickGrabber()
+    {
+        bool gripL, gripR;
+
+        try
+        {
+            gripL = ControllerInputPoller.instance.leftGrab;
+            gripR = ControllerInputPoller.instance.rightGrab;
+        }
+        catch
+        {
+            return;
+        }
+
+        bool freshL = gripL && !ripWasGripL;
+        bool freshR = gripR && !ripWasGripR;
+
+        ripWasGripL = gripL;
+        ripWasGripR = gripR;
+
+        if (ripHolding)
+        {
+            bool holdGrip   = ripHoldHand == 0 ? gripL : gripR;
+            bool otherGrip  = ripHoldHand == 0 ? gripR : gripL;
+            bool otherFresh = otherGrip && !ripOtherWasGrip;
+
+            ripOtherWasGrip = otherGrip;
+
+            // Let go and they drop back to the ground.
+            if (!holdGrip)
+            {
+                SendRip(RipActionDrop, ripVictimActor, 0);
+                ripHolding     = false;
+                ripVictimActor = -1;
+
+                return;
+            }
+
+            // The other hand closes ON them: tear - their arm if the hand
+            // found one of theirs, otherwise straight down the middle.
+            if (otherFresh)
+            {
+                VRRig     held   = GTConsole.GetVRRigFromActor(ripVictimActor);
+                Transform other  = ripHoldHand == 0
+                                            ? GorillaTagger.Instance.rightHandTransform
+                                            : GorillaTagger.Instance.leftHandTransform;
+
+                if (held != null && other != null &&
+                    Vector3.Distance(other.position, RipCentre(held)) < RipGrabRange * 1.4f)
+                {
+                    float toLeft = held.leftHandTransform != null
+                                           ? Vector3.Distance(other.position, held.leftHandTransform.position)
+                                           : float.MaxValue;
+                    float toRight = held.rightHandTransform != null
+                                            ? Vector3.Distance(other.position, held.rightHandTransform.position)
+                                            : float.MaxValue;
+
+                    int action = toLeft < RipArmRange && toLeft <= toRight
+                                         ? RipActionArmL
+                                         : toRight < RipArmRange
+                                                 ? RipActionArmR
+                                                 : RipActionHalf;
+
+                    RipFinish(held, action);
+                }
+            }
+
+            return;
+        }
+
+        if (!freshL && !freshR)
+            return;
+
+        // A fresh grip near somebody starts the grab.
+        GorillaTagger tagger = GorillaTagger.Instance;
+
+        if (tagger == null)
+            return;
+
+        VRRig victim = null;
+        float best   = RipGrabRange;
+        int   hand   = 0;
+
+        if (freshL && tagger.leftHandTransform != null)
+            TryRipVictim(tagger.leftHandTransform.position, ref victim, ref best, ref hand, 0);
+
+        if (freshR && tagger.rightHandTransform != null)
+            TryRipVictim(tagger.rightHandTransform.position, ref victim, ref best, ref hand, 1);
+
+        if (victim == null || victim.Creator == null)
+            return;
+
+        ripHolding      = true;
+        ripVictimActor  = victim.Creator.ActorNumber;
+        ripHoldHand     = hand;
+        // If the other hand is already squeezed it must open again before
+        // a rip can start - grabbing with both hands at once must not tear.
+        ripOtherWasGrip = hand == 0 ? gripR : gripL;
+
+        SendRip(RipActionGrab, ripVictimActor, ripHoldHand);
+
+        try
+        {
+            GorillaTagger.Instance.StartVibration(hand == 0, GorillaTagger.Instance.tagHapticStrength,
+                    GorillaTagger.Instance.tagHapticDuration);
+        }
+        catch
+        {
+            // ignored - haptics are garnish
+        }
+
+        NotifiLib.SendNotification(
+                "Grabbed " + victim.Creator.NickName + " - grip with your other hand on them to rip!");
+    }
+
+    private static void TryRipVictim(Vector3 at, ref VRRig victim, ref float best, ref int hand, int handIndex)
+    {
+        IReadOnlyList<VRRig> rigs = VRRigCache.ActiveRigs;
+
+        for (int i = 0; i < rigs.Count; i++)
+        {
+            VRRig rig = rigs[i];
+
+            if (rig == null || rig.isLocal || rig.Creator == null)
+                continue;
+
+            // Somebody is already holding this one.
+            if (ripHeldBy.ContainsKey(rig.Creator.ActorNumber))
+                continue;
+
+            float d = float.MaxValue;
+
+            if (rig.headMesh != null)
+                d = Mathf.Min(d, Vector3.Distance(at, rig.headMesh.transform.position));
+
+            if (rig.bodyTransform != null)
+                d = Mathf.Min(d, Vector3.Distance(at, rig.bodyTransform.position));
+
+            if (rig.leftHandTransform != null)
+                d = Mathf.Min(d, Vector3.Distance(at, rig.leftHandTransform.position));
+
+            if (rig.rightHandTransform != null)
+                d = Mathf.Min(d, Vector3.Distance(at, rig.rightHandTransform.position));
+
+            if (d < best)
+            {
+                best   = d;
+                victim = rig;
+                hand   = handIndex;
+            }
+        }
+    }
+
+    // The grabber side of the tear: the gore command, then the room-wide
+    // drama (lightning, shake, headline) and the delayed kick.
+    private static void RipFinish(VRRig victim, int action)
+    {
+        int    actor = ripVictimActor;
+        string nick  = victim.Creator != null ? victim.Creator.NickName : "a player";
+        string id    = victim.Creator != null ? victim.Creator.UserId : null;
+
+        ripHolding     = false;
+        ripVictimActor = -1;
+
+        SendRip(action, actor, 0);
+
+        GTConsole.ExecuteCommand("strike", ReceiverGroup.All, RipCentre(victim));
+        GTConsole.ExecuteCommand("shake", ReceiverGroup.All, 0.12f, 0.5f, false);
+        GTConsole.ExecuteCommand("notify", ReceiverGroup.All, nick + " was ripped apart!");
+
+        if (!string.IsNullOrEmpty(id))
+            CoroutineManager.Instance.StartCoroutine(RipKick(id, 0.6f));
+    }
+
+    // The body is already gore on every screen; half a second later the
+    // victim lands in the lobby. Admins refuse the kick - their freeze
+    // has its own failsafe.
+    private static IEnumerator RipKick(string userId, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+
+        if (PhotonNetwork.InRoom)
+            GTConsole.ExecuteCommand("silkick", ReceiverGroup.All, userId);
+    }
+
+    private static IEnumerator RipVictimRelease(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        RipUnfreeze();
+    }
+
+    // Every screen that receives the tear: hide the real body, throw the
+    // gore, thump the haptics. Nothing extra crosses the network - each
+    // client builds its own pieces from the shared command.
+    private static void RipApply(int victimActor, int action)
+    {
+        VRRig victim = GTConsole.GetVRRigFromActor(victimActor);
+
+        if (victim == null)
+            return;
+
+        // The body is replaced by gore for a couple of seconds; the tick
+        // re-asserts the hide because GT keeps re-enabling renderers.
+        Renderer[] rends = victim.GetComponentsInChildren<Renderer>(true);
+
+        foreach (Renderer r in rends)
+            r.enabled = false;
+
+        ripHidden[victim] = (rends, Time.time + 2.5f);
+
+        Vector3 centre = RipCentre(victim);
+        Vector3 facing = victim.transform.forward;
+
+        if (facing.sqrMagnitude < 0.001f)
+            facing = Vector3.forward;
+
+        // Where the body actually is, taken from the renderer bounds so
+        // the chunks come out of a chest rather than out of the head.
+        Renderer bodyRend = victim.bodyRenderer != null
+                                    ? victim.bodyRenderer.GetComponentInChildren<Renderer>(true)
+                                    : null;
+
+        Bounds body = bodyRend != null
+                              ? bodyRend.bounds
+                              : new Bounds(centre - Vector3.up * 0.8f, new Vector3(0.5f, 1.7f, 0.4f));
+
+        float height = body.size.y;
+        Vector3 chest = new(body.center.x, body.min.y + height * 0.66f, body.center.z);
+        Vector3 hips  = new(body.center.x, body.min.y + height * 0.30f, body.center.z);
+
+        if (action == RipActionHalf)
+        {
+            // Two chunks: the top half cartwheels away, the legs drop.
+            RipChunk(chest, new Vector3(body.size.x * 1.15f, height * 0.34f, body.size.z * 1.15f),
+                    facing * 1.6f + Vector3.up * 3.8f + Random.insideUnitSphere * 1.3f);
+            RipChunk(hips, new Vector3(body.size.x * 1.05f, height * 0.32f, body.size.z * 1.05f),
+                    facing * 1.0f + Vector3.down * 1.2f + Random.insideUnitSphere * 1.0f);
+        }
+        else
+        {
+            // One arm, torn out at the shoulder and spun away.
+            Transform hand = action == RipActionArmL
+                                     ? victim.leftHandTransform
+                                     : victim.rightHandTransform;
+
+            Vector3 shoulder = hand != null
+                                       ? (chest + hand.position) * 0.5f
+                                       : chest + (action == RipActionArmL ? Vector3.left : Vector3.right) * 0.25f;
+
+            Vector3 fling = hand != null
+                                    ? (hand.position - chest).normalized * 5f
+                                    : facing * 3f;
+
+            RipChunk(shoulder, new Vector3(0.14f, height * 0.17f, 0.14f),
+                    fling + Vector3.up * 1.5f + Random.insideUnitSphere * 1.5f);
+        }
+
+        RipBurst(centre);
+
+        try
+        {
+            GorillaTagger.Instance.StartVibration(true, GorillaTagger.Instance.tagHapticStrength, 1f);
+            GorillaTagger.Instance.StartVibration(false, GorillaTagger.Instance.tagHapticStrength, 1f);
+        }
+        catch
+        {
+            // ignored
+        }
+
+        // The victim's own screen unfreezes shortly after the tear: the
+        // kick either takes them away or (for an admin) fails, and in
+        // both cases they must not stay suspended.
+        if (victimActor == PhotonNetwork.LocalPlayer.ActorNumber)
+            CoroutineManager.Instance.StartCoroutine(RipVictimRelease(1.5f));
+    }
+
+    private static Vector3 RipCentre(VRRig rig)
+    {
+        if (rig.headMesh != null)
+            return rig.headMesh.transform.position;
+
+        if (rig.bodyTransform != null)
+            return rig.bodyTransform.position;
+
+        return rig.transform.position;
+    }
+
+    private static void RipChunk(Vector3 position, Vector3 scale, Vector3 velocity)
+    {
+        GameObject chunk = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+        chunk.name                = "RIFTIX_RipChunk";
+        chunk.transform.position  = position;
+        chunk.transform.localScale = scale;
+        chunk.transform.rotation  = Random.rotation;
+
+        Renderer rend = chunk.GetComponent<Renderer>();
+
+        if (rend != null)
+        {
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit")
+                            ?? Shader.Find("Standard")
+                            ?? Shader.Find("Sprites/Default");
+
+            Material flesh = new(shader);
+            Color   meat   = new(0.45f, 0.04f, 0.04f);
+
+            if (flesh.HasProperty("_BaseColor"))
+                flesh.SetColor("_BaseColor", meat);
+
+            if (flesh.HasProperty("_Color"))
+                flesh.SetColor("_Color", meat);
+
+            rend.material = flesh;
+        }
+
+        Rigidbody rb = chunk.AddComponent<Rigidbody>();
+        rb.mass            = 30f;
+        rb.linearVelocity  = velocity;
+        rb.angularVelocity = Random.insideUnitSphere * 14f;
+
+        Object.Destroy(chunk, 3f);
+    }
+
+    private static void RipBurst(Vector3 position)
+    {
+        GameObject burst = new("RIFTIX_RipBlood");
+        burst.transform.position = position;
+
+        ParticleSystem particles = burst.AddComponent<ParticleSystem>();
+
+        ParticleSystem.MainModule main = particles.main;
+        main.loop            = false;
+        main.playOnAwake     = true;
+        main.duration        = 0.6f;
+        main.startLifetime   = new ParticleSystem.MinMaxCurve(0.5f, 1.1f);
+        main.startSpeed      = new ParticleSystem.MinMaxCurve(1.5f, 5f);
+        main.startSize       = new ParticleSystem.MinMaxCurve(0.05f, 0.22f);
+        main.startColor      = new Color(0.75f, 0.02f, 0.02f, 0.9f);
+        main.gravityModifier = 1.2f;
+        main.maxParticles    = 80;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+        ParticleSystem.EmissionModule emission = particles.emission;
+        emission.rateOverTime = 0f;
+        emission.SetBursts([new ParticleSystem.Burst(0f, 50)]);
+
+        ParticleSystem.ShapeModule shape = particles.shape;
+        shape.shapeType       = ParticleSystemShapeType.Sphere;
+        shape.radius          = 0.15f;
+        shape.radiusThickness = 1f;
+
+        Object.Destroy(burst, 3f);
+    }
+
+    // Re-assert the hide every frame until the restore time, then put the
+    // body back - or forget it if the rig is already gone with its owner.
+    private static void RipTickHidden()
+    {
+        if (ripHidden.Count == 0)
+            return;
+
+        List<(VRRig rig, Renderer[] rends)> done = null;
+
+        foreach (KeyValuePair<VRRig, (Renderer[] rends, float until)> entry in ripHidden)
+        {
+            if (entry.Key == null || Time.time >= entry.Value.until)
+            {
+                (done ??= new()).Add((entry.Key, entry.Value.rends));
+
+                continue;
+            }
+
+            foreach (Renderer r in entry.Value.rends)
+            {
+                if (r != null && r.enabled)
+                    r.enabled = false;
+            }
+        }
+
+        if (done == null)
+            return;
+
+        foreach ((VRRig rig, Renderer[] rends) in done)
+        {
+            if (rig != null)
+                foreach (Renderer r in rends)
+                {
+                    if (r != null)
+                        r.enabled = true;
+                }
+
+            ripHidden.Remove(rig);
+        }
+    }
+
+    // Room is changing: every trace of an active grab dies with it.
+    private static void RipperReset()
+    {
+        ripHolding     = false;
+        ripVictimActor = -1;
+        ripWasGripL    = false;
+        ripWasGripR    = false;
+
+        ripHeldBy.Clear();
+
+        foreach (KeyValuePair<VRRig, (Renderer[] rends, float until)> entry in ripHidden)
+        {
+            if (entry.Key == null)
+                continue;
+
+            foreach (Renderer r in entry.Value.rends)
+            {
+                if (r != null)
+                    r.enabled = true;
+            }
+        }
+
+        ripHidden.Clear();
+
+        RipUnfreeze();
+    }
+
+    // Called from Console.Update every frame.
+    public static void RipperTick()
+    {
+        try
+        {
+            if (!PhotonNetwork.InRoom)
+                return;
+
+            RipTickHidden();
+
+            // Holds whose grabber left the room go stale.
+            if (ripHeldBy.Count > 0)
+            {
+                List<int> stale = null;
+
+                foreach (KeyValuePair<int, int> hold in ripHeldBy)
+                {
+                    bool present = false;
+
+                    foreach (Player p in PhotonNetwork.PlayerList)
+                    {
+                        if (p.ActorNumber == hold.Value)
+                        {
+                            present = true;
+                            break;
+                        }
+                    }
+
+                    if (!present)
+                        (stale ??= new List<int>()).Add(hold.Key);
+                }
+
+                if (stale != null)
+                    foreach (int key in stale)
+                        ripHeldBy.Remove(key);
+            }
+
+            // A held player does not grab - they are the one being held.
+            if (ripFrozen)
+            {
+                RipTickFrozen();
+
+                return;
+            }
+
+            ButtonInfo ripper = Buttons.GetIndex("Ripper");
+
+            if (ripper == null || !ripper.enabled)
+                return;
+
+            RipTickGrabber();
+        }
+        catch
+        {
+            // never let an input hiccup break the frame
+        }
+    }
+
+    // ---------------------------------------------------------------------
     // Steam Icon: the glowing Steam logo, ported from OMMALLEYGT's other
     // menu (CXS). The asset comes from this repo's bundles/steamicon (a
     // prefab named SteamIcon with its sound baked in) - ServerData does not
@@ -1835,12 +2565,15 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Steam Icon");
         SetSwitchOff("Jurassic Logo");
         SetSwitchOff("King Minos");
+        SetSwitchOff("Ripper");
 
         pictureAssetId = -1;
         hammerAssetId  = -1;
         travisAssetId  = -1;
         logoAssetId    = -1;
         minosAssetId   = -1;
+
+        RipperReset();
 
         steamIconId            = -1;
         steamIconOnHand        = false;
