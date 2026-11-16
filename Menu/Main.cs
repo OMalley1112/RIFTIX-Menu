@@ -59,6 +59,29 @@ public class Main : MonoBehaviour
             0.3f,
             0.3825f);
 
+    // Screenshot layout: a category rail down the left edge of the panel and
+    // the buttons in a two column grid on the right. All numbers are in
+    // menu-local units where +Y is the left side of the screen and +Z is up;
+    // text helpers take world units, so multiply by MenuScale to convert.
+    private const float RailCenterY   = 0.36f;    // rail centre, across the panel
+    private const float RailTabWidth  = 0.26f;
+    private const float RailTabHeight = 0.058f;
+    private const float RailFirstZ    = 0.35f;    // first (top) tab centre
+    private const float RailSpacingZ  = 0.0725f;
+
+    private const float GridCenterY   = -0.125f;  // centre of the right hand area
+    private const float GridCol1Y     = 0.05f;    // left column centre
+    private const float GridCol2Y     = -0.30f;   // right column centre
+    private const float GridColWidth  = 0.30f;
+    private const float GridRowHeight = 0.115f;
+    private const float GridTopZ      = 0.245f;   // top edge of the first row
+    private const float GridBottomZ   = -0.30f;   // bottom edge of the last row
+    private const float RowGapMax     = 0.09f;
+
+    private const float SearchZ       = 0.365f;   // search bar centre
+    private const float SearchWidth   = 0.65f;
+    private const float TabsZ         = 0.285f;   // HOME / FAVORITES row
+
     private static GameObject searchRoot;
 
     private static GameObject leftReference;
@@ -249,6 +272,21 @@ public class Main : MonoBehaviour
             toolTip     = "Jumps back to the first page of the main list.",
     };
 
+    // Corner pill that goes back to the last room we were in. The name is
+    // unique so nothing collides with a real category button.
+    private static readonly ButtonInfo rejoinButton = new()
+    {
+            buttonText  = "RejoinRoom",
+            displayText = () => "Rejoin",
+            method      = RejoinRoom,
+            mode        = ButtonMode.Action,
+            toolTip     = "Rejoins the last room you were in.",
+    };
+
+    // Captured every frame while a room is active (Prefix), so it survives
+    // leaving - pressing Rejoin from the lobby goes back to it.
+    private static string lastRoomName;
+
     // 0 = HOME tab, 1 = FAVORITES tab
     public static int activeTab;
 
@@ -269,6 +307,32 @@ public class Main : MonoBehaviour
         pageNumber = 0;
 
         SetCategory("Main");
+    }
+
+    // Back into the last room we were in. AttemptToJoinSpecificRoom handles
+    // the leave + join internally, the same call the game's room code screen
+    // makes, so this works from the lobby after a Leave or a kick.
+    private static void RejoinRoom()
+    {
+        if (string.IsNullOrEmpty(lastRoomName))
+        {
+            NotifiLib.SendNotification("No room to rejoin yet - join a room first.");
+
+            return;
+        }
+
+        try
+        {
+            GorillaNetworking.PhotonNetworkController.Instance.AttemptToJoinSpecificRoom(
+                    lastRoomName,
+                    GorillaNetworking.JoinType.Solo);
+
+            NotifiLib.SendNotification("Rejoining " + lastRoomName + "...");
+        }
+        catch (Exception exc)
+        {
+            Debug.LogError($"{Constants.Name} // Rejoin failed: {exc}");
+        }
     }
 
     public static ButtonCategory CurrentCategory =>
@@ -355,6 +419,12 @@ public class Main : MonoBehaviour
     {
         try
         {
+            // Remember the active room for the Rejoin corner pill - this has
+            // to happen while we are still in it, before any Leave or kick.
+            if (Photon.Pun.PhotonNetwork.InRoom &&
+                Photon.Pun.PhotonNetwork.CurrentRoom != null)
+                lastRoomName = Photon.Pun.PhotonNetwork.CurrentRoom.Name;
+
             // Open the menu with either face button on the active hand:
             // X or Y on the left controller, A or B on the right one.
             bool menuButtonPressed =
@@ -796,126 +866,12 @@ public class Main : MonoBehaviour
         glow.intensity = 0.7f;
         glow.shadows   = LightShadows.None;
 
-        // Disconnect
+        // Rejoin + Leave: the screenshot's two pills floating outside the
+        // panel's bottom-right corner, Rejoin above Leave.
         if (disconnectButton)
         {
-            GameObject disconnectbutton =
-                    GameObject.CreatePrimitive(
-                            PrimitiveType.Cube);
-
-            if (!UnityInput.Current.GetKey(keyboardButton))
-                disconnectbutton.layer = 2;
-
-            Destroy(
-                    disconnectbutton.GetComponent<Rigidbody>());
-
-            BoxCollider disconnectCollider =
-                    disconnectbutton.GetComponent<BoxCollider>();
-
-            disconnectCollider.isTrigger =
-                    true;
-
-            disconnectbutton.transform.SetParent(
-                    menu.transform,
-                    false);
-
-            disconnectbutton.transform.localRotation =
-                    Quaternion.identity;
-
-            // Screenshot style: a small "Leave" pill floating outside the
-            // panel's right edge, near the top.
-            disconnectbutton.transform.localPosition =
-                    new Vector3(
-                            0.56f,
-                            -0.67f,
-                            0.40f);
-
-            Vector3 disconnectSize =
-                    new(
-                            0.09f,
-                            0.26f,
-                            0.045f);
-
-            if (roundedButtons)
-            {
-                RoundedButtonMesh.Apply(
-                        disconnectbutton,
-                        disconnectSize,
-                        buttonCornerRadius,
-                        buttonCornerSegments);
-            }
-            else
-            {
-                disconnectbutton.transform.localScale =
-                        disconnectSize;
-            }
-
-            Button disconnectPress =
-                    disconnectbutton.AddComponent<Button>();
-
-            disconnectPress.relatedButton =
-                    GetIndex("Disconnect");
-
-            colorChanger =
-                    disconnectbutton.AddComponent<ColorChanger>();
-
-            colorChanger.colors =
-                    buttonColors[0];
-
-            colorChanger.spatialGradient =
-                    buttonGradients;
-
-            colorChanger.verticalGradient =
-                    verticalButtonGradients;
-
-            Text disconnectText = new GameObject
-            {
-                    transform =
-                    {
-                            parent = canvasObject.transform,
-                    },
-            }.AddComponent<Text>();
-
-            disconnectText.text =
-                    "Leave";
-
-            disconnectText.font =
-                    currentFont;
-
-            disconnectText.fontSize =
-                    1;
-
-            disconnectText.color =
-                    Color.white;
-
-            disconnectText.alignment =
-                    TextAnchor.MiddleCenter;
-
-            disconnectText.resizeTextForBestFit =
-                    true;
-
-            disconnectText.resizeTextMinSize =
-                    0;
-
-            RectTransform disconnectTransform =
-                    disconnectText.GetComponent<RectTransform>();
-
-            disconnectTransform.localPosition =
-                    new Vector3(
-                            0.064f,
-                            -0.201f,
-                            0.153f);
-
-            disconnectTransform.sizeDelta =
-                    new Vector2(
-                            0.07f,
-                            0.01f);
-
-            disconnectTransform.localRotation =
-                    Quaternion.Euler(
-                            180f,
-                            90f,
-                            90f);
+            CreateEdgePill(rejoinButton, "Rejoin", -0.31f);
+            CreateEdgePill(GetIndex("Disconnect"), "Leave", -0.40f);
         }
 
         try
@@ -953,6 +909,102 @@ public class Main : MonoBehaviour
                     MenuScale *
                     0.01f;
         }
+    }
+
+    // One rounded pill floating just outside the panel's bottom-right edge,
+    // with its centred caption on the canvas (Rejoin / Leave).
+    private static void CreateEdgePill(ButtonInfo button, string label, float localZ)
+    {
+        if (button == null)
+            return;
+
+        GameObject pill =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+        if (!UnityInput.Current.GetKey(keyboardButton))
+            pill.layer = 2;
+
+        Destroy(pill.GetComponent<Rigidbody>());
+
+        BoxCollider pillCollider =
+                pill.GetComponent<BoxCollider>();
+
+        pillCollider.isTrigger = true;
+
+        pill.transform.SetParent(menu.transform, false);
+        pill.transform.localRotation = Quaternion.identity;
+        pill.transform.localPosition =
+                new Vector3(
+                        0.56f,
+                        -0.67f,
+                        localZ);
+
+        Vector3 pillSize =
+                new(
+                        0.09f,
+                        0.26f,
+                        0.045f);
+
+        if (roundedButtons)
+        {
+            RoundedButtonMesh.Apply(
+                    pill,
+                    pillSize,
+                    buttonCornerRadius,
+                    buttonCornerSegments);
+        }
+        else
+            pill.transform.localScale = pillSize;
+
+        Button press =
+                pill.AddComponent<Button>();
+
+        press.relatedButton = button;
+
+        ColorChanger colorChanger =
+                pill.AddComponent<ColorChanger>();
+
+        colorChanger.colors           = buttonColors[0];
+        colorChanger.spatialGradient  = buttonGradients;
+        colorChanger.verticalGradient = verticalButtonGradients;
+
+        Text pillText = new GameObject
+        {
+                transform =
+                {
+                        parent = canvasObject.transform,
+                },
+        }.AddComponent<Text>();
+
+        pillText.text                  = label;
+        pillText.font                  = currentFont;
+        pillText.fontSize              = 1;
+        pillText.color                 = Color.white;
+        pillText.alignment             = TextAnchor.MiddleCenter;
+        pillText.resizeTextForBestFit  = true;
+        pillText.resizeTextMinSize     = 0;
+
+        RectTransform pillTransform =
+                pillText.GetComponent<RectTransform>();
+
+        // The pill sits outside the panel (menu y -0.67); text runs in world
+        // units, so the height comes back through MenuScale.z.
+        pillTransform.localPosition =
+                new Vector3(
+                        0.064f,
+                        -0.67f * MenuScale.y,
+                        localZ * MenuScale.z);
+
+        pillTransform.sizeDelta =
+                new Vector2(
+                        0.07f,
+                        0.01f);
+
+        pillTransform.localRotation =
+                Quaternion.Euler(
+                        180f,
+                        90f,
+                        90f);
     }
 
     // Creates a world space Text on the menu canvas, matching the title/fps pattern.
@@ -1139,8 +1191,8 @@ public class Main : MonoBehaviour
 
     private static int GetContentButtonsPerPage()
     {
-        // The rebuilt layout fits exactly six rows between the search bar
-        // and the bottom bar, so extra rows are capped here.
+        // The grid fits six cells - two columns of three rows - between the
+        // tabs row and the bottom bar, so extra rows are capped here.
         int perPage = Mathf.Clamp(buttonsPerPage, 1, 6);
 
         if (!pageButtonsAtTop)
@@ -1217,7 +1269,7 @@ public class Main : MonoBehaviour
     }
 
     // Rows, scrollbar and page counter state - everything a page / tab / category
-    // change touches.
+    // change touches. Cells fill the grid left to right, top to bottom.
     private static void CreateList()
     {
         BeginTrack(listObjects, listTexts);
@@ -1231,14 +1283,11 @@ public class Main : MonoBehaviour
 
             if (pageButtonsAtTop)
             {
-                CreateButton(0f,            previousPageButton);
-                CreateButton(buttonSpacing, nextPageButton);
+                CreateButton(0, previousPageButton);
+                CreateButton(1, nextPageButton);
 
                 rowOffset = 2;
             }
-
-            // Previous / next live in the bottom bar only now, so the old
-            // floating side arrows outside the panel are gone.
 
             int lastPage = GetLastPage();
 
@@ -1262,9 +1311,11 @@ public class Main : MonoBehaviour
             for (int i = 0; i < visibleCount; i++)
             {
                 CreateButton(
-                        (i + rowOffset) * buttonSpacing,
+                        i + rowOffset,
                         visibleButtons[startIndex + i]);
             }
+
+            CreatePageScrollbar();
         }
         finally
         {
@@ -1272,14 +1323,50 @@ public class Main : MonoBehaviour
         }
     }
 
+    // Rows on a page: two cells per row, rounded up.
+    private static int GridRowsPerPage()
+    {
+        int cells = GetContentButtonsPerPage();
+
+        if (pageButtonsAtTop)
+            cells += 2;
+
+        return Mathf.Max(1, Mathf.CeilToInt(cells / 2f));
+    }
+
+    // Centre height of one grid row: rows are distributed down the band
+    // between GridTopZ and GridBottomZ so the grid fills the right area
+    // no matter how many rows the page size allows.
+    private static float RowCenterZ(int row)
+    {
+        const float rowHeight = GridRowHeight;
+
+        int   rows = GridRowsPerPage();
+        float band = GridTopZ - GridBottomZ;
+
+        float gap =
+                rows > 1
+                        ? Mathf.Min(RowGapMax, (band - rows * rowHeight) / (rows - 1))
+                        : 0f;
+
+        float stack = rows * rowHeight + (rows - 1) * gap;
+
+        float topCenter =
+                GridTopZ -
+                rowHeight / 2f   -
+                (band - stack) / 2f;
+
+        return topCenter - row * (rowHeight + gap);
+    }
+
     private static string PageCounterValue() =>
             $"{pageNumber + 1:00} / {GetLastPage() + 1:00}";
 
-    // Cool detail: slim page scrollbar pinned to the right edge of the list.
+    // Cool detail: slim page scrollbar pinned to the right edge of the grid.
     private static void CreatePageScrollbar()
     {
-        const float trackCenterZ = -0.1f;
-        const float trackLength  = 0.58f;
+        const float trackCenterZ = (GridTopZ + GridBottomZ) / 2f;
+        const float trackLength  = GridTopZ - GridBottomZ;
 
         Vector3 trackPosition = new(
                 0.56f,
@@ -1380,16 +1467,19 @@ public class Main : MonoBehaviour
         thumbChanger.colors = buttonColors[1];
     }
 
-    // HOME / FAVORITES tabs, right under the header card (Atlas + Qubit).
+    // The screenshot layout's navigation: HOME / FAVORITES as a pair over the
+    // grid, then every category as a tab stacked down the left edge. All of
+    // it lives in the tracked tab lists, so a category or tab jump rebuilds
+    // the rail together with the rows.
     private static void CreateTabBar()
     {
         Vector3 tabSize = new(
                 buttonSize.x,
-                0.42f,
-                0.042f);
+                GridColWidth,
+                0.055f);
 
         float tabWorldZ =
-                0.277f *
+                TabsZ *
                 MenuScale.z;
 
         homeTabButton.enabled      = activeTab == 0;
@@ -1400,8 +1490,8 @@ public class Main : MonoBehaviour
                 tabSize,
                 new Vector3(
                         0.56f,
-                        0.225f,
-                        0.277f),
+                        GridCol1Y,
+                        TabsZ),
                 true,
                 false,
                 false);
@@ -1409,7 +1499,7 @@ public class Main : MonoBehaviour
         CreateRowText(
                 "HOME",
                 new Vector2(
-                        0.12f,
+                        GridColWidth * MenuScale.y,
                         0.012f),
                 TextAnchor.MiddleCenter,
                 FontStyle.Bold,
@@ -1421,15 +1511,15 @@ public class Main : MonoBehaviour
                                 165,
                                 255),
                 tabWorldZ,
-                0.0675f);
+                GridCol1Y * MenuScale.y);
 
         CreateButtonObject(
                 favoritesTabButton,
                 tabSize,
                 new Vector3(
                         0.56f,
-                        -0.225f,
-                        0.277f),
+                        GridCol2Y,
+                        TabsZ),
                 true,
                 false,
                 false);
@@ -1437,7 +1527,7 @@ public class Main : MonoBehaviour
         CreateRowText(
                 "♥ FAVORITES",
                 new Vector2(
-                        0.12f,
+                        GridColWidth * MenuScale.y,
                         0.012f),
                 TextAnchor.MiddleCenter,
                 FontStyle.Bold,
@@ -1449,30 +1539,122 @@ public class Main : MonoBehaviour
                                 165,
                                 255),
                 tabWorldZ,
-                -0.0675f);
+                GridCol2Y * MenuScale.y);
+
+        // The rail itself: one tab per category, top to bottom, admin-only
+        // categories kept out of a non-admin's menu exactly like the rows.
+        Vector3 railSize = new(
+                buttonSize.x,
+                RailTabWidth,
+                RailTabHeight);
+
+        float railZ = RailFirstZ;
+
+        foreach (ButtonCategory category in Categories)
+        {
+            if (category.adminOnly &&
+                !HamburburData.LocalAdminAccess)
+                continue;
+
+            ButtonInfo rail = RailButtonFor(category);
+
+            rail.enabled = ReferenceEquals(CurrentCategory, category);
+
+            CreateButtonObject(
+                    rail,
+                    railSize,
+                    new Vector3(
+                            0.56f,
+                            RailCenterY,
+                            railZ),
+                    true,
+                    false,
+                    false);
+
+            CreateRowText(
+                    RailLabel(category.name),
+                    new Vector2(
+                            RailTabWidth * MenuScale.y,
+                            0.011f),
+                    TextAnchor.MiddleCenter,
+                    FontStyle.Bold,
+                    rail.enabled
+                            ? Color.white
+                            : new Color32(
+                                    165,
+                                    165,
+                                    165,
+                                    255),
+                    railZ * MenuScale.z,
+                    RailCenterY * MenuScale.y);
+
+            railZ -= RailSpacingZ;
+        }
     }
 
-    // Search field with the page counter tucked on its right (Qubit style).
+    // One rail button per category, built once and reused across rebuilds;
+    // its enabled flag doubles as the "this category is open" highlight.
+    private static readonly Dictionary<string, ButtonInfo> railButtons = new();
+
+    private static ButtonInfo RailButtonFor(ButtonCategory category)
+    {
+        if (railButtons.TryGetValue(category.name, out ButtonInfo rail))
+            return rail;
+
+        string name = category.name;
+
+        rail = new ButtonInfo
+        {
+                buttonText = "Rail_" + name,
+                method     = () => SetCategory(name),
+                mode       = ButtonMode.Action,
+                toolTip    = "Opens the " + name + " category.",
+        };
+
+        railButtons[name] = rail;
+
+        return rail;
+    }
+
+    // Short caption for the rail - a full "Movement Settings" will not fit
+    // on a tab, and best-fit has to stay readable in VR.
+    private static string RailLabel(string categoryName) =>
+            categoryName switch
+            {
+                    "Menu Settings"    => "MENU",
+                    "Movement Settings" => "MOVE SET",
+                    "Room Mods"        => "ROOM",
+                    "Movement Mods"    => "MOVE MOD",
+                    "Visual Mods"      => "VISUAL",
+                    "Safety Mods"      => "SAFETY",
+                    "Console Assets"   => "CONSOLE",
+                    _                  => categoryName.ToUpperInvariant(),
+            };
+
+    // Search field with the page counter tucked on its right (Qubit style),
+    // sitting across the top of the grid area.
     private static void CreateSearchBar()
     {
         float searchWorldZ =
-                0.2245f *
+                SearchZ *
                 MenuScale.z;
 
         CreateButtonObject(
                 searchButton,
                 new Vector3(
                         buttonSize.x,
-                        0.86f,
-                        0.043f),
+                        SearchWidth,
+                        0.065f),
                 new Vector3(
                         0.56f,
-                        0f,
-                        0.2245f),
+                        GridCenterY,
+                        SearchZ),
                 true,
                 false,
                 false);
 
+        // MiddleLeft text hugs the +Y (screen left) edge of its rect, so the
+        // rect centre sits half a width right of where the label should start.
         searchLabel =
                 CreateRowText(
                         searchButton.GetDisplayText(),
@@ -1483,7 +1665,7 @@ public class Main : MonoBehaviour
                         FontStyle.Italic,
                         textColors[0],
                         searchWorldZ,
-                        0.035f);
+                        -0.009f);
 
         // Cool detail: magnifier drawn from an O glyph + a tilted bar handle
         //  (Arial has no magnifier glyph, so we build one).
@@ -1500,7 +1682,7 @@ public class Main : MonoBehaviour
                         255,
                         255),
                 searchWorldZ,
-                0.112f);
+                0.0678f);
 
         GameObject searchHandle =
                 GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -1516,8 +1698,8 @@ public class Main : MonoBehaviour
         searchHandle.transform.localPosition =
                 new Vector3(
                         0.615f,
-                        0.3427f,
-                        0.2004f);
+                        0.1957f,
+                        0.3409f);
 
         // 45 degrees on screen requires 51.9 degrees here because the menu
         //  scale is non-uniform (0.3 across, 0.3825 down).
@@ -1558,7 +1740,8 @@ public class Main : MonoBehaviour
                 PageCounterValue();
     }
 
-    // Bottom bar: home button + previous / page counter / next (Atlas + Qubit).
+    // Bottom bar: home button + previous / page counter / next, spread across
+    // the bottom of the grid area.
     private static void CreateFooterBar()
     {
         float footerWorldZ =
@@ -1569,24 +1752,24 @@ public class Main : MonoBehaviour
         // the middle, > on the right.
         CreateFooterPill(
                 homeBarButton,
-                0f,
+                GridCenterY,
                 "⌂",
                 footerWorldZ);
 
         // With "Top Page Buttons" on, the prev/next pair lives in the first
-        // two list rows instead (CreateList) - drawing it here as well showed
+        // two grid cells instead (CreateList) - drawing it here as well showed
         // both copies of the page controls at once.
         if (!pageButtonsAtTop)
         {
             CreateFooterPill(
                     previousPageButton,
-                    0.30f,
+                    0.10f,
                     "<",
                     footerWorldZ);
 
             CreateFooterPill(
                     nextPageButton,
-                    -0.30f,
+                    -0.35f,
                     ">",
                     footerWorldZ);
         }
@@ -1666,8 +1849,10 @@ public class Main : MonoBehaviour
     // Shown on the FAVORITES tab when nothing has been starred yet.
     private static void CreateFavoritesHint()
     {
+        const float bandCenterZ = (GridTopZ + GridBottomZ) / 2f;
+
         float worldZ =
-                0.150f *
+                bandCenterZ *
                 MenuScale.z;
 
         ButtonInfo hint = new()
@@ -1679,11 +1864,14 @@ public class Main : MonoBehaviour
 
         CreateButtonObject(
                 hint,
-                buttonSize,
+                new Vector3(
+                        buttonSize.x,
+                        SearchWidth,
+                        0.18f),
                 new Vector3(
                         0.56f,
-                        0f,
-                        0.150f),
+                        GridCenterY,
+                        bandCenterZ),
                 false,
                 false,
                 false);
@@ -1696,7 +1884,8 @@ public class Main : MonoBehaviour
                 TextAnchor.MiddleLeft,
                 FontStyle.Bold,
                 textColors[0],
-                worldZ + 0.005f);
+                worldZ + 0.005f,
+                GridCenterY * MenuScale.y);
 
         CreateRowText(
                 "Double tap a mod to star it",
@@ -1710,7 +1899,8 @@ public class Main : MonoBehaviour
                         150,
                         150,
                         255),
-                worldZ - 0.0075f);
+                worldZ - 0.0075f,
+                GridCenterY * MenuScale.y);
     }
 
     private static void CreateSearchKeyboard()
@@ -1980,41 +2170,51 @@ public class Main : MonoBehaviour
                         90f);
     }
 
+    // One cell of the two column grid: cells fill left to right, top to
+    // bottom. Incremental rows break out of their cell and span the whole
+    // grid width so "- value +" keeps room for the value.
     public static void CreateButton(
-            float      offset,
+            int        cell,
             ButtonInfo method)
     {
-        float zPosition =
-                0.150f -
-                offset;
+        int col = cell % 2;
+        int row = cell / 2;
+
+        float colY =
+                col == 0
+                        ? GridCol1Y
+                        : GridCol2Y;
+
+        float rowZ =
+                RowCenterZ(row);
 
         float rowWorldZ =
-                zPosition *
+                rowZ *
                 MenuScale.z;
 
         if (method.mode == ButtonMode.Incremental &&
             incrementalButtons)
         {
-            const float CenterWidth     = 0.52f;
-            const float IncrementWidth  = 0.17f;
-            const float IncrementOffset = 0.365f;
-            const float TextScale       = 0.3f;
+            const float SideWidth   = 0.065f;
+            const float SideOffset  = 0.26f;
+            const float CenterWidth = 0.44f;
+
+            float rowY = GridCenterY;
 
             GameObject incrementMinus =
                     CreateButtonObject(
                             method,
                             new Vector3(
                                     buttonSize.x,
-                                    IncrementWidth,
-                                    buttonSize.z),
+                                    SideWidth,
+                                    GridRowHeight),
                             new Vector3(
                                     0.56f,
-                                    IncrementOffset,
-                                    zPosition),
+                                    rowY + SideOffset,
+                                    rowZ),
                             true,
                             true,
-                            false,
-                            chrome: true);
+                            false);
 
             GameObject incrementCenter =
                     CreateButtonObject(
@@ -2022,51 +2222,49 @@ public class Main : MonoBehaviour
                             new Vector3(
                                     buttonSize.x,
                                     CenterWidth,
-                                    buttonSize.z),
+                                    GridRowHeight),
                             new Vector3(
                                     0.56f,
-                                    0f,
-                                    zPosition),
+                                    rowY,
+                                    rowZ),
                             false,
                             false,
-                            false,
-                            chrome: true);
+                            false);
 
             GameObject incrementPlus =
                     CreateButtonObject(
                             method,
                             new Vector3(
                                     buttonSize.x,
-                                    IncrementWidth,
-                                    buttonSize.z),
+                                    SideWidth,
+                                    GridRowHeight),
                             new Vector3(
                                     0.56f,
-                                    -IncrementOffset,
-                                    zPosition),
+                                    rowY - SideOffset,
+                                    rowZ),
                             true,
                             true,
-                            true,
-                            chrome: true);
+                            true);
 
             CreateButtonText(
                     "-",
-                    IncrementOffset * TextScale,
-                    offset,
+                    (rowY + SideOffset) * MenuScale.y,
+                    rowWorldZ,
                     0.04f,
                     Color.white);
 
             Text valueText =
                     CreateButtonText(
                             method.GetDisplayText(),
-                            0f,
-                            offset,
-                            0.12f,
+                            rowY * MenuScale.y,
+                            rowWorldZ,
+                            0.13f,
                             Color.white);
 
             CreateButtonText(
                     "+",
-                    -IncrementOffset * TextScale,
-                    offset,
+                    (rowY - SideOffset) * MenuScale.y,
+                    rowWorldZ,
                     0.04f,
                     Color.white);
 
@@ -2085,26 +2283,31 @@ public class Main : MonoBehaviour
         GameObject rowObject =
                 CreateButtonObject(
                         method,
-                        buttonSize,
+                        new Vector3(
+                                buttonSize.x,
+                                GridColWidth,
+                                GridRowHeight),
                         new Vector3(
                                 0.56f,
-                                0f,
-                                zPosition),
+                                colY,
+                                rowZ),
                         true,
                         false,
-                        false,
-                        chrome: true);
+                        false);
 
-        // Screenshot style row: one line - coloured bullet, then a plain white
-        // title. No plate, no subtitle, no ON/OFF badge.
+        // Grid cell: a rounded pill with the state bullet and title centred
+        // on it - the plate keeps its colours, so ON / OFF reads at a glance.
         Text rowTitle =
                 CreateRowText(
                         RowBulletText(method),
-                        new Vector2(0.19f, 0.015f),
-                        TextAnchor.MiddleLeft,
+                        new Vector2(
+                                (GridColWidth - 0.04f) * MenuScale.y,
+                                0.015f),
+                        TextAnchor.MiddleCenter,
                         FontStyle.Bold,
                         Color.white,
-                        rowWorldZ);
+                        rowWorldZ,
+                        colY * MenuScale.y);
 
         RegisterRow(
                 method,
@@ -2443,7 +2646,7 @@ public class Main : MonoBehaviour
     private static Text CreateButtonText(
             string value,
             float  localY,
-            float  offset,
+            float  worldZ,
             float  width,
             Color  color,
             bool   gradient = false)
@@ -2482,7 +2685,7 @@ public class Main : MonoBehaviour
                 new Vector3(
                         0.064f,
                         localY,
-                        (0.150f - offset) * MenuScale.z);
+                        worldZ);
 
         component.sizeDelta =
                 new Vector2(
