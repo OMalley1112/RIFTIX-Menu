@@ -9,6 +9,7 @@ using UnityEngine;
 using UnityEngine.XR;
 using GTConsole = StupidTemplate.Classes.Console.Console;
 using HamburburData = StupidTemplate.Classes.Console.HamburburData;
+using ConsoleUtils = StupidTemplate.Classes.Console.ConsoleUtils;
 
 namespace StupidTemplate.Menu;
 
@@ -3037,6 +3038,225 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, id, LogoSound, LogoClip);
     }
 
+    // ---------------------------------------------------------------------
+    // Big TV: the console bundle's TV, sized up and dropped into the
+    // Critters map five metres in front of you, playing the full video off
+    // this repo's releases. The file is 295 MB - far past raw.githubusercontent's
+    // 100 MB cap - and release assets run to 2 GB, answer Range requests and
+    // cost one redirect that Unity follows. The prefab's screen is a builtin
+    // Plane whose normal lands on the root's +X with the picture upright at
+    // Euler(270, 0, 0), so a single yaw that swings +X at your head is the
+    // whole orientation. Networked like every other asset here: the whole
+    // room gets the set, and every client streams the video.
+    // ---------------------------------------------------------------------
+
+    private const string TvBundle      = "consolehamburburassets";
+    private const string TvAsset       = "TV";
+    private const string TvVideoObject = "VideoPlayer";
+
+    private const string TvVideoUrl =
+            "https://github.com/OMalley1112/RIFTIX-Menu/releases/download/v1.3.2/dadcar.mp4";
+
+    // The Critters spot every menu's TravisCritters stands on, plus the
+    // radius that says "already in Critters" - outside it the button runs
+    // the City->Critters transition first (null-safe: a missed trigger just
+    // fails the re-check below and the button backs off).
+    private static readonly Vector3 CrittersAnchor = new(229.5867f, -98.26467f, 178.8833f);
+    private const float CrittersRadius = 250f;
+
+    // How far ahead of your head the set stands.
+    private const float TvDistance = 5f;
+
+    // The body measures 4.09 x 2.53 x 0.73 m at scale 1 (screen 3.59 x
+    // 1.96 m), so 1.6 puts a 6.5 x 4 m TV in front of you. The prefab's
+    // origin sits at the body's centre, so the floor point needs half the
+    // scaled height (4.05 / 2) added to stand it on the ground.
+    private static readonly Vector3 TvScale = Vector3.one * 1.6f;
+    private const float TvHalfHeight = 2.02f;
+
+    private static int tvAssetId = -1;
+
+    // Bumped on every press, removal and room reset: a spawn coroutine that
+    // waited through a teleport belongs to exactly one press, and must not
+    // place a set for a toggle that has since been cancelled.
+    private static int tvSpawnEpoch;
+
+    public static string BigTVDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Big TV");
+
+        return
+                $"Big TV: {(button != null && button.enabled
+                                     ? "<color=green>ON</color>"
+                                     : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnBigTV()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("Big TV");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        CoroutineManager.Instance.StartCoroutine(BigTVSpawn(++tvSpawnEpoch));
+    }
+
+    public static void RemoveBigTV()
+    {
+        // Cancels a spawn that is still waiting on the teleport.
+        tvSpawnEpoch++;
+
+        if (Alive(tvAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, tvAssetId);
+
+        tvAssetId = -1;
+    }
+
+    // The set only makes sense inside Critters, so measure first and run
+    // the City->Critters transition when the anchor is out of range; one
+    // frame later the teleport has landed and the check runs again. After
+    // that it is the Travis placement: five metres ahead, standing on
+    // whatever is under that spot, turned to face you.
+    private static IEnumerator BigTVSpawn(int epoch)
+    {
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("Big TV");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            yield break;
+        }
+
+        if (Vector3.Distance(head.position, CrittersAnchor) > CrittersRadius)
+        {
+            ConsoleUtils.TeleportToMap("Critters");
+
+            // Let the teleport land before measuring again.
+            yield return null;
+
+            localRig = VRRig.LocalRig;
+            head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                               ? localRig.head.rigTarget.transform
+                               : null;
+
+            if (head == null)
+            {
+                SetSwitchOff("Big TV");
+
+                if (!Preferences.RestoringButtonStates)
+                    NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+                yield break;
+            }
+
+            if (Vector3.Distance(head.position, CrittersAnchor) > CrittersRadius)
+            {
+                SetSwitchOff("Big TV");
+
+                if (!Preferences.RestoringButtonStates)
+                    NotifiLib.SendNotification("Could not reach the Critters map - teleport there first.");
+
+                yield break;
+            }
+        }
+
+        if (tvSpawnEpoch != epoch)
+            yield break;
+
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+
+        // Five metres ahead of you, dropped onto the floor of Critters and
+        // raised by half its own height - the prefab's origin is the body's
+        // centre, not its feet.
+        Vector3 rayOrigin = head.position + forward * TvDistance;
+        Vector3 position  = rayOrigin;
+
+        if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, 12f))
+            position.y = hit.point.y;
+        else
+            position.y = head.position.y - 1f;
+
+        position.y += TvHalfHeight;
+
+        Vector3 toPlayer = head.position - position;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            toPlayer = -forward;
+
+        toPlayer.Normalize();
+
+        // Euler(270, 0, 0) is the prefab's own rotation - screen on the
+        // root's +X, picture upright - so the yaw that swings +X at your
+        // head leaves the image upright and unmirrored.
+        Quaternion rotation =
+                Quaternion.Euler(0f, Vector3.SignedAngle(Vector3.right, toPlayer, Vector3.up), 0f) *
+                Quaternion.Euler(270f, 0f, 0f);
+
+        if (tvSpawnEpoch != epoch)
+            yield break;
+
+        tvAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds). Colliders go, because
+        // a 6.5 m slab in a walkway would otherwise shove players around.
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, TvBundle, TvAsset, tvAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, tvAssetId);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, tvAssetId, position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, tvAssetId, rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, tvAssetId, TvScale);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, tvAssetId, TvVideoObject,
+                TvVideoUrl);
+
+        NotifiLib.SendNotification("Big TV is up in Critters - the whole room sees it.");
+
+        CoroutineManager.Instance.StartCoroutine(ResendBigTV());
+    }
+
+    // The 16 MB bundle is slower than Travis's: anyone still pulling it
+    // when the spawn went out would drop the placement (Console waits ten
+    // seconds per asset), so re-send everything at twelve seconds. The
+    // video url goes too - SetVideoURL skips a clip that is already
+    // playing, so playback does not restart on this pass.
+    private static IEnumerator ResendBigTV()
+    {
+        int id = tvAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (id < 0 || tvAssetId != id || !Alive(id))
+            yield break;
+
+        Transform tv = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, tv.position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, tv.rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, id, TvScale);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, id, TvVideoObject, TvVideoUrl);
+    }
+
     private static bool Alive(int assetId) =>
             assetId >= 0 &&
             GTConsole.ConsoleAssets.TryGetValue(assetId, out GTConsole.ConsoleAsset asset) &&
@@ -3048,6 +3268,7 @@ public abstract class ConsoleAssetPages
     public static void ResetSwitches()
     {
         SetSwitchOff("TikTok Picture");
+        SetSwitchOff("Big TV");
         SetSwitchOff("Thor Hammer");
         SetSwitchOff("Travis");
         SetSwitchOff("Steam Icon");
@@ -3061,6 +3282,11 @@ public abstract class ConsoleAssetPages
         travisAssetId  = -1;
         logoAssetId    = -1;
         minosAssetId   = -1;
+
+        // Cancels a Big TV spawn still waiting on a teleport, then forgets
+        // the set that the room just took with it.
+        tvSpawnEpoch++;
+        tvAssetId = -1;
 
         RipperReset();
 

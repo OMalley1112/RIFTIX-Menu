@@ -1133,6 +1133,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Big TV",
+                    enableMethod  = ConsoleAssetPages.SpawnBigTV,
+                    disableMethod = ConsoleAssetPages.RemoveBigTV,
+                    displayText   = ConsoleAssetPages.BigTVDisplay,
+                    toolTip       = "Teleports you to Critters and stands a 6.5 m TV five metres in front of you, playing the video (networked - the whole room sees it and streams it).",
+            },
+
+            new()
+            {
                     buttonText    = "Thor Hammer",
                     enableMethod  = ConsoleAssetPages.SpawnHammer,
                     disableMethod = ConsoleAssetPages.RemoveHammer,
