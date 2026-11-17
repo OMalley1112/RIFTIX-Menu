@@ -221,16 +221,17 @@ public abstract class ConsoleAssetPages
     }
 
     // ---------------------------------------------------------------------
-    // Holy Picture: the meme picture that ascends. The photo is this repo's
-    // media/holy.jpg and its thirteen second song media/holy.mp4 - served
-    // straight off raw.githubusercontent like the TikTok picture, no
+    // Holy Picture: the meme picture that comes out of the ground. The
+    // photo is this repo's media/holy.jpg - a 364 x 364 square crop of the
+    // painting - and its thirteen second song media/holy.mp4, both served
+    // straight off raw.githubusercontent like the TikTok picture: no
     // redirect hop and Range answered, which is what Unity's VideoPlayer
-    // streams best. It spawns three metres in front of you at eye height
-    // like that picture, then floats up into the air over four seconds
-    // while a warm light pulses off it and gold sparkles drift up - the
-    // light and sparkles are local (like the Steam Icon's FX: there is no
-    // command to hang a light on the room's copy), the picture, the rise
-    // keyframes and the song are networked.
+    // streams best. The picture spawns BURIED three metres in front of you
+    // and rises out of the earth into the air, ending three metres above
+    // your eyes, while a warm light pulses off it and gold sparkles drift
+    // up - the light and sparkles are local (like the Steam Icon's FX:
+    // there is no command to hang a light on the room's copy), the
+    // picture, the rise keyframes and the song are networked.
     // ---------------------------------------------------------------------
 
     private const string HolyImageUrl =
@@ -239,15 +240,21 @@ public abstract class ConsoleAssetPages
     private const string HolyVideoUrl =
             "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/holy.mp4";
 
-    // The photo is 372 x 827, so at the TikTok picture's 1.20 m height its
-    // width comes out to 0.54 m: the plane measures 15.24 x 8.52 units at
-    // scale 1, x drives the width and y the height (see PictureScale).
-    private static readonly Vector3 HolyScale = new(0.0354f, 0.141f, 0.0354f);
+    // The photo is a square now, and big: 2.4 m per side (it was a
+    // 0.54 x 1.20 m rectangle). The plane measures 15.24 x 8.52 units at
+    // scale 1 - x drives the width, y the height (see PictureScale) - so
+    // the two divisors are what keep the sides equal.
+    private const float HolySize = 2.4f;
 
-    // How far and how fast it ascends; the ease-out keeps it quick off the
-    // mark and gentle at the top.
-    private const float HolyRiseHeight = 3f;
-    private const float HolyRiseTime   = 4f;
+    private static readonly Vector3 HolyScale =
+            new(HolySize / 15.24f, HolySize / 8.52f, HolySize / 15.24f);
+
+    // The picture starts with its centre a half-height under the ground in
+    // front of you (nothing of it shows) and finishes this far above your
+    // eyes - so it bursts out of the earth and keeps floating up. The
+    // ease-out keeps it quick off the mark and gentle at the top.
+    private const float HolyFloatHeight = 3f;
+    private const float HolyRiseTime    = 4f;
 
     private static int holyAssetId = -1;
 
@@ -259,6 +266,11 @@ public abstract class ConsoleAssetPages
     // copy in the room whose texture url is ours - the fingerprint that
     // works for pictures spawned by other RIFTIX clients too.
     private static int holyFxAssetId = -1;
+
+    // The FX stay off until the picture's centre has cleared the ground,
+    // so the light does not shine through the terrain while it is still
+    // buried. A remote adoption skips the wait (it sets no spawn).
+    private static float holyFxMinY = float.NegativeInfinity;
 
     private static Light         holyFxLight;
     private static ParticleSystem holyFxSparkles;
@@ -302,8 +314,11 @@ public abstract class ConsoleAssetPages
             return;
         }
 
-        // Same placement as the TikTok picture: three metres ahead at eye
-        // height, turned to face you - the ascent takes it from there.
+        // Same spot as the TikTok picture - three metres ahead, turned to
+        // face you - but the spawn itself goes in BURIED: the floor under
+        // that spot picks the ground, and the picture starts with its
+        // centre half a panel below it so nothing of it shows until the
+        // rise drags it out of the earth.
         Vector3 forward = head.forward;
         forward.y = 0f;
 
@@ -324,12 +339,26 @@ public abstract class ConsoleAssetPages
 
         Quaternion rotation = Quaternion.LookRotation(toPlayer);
 
+        float groundY = Physics.Raycast(position, Vector3.down, out RaycastHit ground, 12f)
+                                ? ground.point.y
+                                : head.position.y - 1f;
+
+        Vector3 start = position;
+        start.y = groundY - (HolySize * 0.5f) - 0.1f;
+
+        Vector3 end = position;
+        end.y = head.position.y + HolyFloatHeight;
+
+        // The FX hold off until the picture's centre clears this height.
+        holyFxMinY = groundY;
+
         holyAssetId = GTConsole.GetFreeAssetID();
 
         // Spawn first; every command after it waits for the asset to exist
-        // (Console gives each one up to ten seconds).
+        // (Console gives each one up to ten seconds). The room gets the
+        // buried position, then the rise keyframes walk it into the air.
         GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ScreenBundle, ScreenAsset, holyAssetId);
-        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, holyAssetId, position);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, holyAssetId, start);
         GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, holyAssetId, rotation);
         GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, holyAssetId, HolyScale);
         GTConsole.ExecuteCommand("asset-settexture", ReceiverGroup.All, holyAssetId, ScreenChild,
@@ -337,9 +366,10 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, holyAssetId, ScreenChild,
                 HolyVideoUrl);
 
-        NotifiLib.SendNotification("The holy picture is rising in front of you - the whole room sees it.");
+        NotifiLib.SendNotification("The holy picture is coming out of the ground - the whole room sees it.");
 
-        CoroutineManager.Instance.StartCoroutine(RiseHolyPicture(++holyRiseEpoch, holyAssetId, position));
+        CoroutineManager.Instance.StartCoroutine(
+                RiseHolyPicture(++holyRiseEpoch, holyAssetId, start, end));
         CoroutineManager.Instance.StartCoroutine(ResendHolyPicture());
     }
 
@@ -352,17 +382,21 @@ public abstract class ConsoleAssetPages
             GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, holyAssetId);
 
         holyAssetId = -1;
+
+        // From here a remote copy (if any) may get the FX straight away.
+        holyFxMinY = float.NegativeInfinity;
     }
 
-    // Floats the picture up three metres over four seconds. The transform
-    // moves locally every frame; the room gets a position keyframe every
-    // half second (Others - this client already has the exact position)
-    // and one last one at the top. SyncConsoleAssets reads the live
-    // transform, so a player who joins mid-rise inherits wherever it is
-    // and keeps riding the remaining keyframes. While the bundle is still
-    // downloading the clock waits: the rise starts the moment the picture
-    // appears, not a fixed delay after the press.
-    private static IEnumerator RiseHolyPicture(int epoch, int id, Vector3 start)
+    // Drags the picture out of the ground and up into the air over four
+    // seconds, from its buried start to the resting place above your eyes.
+    // The transform moves locally every frame; the room gets a position
+    // keyframe every half second (Others - this client already has the
+    // exact position) and one last one at the top. SyncConsoleAssets reads
+    // the live transform, so a player who joins mid-rise inherits wherever
+    // it is and keeps riding the remaining keyframes. While the bundle is
+    // still downloading the clock waits: the rise starts the moment the
+    // picture appears, not a fixed delay after the press.
+    private static IEnumerator RiseHolyPicture(int epoch, int id, Vector3 start, Vector3 end)
     {
         float elapsed  = 0f;
         float nextSync = 0.5f;
@@ -382,7 +416,7 @@ public abstract class ConsoleAssetPages
             float k = Mathf.Clamp01(elapsed / HolyRiseTime);
             k = 1f - (1f - k) * (1f - k);
 
-            Vector3 position = start + Vector3.up * (HolyRiseHeight * k);
+            Vector3 position = Vector3.Lerp(start, end, k);
 
             GTConsole.ConsoleAssets[id].AssetObject.transform.position = position;
 
@@ -397,10 +431,8 @@ public abstract class ConsoleAssetPages
         if (epoch != holyRiseEpoch || id != holyAssetId || !Alive(id))
             yield break;
 
-        Vector3 top = start + Vector3.up * HolyRiseHeight;
-
-        GTConsole.ConsoleAssets[id].AssetObject.transform.position = top;
-        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.Others, id, top);
+        GTConsole.ConsoleAssets[id].AssetObject.transform.position = end;
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.Others, id, end);
     }
 
     // Anyone still downloading the bundle when the spawn went out would
@@ -458,7 +490,16 @@ public abstract class ConsoleAssetPages
             return;
 
         if (holyFxLight == null)
-            CreateHolyFX(GTConsole.ConsoleAssets[holyFxAssetId].AssetObject);
+        {
+            // Not while the picture is still under ground: a point light
+            // ignores terrain, so it would glow through the ground before
+            // anything of the picture shows.
+            Vector3 picturePosition =
+                    GTConsole.ConsoleAssets[holyFxAssetId].AssetObject.transform.position;
+
+            if (picturePosition.y >= holyFxMinY)
+                CreateHolyFX(GTConsole.ConsoleAssets[holyFxAssetId].AssetObject);
+        }
 
         if (holyFxLight != null)
             holyFxLight.intensity = 1.35f + Mathf.Sin(Time.time * 2.4f) * 0.45f;
@@ -491,7 +532,7 @@ public abstract class ConsoleAssetPages
     // The heavenly glow: a warm point light breathing at the photo's
     // centre (it reaches both faces - lights only occlude when they cast
     // shadows) and gold sparkles drifting up its surface. The picture's
-    // own scale is a lopsided 0.035 x 0.141, so the FX hang off a child
+    // own scale is lopsided (see HolyScale), so the FX hang off a child
     // that counter-scales back to world size 1 - particle sizes and the
     // spark box then mean what they say.
     private static void CreateHolyFX(GameObject picture)
@@ -506,7 +547,7 @@ public abstract class ConsoleAssetPages
         Light light = lightObject.AddComponent<Light>();
         light.type      = LightType.Point;
         light.color     = new Color(1f, 0.93f, 0.72f);
-        light.range     = 6.5f;
+        light.range     = 11f;
         light.intensity = 1.35f;
         light.shadows   = LightShadows.None;
 
@@ -522,20 +563,20 @@ public abstract class ConsoleAssetPages
         main.playOnAwake     = true;
         main.startLifetime   = new ParticleSystem.MinMaxCurve(1.6f, 2.8f);
         main.startSpeed      = new ParticleSystem.MinMaxCurve(0.12f, 0.3f);
-        main.startSize       = new ParticleSystem.MinMaxCurve(0.012f, 0.05f);
+        main.startSize       = new ParticleSystem.MinMaxCurve(0.018f, 0.08f);
         main.startColor      = new Color(1f, 0.92f, 0.65f, 0.85f);
-        main.maxParticles    = 80;
+        main.maxParticles    = 140;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
         main.gravityModifier = -0.01f;
         main.scalingMode     = ParticleSystemScalingMode.Hierarchy;
 
         ParticleSystem.EmissionModule emission = sparks.emission;
-        emission.rateOverTime = 14f;
+        emission.rateOverTime = 25f;
 
-        // A thin box the size of the photo, so the sparkles crawl up it.
+        // A thin box the size of the panel, so the sparkles crawl up it.
         ParticleSystem.ShapeModule shape = sparks.shape;
         shape.shapeType = ParticleSystemShapeType.Box;
-        shape.scale     = new Vector3(0.55f, 1.15f, 0.05f);
+        shape.scale     = new Vector3(HolySize, HolySize, 0.12f);
 
         ParticleSystem.VelocityOverLifetimeModule velocity = sparks.velocityOverLifetime;
         velocity.enabled = true;
@@ -3653,8 +3694,9 @@ public abstract class ConsoleAssetPages
 
         // Same for the Holy Picture's rise, plus this client's local glow.
         holyRiseEpoch++;
-        holyAssetId  = -1;
+        holyAssetId   = -1;
         holyFxAssetId = -1;
+        holyFxMinY    = float.NegativeInfinity;
         DropHolyFX();
 
         RipperReset();
