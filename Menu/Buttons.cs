@@ -1142,6 +1142,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Holy Picture",
+                    enableMethod  = ConsoleAssetPages.SpawnHolyPicture,
+                    disableMethod = ConsoleAssetPages.RemoveHolyPicture,
+                    displayText   = ConsoleAssetPages.HolyPictureDisplay,
+                    toolTip       = "Spawns the meme picture 3 m in front of you - it floats up into the air with warm light, gold sparkles and its song (networked - the whole room sees it).",
+            },
+
+            new()
+            {
                     buttonText    = "Thor Hammer",
                     enableMethod  = ConsoleAssetPages.SpawnHammer,
                     disableMethod = ConsoleAssetPages.RemoveHammer,

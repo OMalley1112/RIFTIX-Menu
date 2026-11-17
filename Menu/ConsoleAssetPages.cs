@@ -220,6 +220,368 @@ public abstract class ConsoleAssetPages
                 PictureVideoUrl);
     }
 
+    // ---------------------------------------------------------------------
+    // Holy Picture: the meme picture that ascends. The photo is this repo's
+    // media/holy.jpg and its thirteen second song media/holy.mp4 - served
+    // straight off raw.githubusercontent like the TikTok picture, no
+    // redirect hop and Range answered, which is what Unity's VideoPlayer
+    // streams best. It spawns three metres in front of you at eye height
+    // like that picture, then floats up into the air over four seconds
+    // while a warm light pulses off it and gold sparkles drift up - the
+    // light and sparkles are local (like the Steam Icon's FX: there is no
+    // command to hang a light on the room's copy), the picture, the rise
+    // keyframes and the song are networked.
+    // ---------------------------------------------------------------------
+
+    private const string HolyImageUrl =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/holy.jpg";
+
+    private const string HolyVideoUrl =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/holy.mp4";
+
+    // The photo is 372 x 827, so at the TikTok picture's 1.20 m height its
+    // width comes out to 0.54 m: the plane measures 15.24 x 8.52 units at
+    // scale 1, x drives the width and y the height (see PictureScale).
+    private static readonly Vector3 HolyScale = new(0.0354f, 0.141f, 0.0354f);
+
+    // How far and how fast it ascends; the ease-out keeps it quick off the
+    // mark and gentle at the top.
+    private const float HolyRiseHeight = 3f;
+    private const float HolyRiseTime   = 4f;
+
+    private static int holyAssetId = -1;
+
+    // Cancels a rise still in flight (toggle off, room reset, re-press).
+    private static int holyRiseEpoch;
+
+    // Which asset carries this client's local light and sparkles: the
+    // spawner's own picture while the switch is on, otherwise the first
+    // copy in the room whose texture url is ours - the fingerprint that
+    // works for pictures spawned by other RIFTIX clients too.
+    private static int holyFxAssetId = -1;
+
+    private static Light         holyFxLight;
+    private static ParticleSystem holyFxSparkles;
+
+    public static string HolyPictureDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Holy Picture");
+
+        return
+                $"Holy Picture: {(button != null && button.enabled
+                                          ? "<color=green>ON</color>"
+                                          : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnHolyPicture()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("Holy Picture");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("Holy Picture");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            return;
+        }
+
+        // Same placement as the TikTok picture: three metres ahead at eye
+        // height, turned to face you - the ascent takes it from there.
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+
+        Vector3 position = head.position + forward * SpawnDistance;
+
+        Vector3 toPlayer = head.position - position;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            toPlayer = -forward;
+
+        toPlayer.Normalize();
+
+        Quaternion rotation = Quaternion.LookRotation(toPlayer);
+
+        holyAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds).
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ScreenBundle, ScreenAsset, holyAssetId);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, holyAssetId, position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, holyAssetId, rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, holyAssetId, HolyScale);
+        GTConsole.ExecuteCommand("asset-settexture", ReceiverGroup.All, holyAssetId, ScreenChild,
+                HolyImageUrl);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, holyAssetId, ScreenChild,
+                HolyVideoUrl);
+
+        NotifiLib.SendNotification("The holy picture is rising in front of you - the whole room sees it.");
+
+        CoroutineManager.Instance.StartCoroutine(RiseHolyPicture(++holyRiseEpoch, holyAssetId, position));
+        CoroutineManager.Instance.StartCoroutine(ResendHolyPicture());
+    }
+
+    public static void RemoveHolyPicture()
+    {
+        // Cancels a rise still in flight.
+        holyRiseEpoch++;
+
+        if (Alive(holyAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, holyAssetId);
+
+        holyAssetId = -1;
+    }
+
+    // Floats the picture up three metres over four seconds. The transform
+    // moves locally every frame; the room gets a position keyframe every
+    // half second (Others - this client already has the exact position)
+    // and one last one at the top. SyncConsoleAssets reads the live
+    // transform, so a player who joins mid-rise inherits wherever it is
+    // and keeps riding the remaining keyframes. While the bundle is still
+    // downloading the clock waits: the rise starts the moment the picture
+    // appears, not a fixed delay after the press.
+    private static IEnumerator RiseHolyPicture(int epoch, int id, Vector3 start)
+    {
+        float elapsed  = 0f;
+        float nextSync = 0.5f;
+
+        while (elapsed < HolyRiseTime)
+        {
+            yield return null;
+
+            if (epoch != holyRiseEpoch || id != holyAssetId)
+                yield break;
+
+            if (!Alive(id))
+                continue;
+
+            elapsed += Time.deltaTime;
+
+            float k = Mathf.Clamp01(elapsed / HolyRiseTime);
+            k = 1f - (1f - k) * (1f - k);
+
+            Vector3 position = start + Vector3.up * (HolyRiseHeight * k);
+
+            GTConsole.ConsoleAssets[id].AssetObject.transform.position = position;
+
+            if (elapsed >= nextSync)
+            {
+                nextSync += 0.5f;
+
+                GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.Others, id, position);
+            }
+        }
+
+        if (epoch != holyRiseEpoch || id != holyAssetId || !Alive(id))
+            yield break;
+
+        Vector3 top = start + Vector3.up * HolyRiseHeight;
+
+        GTConsole.ConsoleAssets[id].AssetObject.transform.position = top;
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.Others, id, top);
+    }
+
+    // Anyone still downloading the bundle when the spawn went out would
+    // drop the follow-ups (Console waits ten seconds per asset), so
+    // re-send everything once everyone has had twelve seconds to catch up.
+    // SetVideoURL skips a clip that is already playing, so the song does
+    // not restart on this pass; by twelve seconds the rise is long done,
+    // so the position here is the picture's resting place.
+    private static IEnumerator ResendHolyPicture()
+    {
+        int id = holyAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (id < 0 || holyAssetId != id || !Alive(id))
+            yield break;
+
+        Transform picture = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, picture.position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, picture.rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, id, HolyScale);
+        GTConsole.ExecuteCommand("asset-settexture", ReceiverGroup.All, id, ScreenChild,
+                HolyImageUrl);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, id, ScreenChild,
+                HolyVideoUrl);
+    }
+
+    // One line from Console's Update: adopts whichever copy of the picture
+    // this client should light (its own while the switch is on, otherwise
+    // the first room copy wearing our texture), hangs the FX on it and
+    // keeps the warm light breathing.
+    public static void HolyPictureTick()
+    {
+        if (GTConsole.ConsoleAssets.Count == 0)
+        {
+            if (holyFxAssetId >= 0)
+            {
+                DropHolyFX();
+                holyFxAssetId = -1;
+            }
+
+            return;
+        }
+
+        int wanted = holyAssetId >= 0 ? holyAssetId : HolyRemoteCandidate();
+
+        if (wanted != holyFxAssetId)
+        {
+            DropHolyFX();
+            holyFxAssetId = wanted;
+        }
+
+        if (holyFxAssetId < 0 || !Alive(holyFxAssetId))
+            return;
+
+        if (holyFxLight == null)
+            CreateHolyFX(GTConsole.ConsoleAssets[holyFxAssetId].AssetObject);
+
+        if (holyFxLight != null)
+            holyFxLight.intensity = 1.35f + Mathf.Sin(Time.time * 2.4f) * 0.45f;
+    }
+
+    private static int HolyRemoteCandidate()
+    {
+        foreach (KeyValuePair<int, GTConsole.ConsoleAsset> entry in GTConsole.ConsoleAssets)
+            if (entry.Value.AssetObject != null && entry.Value.TextureUrl == HolyImageUrl)
+                return entry.Key;
+
+        return -1;
+    }
+
+    private static void DropHolyFX()
+    {
+        // Unity's null check reads a destroyed component as null, so an FX
+        // whose picture already left the room is skipped instead of
+        // throwing on .gameObject.
+        if (holyFxLight != null)
+            UnityEngine.Object.Destroy(holyFxLight.gameObject);
+
+        if (holyFxSparkles != null)
+            UnityEngine.Object.Destroy(holyFxSparkles.gameObject);
+
+        holyFxLight    = null;
+        holyFxSparkles = null;
+    }
+
+    // The heavenly glow: a warm point light breathing at the photo's
+    // centre (it reaches both faces - lights only occlude when they cast
+    // shadows) and gold sparkles drifting up its surface. The picture's
+    // own scale is a lopsided 0.035 x 0.141, so the FX hang off a child
+    // that counter-scales back to world size 1 - particle sizes and the
+    // spark box then mean what they say.
+    private static void CreateHolyFX(GameObject picture)
+    {
+        GameObject fxRoot = new("RIFTIX_HolyFX");
+        fxRoot.transform.SetParent(picture.transform, false);
+        fxRoot.transform.localScale = new Vector3(1f / HolyScale.x, 1f / HolyScale.y, 1f / HolyScale.z);
+
+        GameObject lightObject = new("RIFTIX_HolyLight");
+        lightObject.transform.SetParent(fxRoot.transform, false);
+
+        Light light = lightObject.AddComponent<Light>();
+        light.type      = LightType.Point;
+        light.color     = new Color(1f, 0.93f, 0.72f);
+        light.range     = 6.5f;
+        light.intensity = 1.35f;
+        light.shadows   = LightShadows.None;
+
+        holyFxLight = light;
+
+        GameObject sparkleObject = new("RIFTIX_HolySparkles");
+        sparkleObject.transform.SetParent(fxRoot.transform, false);
+
+        ParticleSystem sparks = sparkleObject.AddComponent<ParticleSystem>();
+
+        ParticleSystem.MainModule main = sparks.main;
+        main.loop            = true;
+        main.playOnAwake     = true;
+        main.startLifetime   = new ParticleSystem.MinMaxCurve(1.6f, 2.8f);
+        main.startSpeed      = new ParticleSystem.MinMaxCurve(0.12f, 0.3f);
+        main.startSize       = new ParticleSystem.MinMaxCurve(0.012f, 0.05f);
+        main.startColor      = new Color(1f, 0.92f, 0.65f, 0.85f);
+        main.maxParticles    = 80;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.gravityModifier = -0.01f;
+        main.scalingMode     = ParticleSystemScalingMode.Hierarchy;
+
+        ParticleSystem.EmissionModule emission = sparks.emission;
+        emission.rateOverTime = 14f;
+
+        // A thin box the size of the photo, so the sparkles crawl up it.
+        ParticleSystem.ShapeModule shape = sparks.shape;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale     = new Vector3(0.55f, 1.15f, 0.05f);
+
+        ParticleSystem.VelocityOverLifetimeModule velocity = sparks.velocityOverLifetime;
+        velocity.enabled = true;
+        velocity.space   = ParticleSystemSimulationSpace.World;
+        velocity.x       = new ParticleSystem.MinMaxCurve(-0.03f, 0.03f);
+        velocity.y       = new ParticleSystem.MinMaxCurve(0.18f, 0.4f);
+        velocity.z       = new ParticleSystem.MinMaxCurve(-0.03f, 0.03f);
+
+        ParticleSystem.ColorOverLifetimeModule colorOverLife = sparks.colorOverLifetime;
+        colorOverLife.enabled = true;
+
+        Gradient gradient = new();
+        gradient.SetKeys(
+                new[]
+                {
+                        new GradientColorKey(Color.white, 0f),
+                        new GradientColorKey(new Color(1f, 0.9f, 0.6f), 1f),
+                },
+                new[]
+                {
+                        new GradientAlphaKey(0.8f, 0f), new GradientAlphaKey(0.45f, 0.5f),
+                        new GradientAlphaKey(0f, 1f),
+                });
+        colorOverLife.color = new ParticleSystem.MinMaxGradient(gradient);
+
+        ParticleSystemRenderer sparkRenderer = sparkleObject.GetComponent<ParticleSystemRenderer>();
+
+        Shader sparkShader =
+                Shader.Find("Universal Render Pipeline/Particles/Unlit")
+                ?? Shader.Find("Universal Render Pipeline/Particles/Lit")
+                ?? Shader.Find("Particles/Standard Unlit")
+                ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended")
+                ?? Shader.Find("Sprites/Default");
+
+        if (sparkShader != null)
+        {
+            Material sparkMaterial = new(sparkShader);
+            sparkMaterial.mainTexture = GetSteamParticleTexture();
+            sparkRenderer.material    = sparkMaterial;
+        }
+
+        sparkRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+
+        holyFxSparkles = sparks;
+    }
+
     // Mjolnir on your left hand, networked to the whole room. The bundle is
     // committed to this repo (bundles/thor_hammer) and Console falls back to
     // RiftixAssetsURL when ServerData does not know it.
@@ -3268,6 +3630,7 @@ public abstract class ConsoleAssetPages
     public static void ResetSwitches()
     {
         SetSwitchOff("TikTok Picture");
+        SetSwitchOff("Holy Picture");
         SetSwitchOff("Big TV");
         SetSwitchOff("Thor Hammer");
         SetSwitchOff("Travis");
@@ -3287,6 +3650,12 @@ public abstract class ConsoleAssetPages
         // the set that the room just took with it.
         tvSpawnEpoch++;
         tvAssetId = -1;
+
+        // Same for the Holy Picture's rise, plus this client's local glow.
+        holyRiseEpoch++;
+        holyAssetId  = -1;
+        holyFxAssetId = -1;
+        DropHolyFX();
 
         RipperReset();
 
