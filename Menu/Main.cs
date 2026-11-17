@@ -59,28 +59,35 @@ public class Main : MonoBehaviour
             0.3f,
             0.3825f);
 
-    // Screenshot layout: a category rail down the left edge of the panel and
-    // the buttons in a two column grid on the right. All numbers are in
-    // menu-local units where +Y is the left side of the screen and +Z is up;
-    // text helpers take world units, so multiply by MenuScale to convert.
-    private const float RailCenterY   = 0.36f;    // rail centre, across the panel
-    private const float RailTabWidth  = 0.26f;
-    private const float RailTabHeight = 0.058f;
-    private const float RailFirstZ    = 0.35f;    // first (top) tab centre
-    private const float RailSpacingZ  = 0.0725f;
+    // Screenshot layout: a header bar across the top (logo, wordmark, clock
+    // and three round icon buttons) over a single column of full width rows,
+    // each ending in a chevron, with the pager pills and the ping readout on
+    // the bottom bar. All numbers are in menu-local units where +Y is the left
+    // side of the screen and +Z is up; text helpers take world units, so
+    // multiply by MenuScale to convert.
+    private const float LogoY         = 0.365f;   // logo disc centre, across the panel
+    private const float LogoZ         = 0.477f;   // logo disc centre, up the panel
+    private const float TitleStartY   = 0.295f;   // where the wordmark starts
+    private const float ClockEdgeY    = -0.41f;   // right edge of the time / date block
+    private const float IconsZ        = 0.432f;   // search / favorites / exit circles
+    private const float IconDiameter  = 0.08f;
+    private const float IconSpacing   = 0.09f;
+    private const float IconRightY    = -0.418f;  // rightmost (exit) circle centre
+    private const float DividerZ      = 0.385f;   // rule under the header
 
-    private const float GridCenterY   = -0.125f;  // centre of the right hand area
-    private const float GridCol1Y     = 0.05f;    // left column centre
-    private const float GridCol2Y     = -0.30f;   // right column centre
-    private const float GridColWidth  = 0.30f;
-    private const float GridRowHeight = 0.115f;
-    private const float GridTopZ      = 0.245f;   // top edge of the first row
-    private const float GridBottomZ   = -0.30f;   // bottom edge of the last row
-    private const float RowGapMax     = 0.09f;
+    private const float GridCenterY   = 0f;       // rows are centred across the panel
+    private const float RowWidth      = 0.88f;    // full width row plate
+    private const float GridRowHeight = 0.082f;
+    private const float GridTopZ      = 0.36f;    // top edge of the first row
+    private const float GridBottomZ   = -0.44f;   // bottom edge of the last row
+    private const float RowGapMax     = 0.03f;
 
-    private const float SearchZ       = 0.365f;   // search bar centre
-    private const float SearchWidth   = 0.65f;
-    private const float TabsZ         = 0.285f;   // HOME / FAVORITES row
+    private const float RowTitleY     = 0.10f;    // title rect centre; text starts +0.40
+    private const float StateEdgeY    = -0.30f;   // right edge of the ON / OFF word
+    private const float ChevronY      = -0.36f;   // chevron centre, across the row
+
+    private const float SearchWidth   = RowWidth; // width the favorites hint borrows
+    private const float FooterZ       = -0.498f;  // pager pills / ping line
 
     private static GameObject searchRoot;
 
@@ -104,19 +111,28 @@ public class Main : MonoBehaviour
     private static bool searchUsingDesktopKeyboard;
 
     public static Camera TPC;
-    public static Text   fpsObject;
+    public static Text   pingText;
 
-    // Smoothed FPS so the VR menu counter stops jumping every single frame
-    private static float fpsSmoothed = 60f;
-
-    // Menu wordmark + the search bar page counter
+    // Menu wordmark + the footer page counter
     private static Text riftixText;
     private static Text pageCounterText;
 
-    // Writing fpsObject.text every single frame forces a canvas rebuild every
-    // frame, so the counter is only rewritten when the number changes anyway.
-    private static int   lastFpsValue = -1;
-    private static float nextFpsUpdateTime;
+    // Menu clock in the header: rewritten every throttle tick so the time
+    // does not go stale while the menu sits open.
+    private static Text headerTimeText;
+    private static Text headerDateText;
+
+    private static string lastClockText;
+    private static string lastDateText;
+
+    // Pressing the header's exit icon keeps the menu closed even while the
+    // menu button is still held down - otherwise the next Prefix frame would
+    // cancel the close and bounce it straight back open.
+    private static bool closeLatched;
+
+    // Writing the ping text every single frame forces a canvas rebuild every
+    // frame, so it is only rewritten on the throttle tick below.
+    private static float nextPingUpdateTime;
 
     // Throttle for the "menu build failed" log - a deterministic build failure
     // would otherwise print once per frame.
@@ -127,9 +143,10 @@ public class Main : MonoBehaviour
     // instead of on every menu rebuild.
     private static Shader   spritesShader;
     private static Material chromeCardMaterial;
-    private static Material scrollTrackMaterial;
-    private static Material pagerPillMaterial;
-    private static Material statusLedMaterial;
+    private static Material   scrollTrackMaterial;
+    private static Material   pagerPillMaterial;
+    private static Material   logoMaterial;
+    private static Material   dividerMaterial;
 
     // Camera lookups (desktop / keyboard mode). GameObject.Find is expensive and
     // used to run every frame, so the results are cached here.
@@ -245,31 +262,35 @@ public class Main : MonoBehaviour
             toolTip = "Searches for buttons in the menu.",
     };
 
-    private static readonly ButtonInfo homeTabButton = new()
-    {
-            buttonText  = "HomeTab",
-            displayText = () => "HOME",
-            method      = () => SetTab(0),
-            mode        = ButtonMode.Action,
-            toolTip     = "Shows every mod in this category.",
-    };
-
+    // FAVORITES in the header works as a toggle: press it a second time and
+    // the normal list comes back, so one button covers both of the old tabs.
     private static readonly ButtonInfo favoritesTabButton = new()
     {
             buttonText  = "FavoritesTab",
             displayText = () => "FAVORITES",
-            method      = () => SetTab(1),
+            method      = () => SetTab(activeTab == 1 ? 0 : 1),
             mode        = ButtonMode.Action,
             toolTip     = "Shows only the mods you starred.",
     };
 
-    private static readonly ButtonInfo homeBarButton = new()
+    // Exit icon at the right end of the header row.
+    private static readonly ButtonInfo exitMenuButton = new()
     {
-            buttonText  = "HomeBar",
-            displayText = () => "Home",
+            buttonText  = "CloseMenu",
+            displayText = () => "Close",
+            method      = CloseMenuFromHeader,
+            mode        = ButtonMode.Action,
+            toolTip     = "Closes the menu.",
+    };
+
+    // The logo disc doubles as a home button.
+    private static readonly ButtonInfo logoButton = new()
+    {
+            buttonText  = "LogoHome",
+            displayText = () => "RIFTIX",
             method      = GoHome,
             mode        = ButtonMode.Action,
-            toolTip     = "Jumps back to the first page of the main list.",
+            toolTip     = "Back to the main page.",
     };
 
     // Corner pill that goes back to the last room we were in. The name is
@@ -307,6 +328,19 @@ public class Main : MonoBehaviour
         pageNumber = 0;
 
         SetCategory("Main");
+    }
+
+    // The header's exit icon: latch the close so holding the menu button no
+    // longer cancels it, then close like a normal release would. The latch is
+    // let go in Prefix as soon as nothing is holding the menu open.
+    private static void CloseMenuFromHeader()
+    {
+        if (IsSearching)
+            CloseSearch(false);
+
+        closeLatched = true;
+
+        BeginCloseMenu(false);
     }
 
     // Back into the last room we were in. AttemptToJoinSpecificRoom handles
@@ -393,9 +427,9 @@ public class Main : MonoBehaviour
             if (title == null)
                 return;
 
-            // Screenshot style rows: one white line, the state lives in the
-            // bullet colour (RowBulletText).
-            title.text  = RowBulletText(target);
+            // Screenshot style rows: one white line, the ON / OFF word on the
+            // right carries the state (and the chevron beyond it stays put).
+            title.text  = RowTitleText(target);
             title.color = Color.white;
 
             if (subtitle != null)
@@ -438,6 +472,12 @@ public class Main : MonoBehaviour
             bool keyboardOpen =
                     UnityInput.Current.GetKey(keyboardButton);
 
+            // The header's exit icon only holds the menu down while the menu
+            // button itself is down; letting go arms it again for the next open.
+            if (!menuButtonPressed &&
+                !keyboardOpen)
+                closeLatched = false;
+
             if (IsSearching)
             {
                 if (searchUsingDesktopKeyboard)
@@ -461,7 +501,8 @@ public class Main : MonoBehaviour
 
             if (menu == null)
             {
-                if (keepOpen)
+                if (keepOpen &&
+                    !closeLatched)
                 {
                     // Reuse the hidden menu from the last close instead of
                     // rebuilding it, which is what made opening stutter.
@@ -479,7 +520,8 @@ public class Main : MonoBehaviour
             }
             else if (keepOpen)
             {
-                if (menuClosing)
+                if (menuClosing &&
+                    !closeLatched)
                     CancelMenuClose();
 
                 CreateReferences();
@@ -526,26 +568,39 @@ public class Main : MonoBehaviour
 
         try
         {
-            if (fpsObject != null && Time.unscaledTime >= nextFpsUpdateTime)
+            if (pingText != null && Time.unscaledTime >= nextPingUpdateTime)
             {
-                nextFpsUpdateTime =
+                nextPingUpdateTime =
                         Time.unscaledTime +
                         0.5f;
 
-                float rawFps = 1f / Mathf.Max(Time.unscaledDeltaTime, 0.0001f);
+                // Room ping on the bottom right, "-- ms" in the lobby or on
+                // the desktop where there is no room to measure.
+                bool inRoom =
+                        Photon.Pun.PhotonNetwork.InRoom &&
+                        Photon.Pun.PhotonNetwork.CurrentRoom != null;
 
-                fpsSmoothed = Mathf.Lerp(fpsSmoothed, rawFps, Time.unscaledDeltaTime * 3f);
+                pingText.text =
+                        inRoom
+                                ? Photon.Pun.PhotonNetwork.GetPing() + " ms"
+                                : "-- ms";
 
-                int roundedFps =
-                        Mathf.RoundToInt(fpsSmoothed);
+                // Header clock, only touched when the string really changed.
+                string nowTime = System.DateTime.Now.ToString("h:mm tt");
+                string nowDate = System.DateTime.Now.ToString("M/d/yyyy");
 
-                if (roundedFps != lastFpsValue)
+                if (nowTime != lastClockText &&
+                    headerTimeText != null)
                 {
-                    lastFpsValue = roundedFps;
+                    lastClockText        = nowTime;
+                    headerTimeText.text  = nowTime;
+                }
 
-                    fpsObject.text =
-                            "FPS: " +
-                            roundedFps;
+                if (nowDate != lastDateText &&
+                    headerDateText != null)
+                {
+                    lastDateText        = nowDate;
+                    headerDateText.text = nowDate;
                 }
             }
 
@@ -607,7 +662,7 @@ public class Main : MonoBehaviour
         return chromeCardMaterial;
     }
 
-    // Flat pink pager pills (screenshot style footer).
+    // Flat grey pager pills (screenshot style footer).
     private static Material GetPagerPillMaterial()
     {
         if (pagerPillMaterial == null)
@@ -616,33 +671,52 @@ public class Main : MonoBehaviour
                     new Material(GetSpritesShader())
                     {
                             color = new Color32(
-                                    226,
-                                    78,
-                                    204,
-                                    255),
+                                    74,
+                                    70,
+                                    88,
+                                    245),
                     };
         }
 
         return pagerPillMaterial;
     }
 
-    // Unlit green for the status LED next to the wordmark.
-    private static Material GetStatusLedMaterial()
+    // Purple logo disc in the header.
+    private static Material GetLogoMaterial()
     {
-        if (statusLedMaterial == null)
+        if (logoMaterial == null)
         {
-            statusLedMaterial =
+            logoMaterial =
                     new Material(GetSpritesShader())
                     {
                             color = new Color32(
-                                    91,
-                                    228,
-                                    155,
+                                    147,
+                                    96,
+                                    250,
                                     255),
                     };
         }
 
-        return statusLedMaterial;
+        return logoMaterial;
+    }
+
+    // The thin rule between the header and the list.
+    private static Material GetDividerMaterial()
+    {
+        if (dividerMaterial == null)
+        {
+            dividerMaterial =
+                    new Material(GetSpritesShader())
+                    {
+                            color = new Color32(
+                                    150,
+                                    150,
+                                    170,
+                                    180),
+                    };
+        }
+
+        return dividerMaterial;
     }
 
     private static Material GetScrollTrackMaterial()
@@ -794,77 +868,176 @@ public class Main : MonoBehaviour
         canvasScaler.dynamicPixelsPerUnit =
                 1500f;
 
-        // Screenshot style header: centred white wordmark with a small green
-        // LED dot floating just off its right end.
-        riftixText = CreateHeaderText(
-                new Vector3(
-                        0.064f,
-                        0f,
-                        0.1688f),
-                new Vector2(
-                        0.3f,
-                        0.017f),
-                TextAnchor.MiddleCenter,
-                FontStyle.Bold,
-                Color.white);
-
-        riftixText.text = "RIFTIX";
-
-        GameObject statusLed =
+        // Screenshot style header: round logo disc + wordmark on the left,
+        // the clock stacked on the right, the rule underneath - and the three
+        // round icon buttons tracked separately, because a press on one of
+        // them only rebuilds the list.
+        GameObject logo =
                 GameObject.CreatePrimitive(PrimitiveType.Sphere);
 
-        statusLed.name  = $"{Constants.Name}_StatusLed";
-        statusLed.layer = 2;
+        logo.name  = $"{Constants.Name}_Logo";
+        logo.layer = 2;
 
-        Destroy(statusLed.GetComponent<Rigidbody>());
-        Destroy(statusLed.GetComponent<Collider>());
+        Destroy(logo.GetComponent<Rigidbody>());
 
-        statusLed.transform.SetParent(
+        Collider logoCollider =
+                logo.GetComponent<Collider>();
+
+        logoCollider.isTrigger = true;
+
+        Button logoPress =
+                logo.AddComponent<Button>();
+
+        logoPress.relatedButton = logoButton;
+
+        logo.transform.SetParent(
                 menu.transform,
                 false);
 
-        statusLed.transform.localRotation =
+        logo.transform.localRotation =
                 Quaternion.identity;
 
-        statusLed.transform.localPosition =
+        logo.transform.localPosition =
                 new Vector3(
                         0.56f,
-                        -0.40f,
-                        0.455f);
+                        LogoY,
+                        LogoZ);
 
         // Local scale: the menu scales its three axes differently, so these
-        // numbers make the sphere come out perfectly round on screen.
-        statusLed.transform.localScale =
+        // numbers make the disc come out perfectly round on screen.
+        logo.transform.localScale =
                 new Vector3(
                         0.3f,
                         0.1f,
                         0.0784f);
 
-        statusLed.GetComponent<Renderer>().material =
-                GetStatusLedMaterial();
+        logo.GetComponent<Renderer>().material =
+                GetLogoMaterial();
 
-        // Tiny green glow so the LED reads as "live" on the panel.
-        GameObject ledLight =
-                new($"{Constants.Name}_StatusLedLight");
+        // The R sitting inside the disc.
+        CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        LogoY * MenuScale.y,
+                        LogoZ * MenuScale.z),
+                new Vector2(
+                        0.03f,
+                        0.014f),
+                TextAnchor.MiddleCenter,
+                FontStyle.Bold,
+                Color.white).text = "R";
 
-        ledLight.transform.SetParent(
+        // Wordmark, left aligned so it starts just past the logo. MiddleLeft
+        // text starts at its rect's left edge, so the centre sits half a rect
+        // width in from TitleStartY.
+        riftixText = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        TitleStartY * MenuScale.y - 0.10f,
+                        LogoZ * MenuScale.z),
+                new Vector2(
+                        0.20f,
+                        0.018f),
+                TextAnchor.MiddleLeft,
+                FontStyle.Bold,
+                Color.white);
+
+        riftixText.text = "RIFTIX";
+
+        // Clock block: time over date, both hung off the same right edge.
+        headerTimeText = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        ClockEdgeY * MenuScale.y + 0.07f,
+                        0.512f * MenuScale.z),
+                new Vector2(
+                        0.14f,
+                        0.009f),
+                TextAnchor.MiddleRight,
+                FontStyle.Bold,
+                new Color32(
+                        235,
+                        235,
+                        245,
+                        255));
+
+        headerTimeText.text =
+                lastClockText =
+                        System.DateTime.Now.ToString("h:mm tt");
+
+        headerDateText = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        ClockEdgeY * MenuScale.y + 0.07f,
+                        0.484f * MenuScale.z),
+                new Vector2(
+                        0.14f,
+                        0.008f),
+                TextAnchor.MiddleRight,
+                FontStyle.Normal,
+                new Color32(
+                        175,
+                        175,
+                        195,
+                        255));
+
+        headerDateText.text =
+                lastDateText =
+                        System.DateTime.Now.ToString("M/d/yyyy");
+
+        // Where the search field reads while it is being typed into.
+        searchLabel = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        -0.003f,
+                        IconsZ * MenuScale.z),
+                new Vector2(
+                        0.108f,
+                        0.009f),
+                TextAnchor.MiddleRight,
+                FontStyle.Italic,
+                new Color32(
+                        150,
+                        150,
+                        160,
+                        255));
+
+        searchLabel.text =
+                searchButton.GetDisplayText();
+
+        // Thin rule between the header and the list.
+        GameObject divider =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+        divider.name  = $"{Constants.Name}_Divider";
+        divider.layer = 2;
+
+        Destroy(divider.GetComponent<Rigidbody>());
+        Destroy(divider.GetComponent<BoxCollider>());
+
+        divider.transform.SetParent(
                 menu.transform,
                 false);
 
-        ledLight.transform.localPosition =
+        divider.transform.localRotation =
+                Quaternion.identity;
+
+        divider.transform.localPosition =
                 new Vector3(
                         0.56f,
-                        -0.40f,
-                        0.455f);
+                        0f,
+                        DividerZ);
 
-        Light glow =
-                ledLight.AddComponent<Light>();
+        divider.transform.localScale =
+                new Vector3(
+                        0.05f,
+                        0.88f,
+                        0.004f);
 
-        glow.type      = LightType.Point;
-        glow.color     = new Color32(91, 228, 155, 255);
-        glow.range     = 0.12f;
-        glow.intensity = 0.7f;
-        glow.shadows   = LightShadows.None;
+        divider.GetComponent<Renderer>().material =
+                GetDividerMaterial();
+
+        CreateTrackedHeaderIcons();
 
         // Rejoin + Leave: the screenshot's two pills floating outside the
         // panel's bottom-right corner, Rejoin above Leave.
@@ -1191,9 +1364,11 @@ public class Main : MonoBehaviour
 
     private static int GetContentButtonsPerPage()
     {
-        // The grid fits six cells - two columns of three rows - between the
-        // tabs row and the bottom bar, so extra rows are capped here.
-        int perPage = Mathf.Clamp(buttonsPerPage, 1, 6);
+        // One full width row per line, and the list fills the band between
+        // the header rule and the pager - so the setting is allowed to run
+        // higher than the old two column grid's six, but not so high that
+        // the rows turn into slivers.
+        int perPage = Mathf.Clamp(buttonsPerPage, 1, 10);
 
         if (!pageButtonsAtTop)
             return perPage;
@@ -1235,32 +1410,29 @@ public class Main : MonoBehaviour
 
     private static void CreateMenuButtons()
     {
-        // Clamp the page before anything is drawn: the search bar and the
-        // footer bar write their "N / M" counters below, while CreateList only
-        // clamps later - so a page count that shrank (top page buttons
-        // toggled, a favorite removed) showed "03 / 02" until the next press.
+        // Clamp the page before anything is drawn: the footer bar writes its
+        // "N / M" counter below, while CreateList only clamps later - so a page
+        // count that shrank (top page buttons toggled, a favorite removed)
+        // showed "03 / 02" until the next press.
         int lastPage = GetLastPage();
 
         if (pageNumber > lastPage)
             pageNumber = lastPage;
 
-        // The tab bar travels with the list: its highlight depends on which tab is
-        // open, so both are rebuilt together when the list changes.
-        CreateTrackedTabBar();
-
-        CreateSearchBar();
+        // The header icons travel with the list: the FAVORITES highlight
+        // depends on which tab is open, so both are rebuilt together.
         CreateFooterBar();
 
         CreateList();
     }
 
-    private static void CreateTrackedTabBar()
+    private static void CreateTrackedHeaderIcons()
     {
         BeginTrack(tabObjects, tabTexts);
 
         try
         {
-            CreateTabBar();
+            CreateHeaderIcons();
         }
         finally
         {
@@ -1269,7 +1441,7 @@ public class Main : MonoBehaviour
     }
 
     // Rows, scrollbar and page counter state - everything a page / tab / category
-    // change touches. Cells fill the grid left to right, top to bottom.
+    // change touches. One full width row per button, top to bottom.
     private static void CreateList()
     {
         BeginTrack(listObjects, listTexts);
@@ -1323,7 +1495,7 @@ public class Main : MonoBehaviour
         }
     }
 
-    // Rows on a page: two cells per row, rounded up.
+    // Rows on a page: one button per row now that the list is a single column.
     private static int GridRowsPerPage()
     {
         int cells = GetContentButtonsPerPage();
@@ -1331,12 +1503,12 @@ public class Main : MonoBehaviour
         if (pageButtonsAtTop)
             cells += 2;
 
-        return Mathf.Max(1, Mathf.CeilToInt(cells / 2f));
+        return Mathf.Max(1, cells);
     }
 
-    // Centre height of one grid row: rows are distributed down the band
-    // between GridTopZ and GridBottomZ so the grid fills the right area
-    // no matter how many rows the page size allows.
+    // Centre height of one list row: rows are distributed down the band
+    // between GridTopZ and GridBottomZ so the list fills the area between
+    // the header rule and the pager no matter how many rows are on it.
     private static float RowCenterZ(int row)
     {
         const float rowHeight = GridRowHeight;
@@ -1467,325 +1639,237 @@ public class Main : MonoBehaviour
         thumbChanger.colors = buttonColors[1];
     }
 
-    // The screenshot layout's navigation: HOME / FAVORITES as a pair over the
-    // grid, then every category as a tab stacked down the left edge. All of
-    // it lives in the tracked tab lists, so a category or tab jump rebuilds
-    // the rail together with the rows.
-    private static void CreateTabBar()
+    // The screenshot layout's header navigation: three round buttons tucked
+    // under the clock - search, the FAVORITES toggle and the exit icon. They
+    // live in the tracked tab lists, so a press (which only rebuilds the
+    // list) repaints the FAVORITES highlight together with the rows.
+    private static void CreateHeaderIcons()
     {
-        Vector3 tabSize = new(
-                buttonSize.x,
-                GridColWidth,
-                0.055f);
+        float searchY = IconRightY + IconSpacing * 2f;
+        float heartY  = IconRightY + IconSpacing;
 
-        float tabWorldZ =
-                TabsZ *
-                MenuScale.z;
+        CreateHeaderIcon(
+                searchButton,
+                searchY,
+                "○");
 
-        homeTabButton.enabled      = activeTab == 0;
         favoritesTabButton.enabled = activeTab == 1;
 
-        CreateButtonObject(
-                homeTabButton,
-                tabSize,
-                new Vector3(
-                        0.56f,
-                        GridCol1Y,
-                        TabsZ),
-                true,
-                false,
-                false);
-
-        CreateRowText(
-                "HOME",
-                new Vector2(
-                        GridColWidth * MenuScale.y,
-                        0.012f),
-                TextAnchor.MiddleCenter,
-                FontStyle.Bold,
-                activeTab == 0
-                        ? Color.white
-                        : new Color32(
-                                165,
-                                165,
-                                165,
-                                255),
-                tabWorldZ,
-                GridCol1Y * MenuScale.y);
-
-        CreateButtonObject(
+        CreateHeaderIcon(
                 favoritesTabButton,
-                tabSize,
-                new Vector3(
-                        0.56f,
-                        GridCol2Y,
-                        TabsZ),
-                true,
-                false,
-                false);
+                heartY,
+                "♥");
 
-        CreateRowText(
-                "♥ FAVORITES",
-                new Vector2(
-                        GridColWidth * MenuScale.y,
-                        0.012f),
-                TextAnchor.MiddleCenter,
-                FontStyle.Bold,
-                activeTab == 1
-                        ? Color.white
-                        : new Color32(
-                                165,
-                                165,
-                                165,
-                                255),
-                tabWorldZ,
-                GridCol2Y * MenuScale.y);
+        CreateHeaderIcon(
+                exitMenuButton,
+                IconRightY,
+                "→");
 
-        // The rail itself: one tab per category, top to bottom, admin-only
-        // categories kept out of a non-admin's menu exactly like the rows.
-        Vector3 railSize = new(
-                buttonSize.x,
-                RailTabWidth,
-                RailTabHeight);
-
-        float railZ = RailFirstZ;
-
-        foreach (ButtonCategory category in Categories)
-        {
-            if (category.adminOnly &&
-                !HamburburData.LocalAdminAccess)
-                continue;
-
-            ButtonInfo rail = RailButtonFor(category);
-
-            rail.enabled = ReferenceEquals(CurrentCategory, category);
-
-            CreateButtonObject(
-                    rail,
-                    railSize,
-                    new Vector3(
-                            0.56f,
-                            RailCenterY,
-                            railZ),
-                    true,
-                    false,
-                    false);
-
-            CreateRowText(
-                    RailLabel(category.name),
-                    new Vector2(
-                            RailTabWidth * MenuScale.y,
-                            0.011f),
-                    TextAnchor.MiddleCenter,
-                    FontStyle.Bold,
-                    rail.enabled
-                            ? Color.white
-                            : new Color32(
-                                    165,
-                                    165,
-                                    165,
-                                    255),
-                    railZ * MenuScale.z,
-                    RailCenterY * MenuScale.y);
-
-            railZ -= RailSpacingZ;
-        }
-    }
-
-    // One rail button per category, built once and reused across rebuilds;
-    // its enabled flag doubles as the "this category is open" highlight.
-    private static readonly Dictionary<string, ButtonInfo> railButtons = new();
-
-    private static ButtonInfo RailButtonFor(ButtonCategory category)
-    {
-        if (railButtons.TryGetValue(category.name, out ButtonInfo rail))
-            return rail;
-
-        string name = category.name;
-
-        rail = new ButtonInfo
-        {
-                buttonText = "Rail_" + name,
-                method     = () => SetCategory(name),
-                mode       = ButtonMode.Action,
-                toolTip    = "Opens the " + name + " category.",
-        };
-
-        railButtons[name] = rail;
-
-        return rail;
-    }
-
-    // Short caption for the rail - a full "Movement Settings" will not fit
-    // on a tab, and best-fit has to stay readable in VR.
-    private static string RailLabel(string categoryName) =>
-            categoryName switch
-            {
-                    "Menu Settings"    => "MENU",
-                    "Movement Settings" => "MOVE SET",
-                    "Room Mods"        => "ROOM",
-                    "Movement Mods"    => "MOVE MOD",
-                    "Visual Mods"      => "VISUAL",
-                    "Safety Mods"      => "SAFETY",
-                    "Console Assets"   => "CONSOLE",
-                    _                  => categoryName.ToUpperInvariant(),
-            };
-
-    // Search field with the page counter tucked on its right (Qubit style),
-    // sitting across the top of the grid area.
-    private static void CreateSearchBar()
-    {
-        float searchWorldZ =
-                SearchZ *
-                MenuScale.z;
-
-        CreateButtonObject(
-                searchButton,
-                new Vector3(
-                        buttonSize.x,
-                        SearchWidth,
-                        0.065f),
-                new Vector3(
-                        0.56f,
-                        GridCenterY,
-                        SearchZ),
-                true,
-                false,
-                false);
-
-        // MiddleLeft text hugs the +Y (screen left) edge of its rect, so the
-        // rect centre sits half a width right of where the label should start.
-        searchLabel =
-                CreateRowText(
-                        searchButton.GetDisplayText(),
-                        new Vector2(
-                                0.12f,
-                                0.011f),
-                        TextAnchor.MiddleLeft,
-                        FontStyle.Italic,
-                        textColors[0],
-                        searchWorldZ,
-                        -0.009f);
-
-        // Cool detail: magnifier drawn from an O glyph + a tilted bar handle
-        //  (Arial has no magnifier glyph, so we build one).
-        CreateRowText(
-                "○",
-                new Vector2(
-                        0.024f,
-                        0.013f),
-                TextAnchor.MiddleCenter,
-                FontStyle.Bold,
-                new Color32(
-                        199,
-                        155,
-                        255,
-                        255),
-                searchWorldZ,
-                0.0678f);
-
-        GameObject searchHandle =
+        // The magnifier handle: Arial has no magnifier character, so the
+        // search icon is a ring (the O glyph above) with a short tilted bar
+        // stuck to its lower right - the trick the old search bar used,
+        // shrunk down to fit inside the circle.
+        GameObject handle =
                 GameObject.CreatePrimitive(PrimitiveType.Cube);
 
-        searchHandle.name  = $"{Constants.Name}_SearchHandle";
-        searchHandle.layer = 2;
+        Track(handle);
 
-        Destroy(searchHandle.GetComponent<Rigidbody>());
-        Destroy(searchHandle.GetComponent<BoxCollider>());
+        handle.name  = $"{Constants.Name}_SearchHandle";
+        handle.layer = 2;
 
-        searchHandle.transform.SetParent(menu.transform, false);
+        Destroy(handle.GetComponent<Rigidbody>());
+        Destroy(handle.GetComponent<BoxCollider>());
 
-        searchHandle.transform.localPosition =
+        handle.transform.SetParent(menu.transform, false);
+
+        handle.transform.localPosition =
                 new Vector3(
-                        0.615f,
-                        0.1957f,
-                        0.3409f);
+                        0.595f,
+                        searchY - 0.024f,
+                        IconsZ - 0.024f);
 
-        // 45 degrees on screen requires 51.9 degrees here because the menu
-        //  scale is non-uniform (0.3 across, 0.3825 down).
-        searchHandle.transform.localRotation =
+        // 45 degrees on screen needs 51.9 degrees here because the menu
+        // scale is non-uniform (0.3 across, 0.3825 down).
+        handle.transform.localRotation =
                 Quaternion.Euler(
                         -51.9f,
                         0f,
                         0f);
 
-        searchHandle.transform.localScale =
+        handle.transform.localScale =
                 new Vector3(
-                        0.02f,
-                        0.035f,
-                        0.014f);
+                        0.014f,
+                        0.026f,
+                        0.011f);
 
         ColorChanger handleChanger =
-                searchHandle.AddComponent<ColorChanger>();
+                handle.AddComponent<ColorChanger>();
 
         handleChanger.colors = buttonColors[1];
-
-        pageCounterText = CreateHeaderText(
-                new Vector3(
-                        0.064f,
-                        -0.065f,
-                        searchWorldZ),
-                new Vector2(
-                        0.12f,
-                        0.009f),
-                TextAnchor.MiddleRight,
-                FontStyle.Bold,
-                new Color32(
-                        175,
-                        175,
-                        175,
-                        255));
-
-        pageCounterText.text =
-                PageCounterValue();
     }
 
-    // Bottom bar: home button + previous / page counter / next, spread across
-    // the bottom of the grid area.
+    // One round header button: plate + glyph. The plate's corner radius is
+    // capped at half its height, which rounds it all the way into a circle.
+    private static void CreateHeaderIcon(
+            ButtonInfo button,
+            float      menuY,
+            string     glyph)
+    {
+        // The menu scales its axes differently, so the plate is a little
+        // shorter than it is wide and still comes out round on screen.
+        Vector3 iconSize = new(
+                0.05f,
+                IconDiameter,
+                IconDiameter * 0.784f);
+
+        GameObject icon =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+        Track(icon);
+
+        icon.name  = $"{Constants.Name}_HeaderIcon";
+        icon.layer = 2;
+
+        Destroy(icon.GetComponent<Rigidbody>());
+
+        BoxCollider iconCollider =
+                icon.GetComponent<BoxCollider>();
+
+        iconCollider.isTrigger = true;
+
+        icon.transform.SetParent(
+                menu.transform,
+                false);
+
+        icon.transform.localRotation = Quaternion.identity;
+
+        icon.transform.localPosition =
+                new Vector3(
+                        0.56f,
+                        menuY,
+                        IconsZ);
+
+        RoundedButtonMesh.Apply(
+                icon,
+                iconSize,
+                Mathf.Min(iconSize.y, iconSize.z) / 2f,
+                buttonCornerSegments);
+
+        Button press =
+                icon.AddComponent<Button>();
+
+        press.relatedButton = button;
+
+        ExtGradient colors = button.enabled
+                                     ? button.enabledColor  ?? buttonColors[1]
+                                     : button.disabledColor ?? buttonColors[0];
+
+        ColorChanger colorChanger =
+                icon.AddComponent<ColorChanger>();
+
+        colorChanger.colors           = colors;
+        colorChanger.spatialGradient  = button.useGradient ?? buttonGradients;
+        colorChanger.verticalGradient = verticalButtonGradients;
+
+        CreateRowText(
+                glyph,
+                new Vector2(
+                        0.020f,
+                        0.013f),
+                TextAnchor.MiddleCenter,
+                FontStyle.Bold,
+                button.enabled
+                        ? Color.white
+                        : new Color32(
+                                235,
+                                235,
+                                245,
+                                255),
+                IconsZ * MenuScale.z,
+                menuY * MenuScale.y);
+    }
+
+    // Bottom bar: previous / page counter / next spread across the bottom,
+    // with the ping readout tucked into the far right corner (Qubit style).
     private static void CreateFooterBar()
     {
         float footerWorldZ =
-                -0.451f *
+                FooterZ *
                 MenuScale.z;
 
-        // Screenshot style pager: small pink pills, < on the left, home in
-        // the middle, > on the right.
-        CreateFooterPill(
-                homeBarButton,
-                GridCenterY,
-                "⌂",
-                footerWorldZ);
-
         // With "Top Page Buttons" on, the prev/next pair lives in the first
-        // two grid cells instead (CreateList) - drawing it here as well showed
+        // two list rows instead (CreateList) - drawing it here as well showed
         // both copies of the page controls at once.
         if (!pageButtonsAtTop)
         {
             CreateFooterPill(
                     previousPageButton,
-                    0.10f,
+                    0.175f,
                     "<",
                     footerWorldZ);
 
             CreateFooterPill(
                     nextPageButton,
-                    -0.35f,
+                    -0.175f,
                     ">",
                     footerWorldZ);
         }
+
+        // Page counter in the gap the two pills leave between them.
+        pageCounterText = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        0f,
+                        footerWorldZ),
+                new Vector2(
+                        0.10f,
+                        0.009f),
+                TextAnchor.MiddleCenter,
+                FontStyle.Bold,
+                new Color32(
+                        175,
+                        175,
+                        185,
+                        255));
+
+        pageCounterText.text =
+                PageCounterValue();
+
+        // Ping under the rows, right aligned like the clock above it; Prefix
+        // keeps the text fresh once every half second.
+        pingText = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        -0.41f * MenuScale.y + 0.045f,
+                        footerWorldZ - 0.004f),
+                new Vector2(
+                        0.09f,
+                        0.007f),
+                TextAnchor.MiddleRight,
+                FontStyle.Normal,
+                new Color32(
+                        150,
+                        150,
+                        160,
+                        255));
+
+        pingText.text =
+                "-- ms";
     }
 
-    // One round pink pager pill: collider + glyph, no outline, no counter.
+    // One flat grey pager pill: collider + glyph, no outline, no counter.
     private static void CreateFooterPill(
             ButtonInfo button,
             float      menuY,
             string     glyph,
             float      worldZ)
     {
+        // Square-ish on screen: the menu is 1.275 times taller than it is
+        // wide once scaled, so the plate is a little shorter than it is wide.
         Vector3 pillSize = new(
                 buttonSize.x,
-                0.16f,
-                0.09f);
+                0.103f,
+                0.078f);
 
         GameObject pill =
                 GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -1811,16 +1895,16 @@ public class Main : MonoBehaviour
                 new Vector3(
                         0.56f,
                         menuY,
-                        -0.451f);
+                        FooterZ);
 
         if (roundedButtons)
         {
-            // The radius caps at half the pill's height, which rounds the
-            // short ends all the way into a pill shape.
+            // A third of the short side: round enough for the screenshot's
+            // squircle, not all the way into an oval.
             RoundedButtonMesh.Apply(
                     pill,
                     pillSize,
-                    Mathf.Min(pillSize.y, pillSize.z) / 2f,
+                    0.026f,
                     buttonCornerSegments);
         }
         else
@@ -2177,13 +2261,9 @@ public class Main : MonoBehaviour
             int        cell,
             ButtonInfo method)
     {
-        int col = cell % 2;
-        int row = cell / 2;
-
-        float colY =
-                col == 0
-                        ? GridCol1Y
-                        : GridCol2Y;
+        // One button per line: the cell index is the row, and every plate
+        // spans the full width of the list.
+        int row = cell;
 
         float rowZ =
                 RowCenterZ(row);
@@ -2195,9 +2275,11 @@ public class Main : MonoBehaviour
         if (method.mode == ButtonMode.Incremental &&
             incrementalButtons)
         {
-            const float SideWidth   = 0.065f;
-            const float SideOffset  = 0.26f;
-            const float CenterWidth = 0.44f;
+            // Split row: the value keeps the middle, the - and + pads sit
+            // flush to the ends of the same full width plate.
+            const float SideWidth   = 0.15f;
+            const float SideOffset  = 0.34f;
+            const float CenterWidth = 0.50f;
 
             float rowY = GridCenterY;
 
@@ -2285,35 +2367,86 @@ public class Main : MonoBehaviour
                         method,
                         new Vector3(
                                 buttonSize.x,
-                                GridColWidth,
+                                RowWidth,
                                 GridRowHeight),
                         new Vector3(
                                 0.56f,
-                                colY,
+                                GridCenterY,
                                 rowZ),
                         true,
                         false,
                         false);
 
-        // Grid cell: a rounded pill with the state bullet and title centred
-        // on it - the plate keeps its colours, so ON / OFF reads at a glance.
+        // Screenshot style row: the title hugs the left edge and the chevron
+        // the right one, with toggles carrying an ON / OFF word between them.
+        // MiddleLeft text starts at its rect's left edge, so the rect centre
+        // sits half a width in from where the title should begin.
         Text rowTitle =
                 CreateRowText(
-                        RowBulletText(method),
+                        RowTitleText(method),
                         new Vector2(
-                                (GridColWidth - 0.04f) * MenuScale.y,
-                                0.015f),
-                        TextAnchor.MiddleCenter,
+                                0.18f,
+                                0.014f),
+                        TextAnchor.MiddleLeft,
                         FontStyle.Bold,
                         Color.white,
                         rowWorldZ,
-                        colY * MenuScale.y);
+                        RowTitleY * MenuScale.y);
+
+        Text rowState = null;
+
+        if (method.mode == ButtonMode.Toggle)
+        {
+            // Same trick mirrored: MiddleRight ends at the rect's right edge,
+            // so the centre sits half a width in from StateEdgeY.
+            rowState =
+                    CreateRowText(
+                            method.enabled
+                                    ? "ON"
+                                    : "OFF",
+                            new Vector2(
+                                    0.03f,
+                                    0.011f),
+                            TextAnchor.MiddleRight,
+                            FontStyle.Bold,
+                            method.enabled
+                                    ? new Color32(
+                                            199,
+                                            155,
+                                            255,
+                                            255)
+                                    : new Color32(
+                                            140,
+                                            140,
+                                            140,
+                                            255),
+                            rowWorldZ,
+                            (StateEdgeY + 0.05f) * MenuScale.y);
+        }
+
+        if (method.mode != ButtonMode.Incremental)
+        {
+            CreateRowText(
+                    ">",
+                    new Vector2(
+                            0.03f,
+                            0.013f),
+                    TextAnchor.MiddleCenter,
+                    FontStyle.Bold,
+                    new Color32(
+                            205,
+                            205,
+                            215,
+                            255),
+                    rowWorldZ,
+                    ChevronY * MenuScale.y);
+        }
 
         RegisterRow(
                 method,
                 rowTitle,
                 null,
-                null,
+                rowState,
                 rowObject);
     }
 
@@ -2424,18 +2557,12 @@ public class Main : MonoBehaviour
         }
     }
 
-    // Screenshot style row line: state bullet first, then the title. Value
-    // rows (incremental) stay a plain value with no bullet and no star.
-    private static string RowBulletText(ButtonInfo target)
+    // Screenshot style row line: plain white title, with the star only when
+    // the row is a favorite. Value rows (incremental) stay a plain value.
+    private static string RowTitleText(ButtonInfo target)
     {
         if (target.mode == ButtonMode.Incremental)
             return target.GetDisplayText();
-
-        string bullet =
-                target.mode == ButtonMode.Toggle
-                        ? target.enabled ? "<color=#5BE49B>•</color>"
-                                  : "<color=#8F8F8F>•</color>"
-                        : "<color=#FFFFFF>•</color>";
 
         string titleValue =
                 target.GetDisplayText();
@@ -2445,7 +2572,7 @@ public class Main : MonoBehaviour
                     "<color=#C79BFF>♥</color> " +
                     titleValue;
 
-        return bullet + " " + titleValue;
+        return titleValue;
     }
 
     // Short one line subtitle shown under a row title (Qubit style list rows).
@@ -2762,7 +2889,7 @@ public class Main : MonoBehaviour
         liveRows.Clear();
         menuBuildId++;
 
-        CreateTrackedTabBar();
+        CreateTrackedHeaderIcons();
         CreateList();
 
         // Counters and the search label live in the chrome, so update them by hand.
@@ -3221,7 +3348,8 @@ public class Main : MonoBehaviour
 
         RefreshAllRows();
 
-        lastFpsValue = -1;
+        // Make sure the ping readout repaints straight away on reopen.
+        nextPingUpdateTime = 0f;
     }
 
     private static void CreateReferences()

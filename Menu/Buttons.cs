@@ -91,6 +91,14 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText = "Fun Mods",
+                    method     = () => SetCategory("Fun Mods"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the fun mods tab.",
+            },
+
+            new()
+            {
                     buttonText = "Safety Mods",
                     method     = () => SetCategory("Safety Mods"),
                     mode       = ButtonMode.Action,
@@ -600,6 +608,130 @@ public abstract class Buttons
             },
     };
 
+    private static readonly ButtonInfo[] FunModsButtons =
+    {
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page.",
+            },
+
+            new()
+            {
+                    buttonText    = "Rainbow Trail",
+                    method        = Fun.RainbowTrail,
+                    disableMethod = Fun.DisableRainbowTrail,
+                    toolTip       = "A rainbow ribbon and sparkle trail that follows your head.",
+            },
+
+            new()
+            {
+                    buttonText    = "Finger Painter",
+                    method        = Fun.FingerPainter,
+                    disableMethod = Fun.DisableFingerPainter,
+                    toolTip       = "Paints a coloured streak out of both of your fingertips.",
+            },
+
+            new()
+            {
+                    buttonText    = "Confetti Hands",
+                    method        = Fun.ConfettiHands,
+                    disableMethod = Fun.DisableConfettiHands,
+                    toolTip       = "Both hands spray confetti wherever you move them.",
+            },
+
+            new()
+            {
+                    buttonText    = "Confetti Aura",
+                    method        = Fun.ConfettiAura,
+                    disableMethod = Fun.DisableConfettiAura,
+                    toolTip       = "A soft cloud of confetti drifting up around your head.",
+            },
+
+            new()
+            {
+                    buttonText    = "Sparkle Feet",
+                    method        = Fun.SparkleFeet,
+                    disableMethod = Fun.DisableSparkleFeet,
+                    toolTip       = "Leaves a trail of sparkles under your feet as you walk.",
+            },
+
+            new()
+            {
+                    buttonText    = "Orbiting Sparks",
+                    method        = Fun.OrbitingSparks,
+                    disableMethod = Fun.DisableOrbitingSparks,
+                    toolTip       = "Sparks that circle your head on a wobbling ring.",
+            },
+
+            new()
+            {
+                    buttonText    = "Disco Head Light",
+                    method        = Fun.DiscoHeadLight,
+                    disableMethod = Fun.DisableDiscoHeadLight,
+                    toolTip       = "A colour cycling point light that follows your head.",
+            },
+
+            new()
+            {
+                    buttonText    = "Zoom Lens",
+                    method        = Fun.ZoomLens,
+                    disableMethod = Fun.DisableZoomLens,
+                    toolTip       = "Slowly zooms your camera in like a camcorder.",
+            },
+
+            new()
+            {
+                    buttonText    = "Fireworks",
+                    method        = Fun.Fireworks,
+                    disableMethod = Fun.DisableFireworks,
+                    toolTip       = "Rainbow fireworks bursting in the air in front of you.",
+            },
+
+            new()
+            {
+                    buttonText    = "Confetti Cannon",
+                    method        = Fun.ConfettiCannon,
+                    disableMethod = Fun.DisableConfettiCannon,
+                    toolTip       = "Fires a cone of confetti out of your right hand.",
+            },
+
+            new()
+            {
+                    buttonText    = "Snow Shower",
+                    method        = Fun.SnowShower,
+                    disableMethod = Fun.DisableSnowShower,
+                    toolTip       = "A private snowfall that follows you around.",
+            },
+
+            new()
+            {
+                    buttonText    = "Camera Flash",
+                    method        = Fun.CameraFlash,
+                    disableMethod = Fun.DisableCameraFlash,
+                    toolTip       = "Every few seconds your camera pops a bright flash.",
+            },
+
+            new()
+            {
+                    buttonText    = "Applause",
+                    method        = Fun.Applause,
+                    disableMethod = Fun.DisableApplause,
+                    toolTip       = "Claps for you now and then with haptics and a burst of confetti.",
+            },
+
+            new()
+            {
+                    buttonText      = "Change Trail Width",
+                    mode            = ButtonMode.Incremental,
+                    incrementMethod = Fun.ChangeTrailWidth,
+                    displayText     = () => $"Change Trail Width [{Fun.TrailWidthName}]",
+                    toolTip         = "Sets how thick the rainbow and finger painter trails draw.",
+            },
+    };
+
     private static readonly ButtonInfo[] SafetyModsButtons =
     {
             new()
@@ -1092,6 +1224,12 @@ public abstract class Buttons
             {
                     name    = "Visual Mods",
                     buttons = VisualModsButtons,
+            },
+
+            new()
+            {
+                    name    = "Fun Mods",
+                    buttons = FunModsButtons,
             },
 
             new()

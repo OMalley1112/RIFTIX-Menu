@@ -187,7 +187,11 @@ public class Settings
     [SavedSetting] public static KeyCode keyboardButton = KeyCode.Q;
 
     [SavedSetting] public static Vector3 menuSize       = new(0.1f, 1f, 1.1f); // Depth, width, height
-    [SavedSetting] public static int     buttonsPerPage = 6;
+
+    // Rows per page, fixed at the eight the screenshot layout is drawn for.
+    // It used to be a saved setting, but nothing in the menu ever changed it,
+    // so the old value only ever pinned the list to the wrong count.
+    public static int buttonsPerPage = 8;
 
     [SavedSetting] public static bool incrementalButtons      = true;
     [SavedSetting] public static bool buttonGradients         = true;
