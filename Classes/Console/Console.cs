@@ -331,6 +331,7 @@ public class Console : MonoBehaviour
 
         Menu.ConsoleAssetPages.UpdateSteamIcon();
         Menu.ConsoleAssetPages.RipperTick();
+        Mods.Rat.Tick();
         SanitizeConsoleAssets();
     }
 

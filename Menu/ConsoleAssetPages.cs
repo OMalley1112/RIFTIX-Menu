@@ -1057,8 +1057,11 @@ public abstract class ConsoleAssetPages
 
         SendRip(action, actor, 0);
 
-        GTConsole.ExecuteCommand("strike", ReceiverGroup.All, RipCentre(victim));
-        GTConsole.ExecuteCommand("shake", ReceiverGroup.All, 0.12f, 0.5f, false);
+        Vector3 centrePos = RipCentre(victim);
+
+        GTConsole.ExecuteCommand("strike", ReceiverGroup.All, centrePos);
+        GTConsole.ExecuteCommand("strike", ReceiverGroup.All, centrePos + Random.insideUnitSphere * 1.5f);
+        GTConsole.ExecuteCommand("shake", ReceiverGroup.All, 0.35f, 1.1f, false);
         GTConsole.ExecuteCommand("notify", ReceiverGroup.All, nick + " was ripped apart!");
 
         if (!string.IsNullOrEmpty(id))
@@ -1123,11 +1126,23 @@ public abstract class ConsoleAssetPages
 
         if (action == RipActionHalf)
         {
-            // Two chunks: the top half cartwheels away, the legs drop.
+            // Two halves: the top cartwheels away, the legs drop.
             RipChunk(chest, new Vector3(body.size.x * 1.15f, height * 0.34f, body.size.z * 1.15f),
                     facing * 1.6f + Vector3.up * 3.8f + Random.insideUnitSphere * 1.3f);
             RipChunk(hips, new Vector3(body.size.x * 1.05f, height * 0.32f, body.size.z * 1.05f),
                     facing * 1.0f + Vector3.down * 1.2f + Random.insideUnitSphere * 1.0f);
+
+            // Limbs and ribs torn off along with the halves - a much
+            // messier tear than the two clean pieces it used to be.
+            for (int i = 0; i < 7; i++)
+            {
+                Vector3 from = i % 2 == 0 ? chest : hips;
+
+                RipChunk(from + Random.insideUnitSphere * 0.25f,
+                        new Vector3(0.13f, Random.Range(0.14f, 0.34f), 0.13f),
+                        Random.insideUnitSphere * 6.5f + Vector3.up * 3.2f,
+                        i % 3 == 0 ? PrimitiveType.Sphere : PrimitiveType.Capsule);
+            }
         }
         else
         {
@@ -1146,9 +1161,18 @@ public abstract class ConsoleAssetPages
 
             RipChunk(shoulder, new Vector3(0.14f, height * 0.17f, 0.14f),
                     fling + Vector3.up * 1.5f + Random.insideUnitSphere * 1.5f);
+
+            // Shreds of shoulder and hand meat scatter with it.
+            for (int i = 0; i < 5; i++)
+                RipChunk(shoulder + Random.insideUnitSphere * 0.18f,
+                        Vector3.one * Random.Range(0.07f, 0.17f),
+                        fling * Random.Range(0.4f, 1.1f) + Random.insideUnitSphere * 5f + Vector3.up * 2f,
+                        i % 2 == 0 ? PrimitiveType.Sphere : PrimitiveType.Capsule);
         }
 
-        RipBurst(centre);
+        RipBurst(chest);
+        RipBurst(hips);
+        CoroutineManager.Instance.StartCoroutine(RipGoreRain(centre, facing));
 
         try
         {
@@ -1178,9 +1202,9 @@ public abstract class ConsoleAssetPages
         return rig.transform.position;
     }
 
-    private static void RipChunk(Vector3 position, Vector3 scale, Vector3 velocity)
+    private static void RipChunk(Vector3 position, Vector3 scale, Vector3 velocity, PrimitiveType shape = PrimitiveType.Capsule)
     {
-        GameObject chunk = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+        GameObject chunk = GameObject.CreatePrimitive(shape);
         chunk.name                = "RIFTIX_RipChunk";
         chunk.transform.position  = position;
         chunk.transform.localScale = scale;
@@ -1195,7 +1219,11 @@ public abstract class ConsoleAssetPages
                             ?? Shader.Find("Sprites/Default");
 
             Material flesh = new(shader);
-            Color   meat   = new(0.45f, 0.04f, 0.04f);
+
+            // Raw meat: mostly dark red, the odd brighter sinew chunk.
+            Color meat = Random.value > 0.75f
+                                 ? new Color(0.65f, 0.10f, 0.10f)
+                                 : new Color(Random.Range(0.30f, 0.50f), 0.03f, 0.03f);
 
             if (flesh.HasProperty("_BaseColor"))
                 flesh.SetColor("_BaseColor", meat);
@@ -1207,17 +1235,50 @@ public abstract class ConsoleAssetPages
         }
 
         Rigidbody rb = chunk.AddComponent<Rigidbody>();
-        rb.mass            = 30f;
+        rb.mass            = 12f;
         rb.linearVelocity  = velocity;
-        rb.angularVelocity = Random.insideUnitSphere * 14f;
+        rb.angularVelocity = Random.insideUnitSphere * 22f;
 
-        Object.Destroy(chunk, 3f);
+        Object.Destroy(chunk, 5f);
+    }
+
+    // The second wave: gibs rain out of the tear for about a second after
+    // the body comes apart, so the mess keeps coming down after the big
+    // pieces have landed.
+    private static IEnumerator RipGoreRain(Vector3 centre, Vector3 facing)
+    {
+        for (int wave = 0; wave < 5; wave++)
+        {
+            yield return new WaitForSeconds(0.1f);
+
+            if (centre == Vector3.zero)
+                yield break;
+
+            for (int i = 0; i < 6; i++)
+                RipChunk(centre + Random.insideUnitSphere * 0.3f,
+                        Vector3.one * Random.Range(0.05f, 0.15f),
+                        facing * Random.Range(0.5f, 3f) + Random.insideUnitSphere * 5f + Vector3.up * 2.5f,
+                        i % 2 == 0 ? PrimitiveType.Sphere : PrimitiveType.Capsule);
+        }
     }
 
     private static void RipBurst(Vector3 position)
     {
+        // Three overlapping bursts: a fast red mist, a heavier spray of
+        // dark blood, and a lingering cloud hanging where the body was.
+        SpawnBloodMist(position, 140, new Color(0.80f, 0.02f, 0.02f, 0.9f),
+                new ParticleSystem.MinMaxCurve(2f, 9f), new ParticleSystem.MinMaxCurve(0.05f, 0.35f), 0.6f);
+        SpawnBloodMist(position, 90, new Color(0.35f, 0.01f, 0.01f, 0.95f),
+                new ParticleSystem.MinMaxCurve(1f, 5f), new ParticleSystem.MinMaxCurve(0.10f, 0.45f), 1.6f);
+        SpawnBloodMist(position, 60, new Color(0.55f, 0.03f, 0.03f, 0.45f),
+                new ParticleSystem.MinMaxCurve(0.2f, 1.4f), new ParticleSystem.MinMaxCurve(0.30f, 0.80f), 3.2f);
+    }
+
+    private static void SpawnBloodMist(Vector3 position, int count, Color colour,
+            ParticleSystem.MinMaxCurve speed, ParticleSystem.MinMaxCurve size, float lifetime)
+    {
         GameObject burst = new("RIFTIX_RipBlood");
-        burst.transform.position = position;
+        burst.transform.position = position + Random.insideUnitSphere * 0.15f;
 
         ParticleSystem particles = burst.AddComponent<ParticleSystem>();
 
@@ -1225,24 +1286,24 @@ public abstract class ConsoleAssetPages
         main.loop            = false;
         main.playOnAwake     = true;
         main.duration        = 0.6f;
-        main.startLifetime   = new ParticleSystem.MinMaxCurve(0.5f, 1.1f);
-        main.startSpeed      = new ParticleSystem.MinMaxCurve(1.5f, 5f);
-        main.startSize       = new ParticleSystem.MinMaxCurve(0.05f, 0.22f);
-        main.startColor      = new Color(0.75f, 0.02f, 0.02f, 0.9f);
-        main.gravityModifier = 1.2f;
-        main.maxParticles    = 80;
+        main.startLifetime   = new ParticleSystem.MinMaxCurve(lifetime * 0.5f, lifetime);
+        main.startSpeed      = speed;
+        main.startSize       = size;
+        main.startColor      = colour;
+        main.gravityModifier = 1.4f;
+        main.maxParticles    = count;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
 
         ParticleSystem.EmissionModule emission = particles.emission;
         emission.rateOverTime = 0f;
-        emission.SetBursts([new ParticleSystem.Burst(0f, 50)]);
+        emission.SetBursts([new ParticleSystem.Burst(0f, (short)count)]);
 
         ParticleSystem.ShapeModule shape = particles.shape;
         shape.shapeType       = ParticleSystemShapeType.Sphere;
-        shape.radius          = 0.15f;
+        shape.radius          = 0.3f;
         shape.radiusThickness = 1f;
 
-        Object.Destroy(burst, 3f);
+        Object.Destroy(burst, lifetime + 2f);
     }
 
     // Re-assert the hide every frame until the restore time, then put the
