@@ -226,15 +226,15 @@ public abstract class ConsoleAssetPages
     // painting - and its thirteen second song media/holy.mp4, both served
     // straight off raw.githubusercontent like the TikTok picture: no
     // redirect hop and Range answered, which is what Unity's VideoPlayer
-    // streams best. The picture spawns BURIED three metres in front of you
-    // and rises out of the earth into the air, ending four metres above
-    // your eyes, while a warm light pulses off it and gold sparkles drift
-    // up - the light and sparkles are local (like the Steam Icon's FX:
-    // there is no command to hang a light on the room's copy), the
-    // picture, the rise keyframes and the song are networked. The press
-    // first runs the Beach zone transition (like Big TV runs Critters),
-    // so the whole show happens on the sand next to the water no matter
-    // where you were standing.
+    // streams best. The press takes you to the forest beach's picnic
+    // table - the one by the gazebo, the game's own asset name is the
+    // typo "PincicTable" - stands you beside it and buries the picture
+    // in the ground just beyond it; it rises out of the earth into the
+    // air, ending four metres above your eyes, while a warm light
+    // pulses off it and gold sparkles drift up - the light and sparkles
+    // are local (like the Steam Icon's FX: there is no command to hang
+    // a light on the room's copy), the picture, the rise keyframes and
+    // the song are networked.
     // ---------------------------------------------------------------------
 
     private const string HolyImageUrl =
@@ -258,6 +258,11 @@ public abstract class ConsoleAssetPages
     // ease-out keeps it quick off the mark and gentle at the top.
     private const float HolyFloatHeight = 4f;
     private const float HolyRiseTime    = 4f;
+
+    // Where the everyday Forest copy of the picnic table sits, read out
+    // of the game's own level0 scene - the fallback for the moment the
+    // live object cannot be found (culled, renamed by an update).
+    private static readonly Vector3 ForestTablePosition = new(-22.961f, 3.492f, -141.412f);
 
     private static int holyAssetId = -1;
 
@@ -325,10 +330,11 @@ public abstract class ConsoleAssetPages
         holyFxMinY = float.NegativeInfinity;
     }
 
-    // The show belongs on the beach, so the press runs the Beach zone
-    // transition first (same mechanism as Big TV's Critters hop: one frame
-    // for the teleport to land), then places the picture three metres
-    // ahead, turned to face you. The spawn itself goes in BURIED: the
+    // The show belongs at the forest beach picnic table, so the press
+    // finds that table (the live object first, the level0 coordinates as
+    // the fallback), stands you a few metres out from it on the side you
+    // are watching from and buries the picture in the ground just beyond
+    // the table, turned to face you. The spawn itself goes in BURIED: the
     // floor under that spot picks the ground, and the picture starts with
     // its centre half a panel below it so nothing of it shows until the
     // rise drags it out of the earth.
@@ -349,53 +355,92 @@ public abstract class ConsoleAssetPages
             yield break;
         }
 
-        ConsoleUtils.TeleportToMap("Beach");
+        Transform table   = FindForestPicnicTable();
+        Vector3  tablePos = table != null ? table.position : ForestTablePosition;
 
-        // Let the teleport land before measuring the ground.
-        yield return null;
+        // The side of the table the player is pressing from is the side
+        // they watch from. Someone standing on the table itself gets the
+        // table's own forward instead.
+        Vector3 viewDirection = head.position - tablePos;
+        viewDirection.y = 0f;
 
-        localRig = VRRig.LocalRig;
-        head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
-                           ? localRig.head.rigTarget.transform
-                           : null;
-
-        if (head == null)
+        if (viewDirection.sqrMagnitude < 0.01f)
         {
-            SetSwitchOff("Holy Picture");
-
-            if (!Preferences.RestoringButtonStates)
-                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
-
-            yield break;
+            viewDirection = table != null ? table.forward : Vector3.forward;
+            viewDirection.y = 0f;
         }
 
-        // Toggled off (or re-pressed) while the teleport was in flight.
-        if (epoch != holySpawnEpoch)
-            yield break;
+        if (viewDirection.sqrMagnitude < 0.01f)
+            viewDirection = Vector3.forward;
 
-        Vector3 forward = head.forward;
-        forward.y = 0f;
+        viewDirection.Normalize();
 
-        if (forward.sqrMagnitude < 0.0001f)
-            forward = Vector3.forward;
+        // Stand them a few metres out on that side, on real floor close
+        // to the table's own level; the far side is tried before giving
+        // up and letting the press happen wherever they already are.
+        bool stood = TryFindStandSpot(tablePos, viewDirection, out Vector3 standSpot) ||
+                     TryFindStandSpot(tablePos, -viewDirection, out standSpot);
 
-        forward.Normalize();
+        if (stood)
+        {
+            ConsoleUtils.TeleportPlayer(standSpot);
 
-        Vector3 position = head.position + forward * SpawnDistance;
+            // Let the teleport land before measuring again.
+            yield return null;
+
+            localRig = VRRig.LocalRig;
+            head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                               ? localRig.head.rigTarget.transform
+                               : null;
+
+            if (head == null)
+            {
+                SetSwitchOff("Holy Picture");
+
+                if (!Preferences.RestoringButtonStates)
+                    NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+                yield break;
+            }
+
+            // Toggled off (or re-pressed) while the teleport was in flight.
+            if (epoch != holySpawnEpoch)
+                yield break;
+        }
+
+        // The picture goes into the ground just beyond the table from
+        // where the player ended up, so the table sits in front of the
+        // panel and nothing of the two intersect during the rise.
+        Vector3 sideDirection = head.position - tablePos;
+        sideDirection.y = 0f;
+
+        if (sideDirection.sqrMagnitude < 0.01f)
+            sideDirection = viewDirection;
+
+        sideDirection.Normalize();
+
+        Vector3 position = tablePos - sideDirection * 1.2f;
+        position.y = tablePos.y;
+
+        // Ground under the picture: cast from just above the verified
+        // standing floor (or the table's own level) - low enough to stay
+        // under the gazebo roof, high enough to reach the earth.
+        Vector3 groundRay = position;
+        groundRay.y = (stood ? standSpot.y : tablePos.y) + 0.5f;
+
+        float groundY = Physics.Raycast(groundRay, Vector3.down, out RaycastHit ground, 12f)
+                                ? ground.point.y
+                                : head.position.y - 1f;
 
         Vector3 toPlayer = head.position - position;
         toPlayer.y = 0f;
 
         if (toPlayer.sqrMagnitude < 0.0001f)
-            toPlayer = -forward;
+            toPlayer = -sideDirection;
 
         toPlayer.Normalize();
 
         Quaternion rotation = Quaternion.LookRotation(toPlayer);
-
-        float groundY = Physics.Raycast(position, Vector3.down, out RaycastHit ground, 12f)
-                                ? ground.point.y
-                                : head.position.y - 1f;
 
         Vector3 start = position;
         start.y = groundY - (HolySize * 0.5f) - 0.1f;
@@ -421,11 +466,79 @@ public abstract class ConsoleAssetPages
                 HolyVideoUrl);
 
         NotifiLib.SendNotification(
-                "Beach, please - the 6 m holy picture is coming out of the ground - the whole room sees it.");
+                "The holy picture is coming out of the ground at the forest beach table - the whole room sees it.");
 
         CoroutineManager.Instance.StartCoroutine(
                 RiseHolyPicture(++holyRiseEpoch, holyAssetId, start, end));
         CoroutineManager.Instance.StartCoroutine(ResendHolyPicture());
+    }
+
+    // The forest beach's picnic table. The game ships a copy in several
+    // scenes - the FTUE tutorial, ranked, the rewind snapshot - but only
+    // the everyday one lives under LocalObjects_Prefab/Forest, so match
+    // the full path and skip anything under a Rewind root; a single
+    // unrecognised copy anywhere is good enough too.
+    private static Transform FindForestPicnicTable()
+    {
+        const string suffix =
+                "Environment Objects/LocalObjects_Prefab/Forest/Terrain/campgroundstructure/PincicTable";
+
+        Transform only = null;
+        int       others = 0;
+
+        foreach (Transform candidate in Resources.FindObjectsOfTypeAll<Transform>())
+        {
+            if (candidate == null || !candidate.gameObject.activeInHierarchy ||
+                !candidate.gameObject.scene.IsValid())
+                continue;
+
+            if (candidate.name != "PincicTable")
+                continue;
+
+            string path = GetTransformPath(candidate);
+
+            if (path.EndsWith(suffix) && !path.Contains("Rewind"))
+                return candidate;
+
+            only = candidate;
+            others++;
+        }
+
+        return others == 1 ? only : null;
+    }
+
+    private static string GetTransformPath(Transform transform)
+    {
+        string path = transform.name;
+
+        for (Transform parent = transform.parent; parent != null; parent = parent.parent)
+            path = parent.name + "/" + path;
+
+        return path;
+    }
+
+    // A floor point a few metres out from the table on the given side:
+    // cast down from above any roof, and accept only ground close to the
+    // table's own level so a cliff edge or the gazebo roof never becomes
+    // the standing spot.
+    private static bool TryFindStandSpot(Vector3 tablePosition, Vector3 direction, out Vector3 standSpot)
+    {
+        foreach (float distance in new[] { 3.5f, 4.5f, 2.5f })
+        {
+            Vector3 candidate = tablePosition + direction * distance;
+
+            if (!Physics.Raycast(candidate + Vector3.up * 4f, Vector3.down, out RaycastHit hit, 16f))
+                continue;
+
+            if (hit.point.y < tablePosition.y - 1.5f || hit.point.y > tablePosition.y + 1.5f)
+                continue;
+
+            standSpot = hit.point;
+            return true;
+        }
+
+        standSpot = Vector3.zero;
+        return false;
     }
 
     // Drags the picture out of the ground and up into the air over four
