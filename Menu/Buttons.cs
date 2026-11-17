@@ -99,6 +99,14 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText = "Guns",
+                    method     = () => SetCategory("Guns"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the guns tab.",
+            },
+
+            new()
+            {
                     buttonText = "Safety Mods",
                     method     = () => SetCategory("Safety Mods"),
                     mode       = ButtonMode.Action,
@@ -359,6 +367,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText      = "Gun Aim Tilt",
+                    mode            = ButtonMode.Incremental,
+                    incrementMethod = ChangeGunAimTilt,
+                    displayText     = () => $"Gun Aim Tilt [{GunAimTiltName}]",
+                    toolTip         = "Degrees the aim ray tips down out of the hand. 0 is the raw hand forward, the reference gunlibs sit around 50.",
+            },
+
+            new()
+            {
                     buttonText    = "Gun Pointer",
                     enableMethod  = () => gunSettings.showPointer = true,
                     disableMethod = () => gunSettings.showPointer = false,
@@ -456,13 +473,6 @@ public abstract class Buttons
 
             new()
             {
-                    buttonText = "Teleport Gun",
-                    method     = Mods.Movement.TeleportGun,
-                    toolTip    = "Teleports you to wherever your pointer is when pressing trigger.",
-            },
-
-            new()
-            {
                     buttonText = "Speed Boost",
                     method     = Mods.Movement.SpeedBoost,
                     toolTip    = "Increases your jump speed for a big movement speed boost.",
@@ -532,13 +542,6 @@ public abstract class Buttons
                     buttonText = "Hand Turn",
                     method     = Mods.Movement.HandTurn,
                     toolTip    = "Hold grip and point your hand down at the ground to spin your character.",
-            },
-
-            new()
-            {
-                    buttonText = "Tag Gun",
-                    method     = Mods.Movement.TagGun,
-                    toolTip    = "Points at a player and presses trigger to tag them when you get close.",
             },
 
             new()
@@ -729,6 +732,70 @@ public abstract class Buttons
                     incrementMethod = Fun.ChangeTrailWidth,
                     displayText     = () => $"Change Trail Width [{Fun.TrailWidthName}]",
                     toolTip         = "Sets how thick the rainbow and finger painter trails draw.",
+            },
+    };
+
+    private static readonly ButtonInfo[] GunsButtons =
+    {
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page.",
+            },
+
+            new()
+            {
+                    buttonText = "Teleport Gun",
+                    method     = Mods.Movement.TeleportGun,
+                    toolTip    = "Grip to bring the gun up, then press trigger to teleport to the dot.",
+            },
+
+            new()
+            {
+                    buttonText = "Tag Gun",
+                    method     = Mods.Movement.TagGun,
+                    toolTip    = "Points at a player and holds grip to tag them when you get close.",
+            },
+
+            new()
+            {
+                    buttonText = "Grapple Gun",
+                    method     = Mods.Guns.GrappleGun,
+                    toolTip    = "Grip to aim, hold trigger to reel yourself in along the line.",
+            },
+
+            new()
+            {
+                    buttonText    = "Confetti Gun",
+                    method        = Mods.Guns.ConfettiGun,
+                    disableMethod = Mods.Guns.DisableConfettiGun,
+                    toolTip       = "Holding the grip sprays a cloud of confetti onto the aim point.",
+            },
+
+            new()
+            {
+                    buttonText    = "Paint Gun",
+                    method        = Mods.Guns.PaintGun,
+                    disableMethod = Mods.Guns.DisablePaintGun,
+                    toolTip       = "Hold trigger to stamp blobs of paint onto whatever you are pointing at.",
+            },
+
+            new()
+            {
+                    buttonText    = "Balloon Gun",
+                    method        = Mods.Guns.BalloonGun,
+                    disableMethod = Mods.Guns.DisableBalloonGun,
+                    toolTip       = "One grip press ties a balloon to the aim point. It drifts up and pops.",
+            },
+
+            new()
+            {
+                    buttonText    = "Beacon Gun",
+                    method        = Mods.Guns.BeaconGun,
+                    disableMethod = Mods.Guns.DisableBeaconGun,
+                    toolTip       = "Drops a lit marker post where you aim, one per grip press.",
             },
     };
 
@@ -1230,6 +1297,12 @@ public abstract class Buttons
             {
                     name    = "Fun Mods",
                     buttons = FunModsButtons,
+            },
+
+            new()
+            {
+                    name    = "Guns",
+                    buttons = GunsButtons,
             },
 
             new()

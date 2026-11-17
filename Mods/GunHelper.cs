@@ -14,6 +14,11 @@ public abstract class GunHelper
                     ? ControllerInputPoller.instance.rightGrab
                     : ControllerInputPoller.instance.leftGrab;
 
+    // The precision guns (teleport, grapple, paint) fire on the trigger so
+    // you can aim without setting them off - same as Teleport Gun.
+    public static bool AimTrigger =>
+            ControllerInputPoller.TriggerFloat(gunSettings.hand) > 0.5f;
+
     public static VRRig Rig
     {
         get

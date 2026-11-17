@@ -40,9 +40,9 @@ public class Main : MonoBehaviour
     private static int?  noInvisLayerMask;
 
     // Where the aim ball rests when the ray finds nothing to land on: open air
-    // within this range, or a couple of metres past whoever was in the way.
-    private const float OpenAirDistance  = 30f;
-    private const float PlayerOvershoot = 2.5f;
+    // within this range, rather than the full 512 metre throw that used to
+    // strand the dot kilometres out with the line.
+    private const float OpenAirDistance = 30f;
 
     // Variables
     // Important
@@ -4113,12 +4113,28 @@ public class Main : MonoBehaviour
             return (default, GunPointer);
         }
 
+        // Gemstone-style: the gun buzzes the hand it just came up in.
+        if (!gunWasHolding)
+        {
+            GorillaTagger.Instance.StartVibration(
+                    currentSettings.hand == XRNode.RightHand,
+                    GorillaTagger.Instance.tagHapticStrength / 1.2f,
+                    0.02f);
+        }
+
         Transform gunTransform = currentSettings.hand == XRNode.LeftHand
                                          ? GorillaTagger.Instance.leftHandTransform
                                          : GorillaTagger.Instance.rightHandTransform;
 
         Vector3 startPosition = gunTransform.position;
         Vector3 direction     = gunTransform.forward;
+
+        // The reference gunlibs (Gemstone, Feather) tip the ray out of the
+        // hand instead of firing straight along the controller axis. The
+        // tilt is a setting so 0 stays exactly the old behaviour and the
+        // convention can be dialled in from Menu Settings.
+        if (currentSettings.aimTilt != 0f)
+                direction = Quaternion.AngleAxis(currentSettings.aimTilt, gunTransform.right) * direction;
 
         Vector3 rayOrigin = startPosition + direction / 4f;
 
@@ -4145,34 +4161,14 @@ public class Main : MonoBehaviour
                                 out ray);
         }
 
-        Vector3 endPosition;
-
-        // The aim line and pointer never stop on a player: when the target ray
-        // lands on someone, re-shoot past them so the visuals rest on the world
-        // behind instead of sticking to people. The ray returned below still
-        // contains players so the admin guns can pick their target.
-        VRRig hitRig =
-                didHit && ray.collider != null
-                        ? ray.collider.GetComponentInParent<VRRig>()
-                        : null;
-
-        bool hitPlayer = hitRig != null && hitRig != VRRig.LocalRig;
-
-        // The dot has to stay visible: past a player with nothing to land on it
-        // stops a couple of metres beyond them, and open air stops at a range
-        // you can still see rather than the full 512 metre throw, which left
-        // the ball stranded kilometres out with the line.
-        if (hitPlayer && !overrideLayerMask.HasValue)
-                endPosition =
-                        GunRaycast(rayOrigin, direction, currentSettings.maxDistance,
-                                out RaycastHit worldRay, true)
-                                ? worldRay.point
-                                : ray.point + direction * PlayerOvershoot;
-        else if (didHit)
-                endPosition = ray.point;
-        else
-                endPosition = startPosition + direction *
-                        Mathf.Min(currentSettings.maxDistance, OpenAirDistance);
+        // The line and the dot stop exactly where the ray lands - players
+        // included. They used to be re-shot past anyone in the way, which
+        // put the aim point behind whoever you were pointing at.
+        Vector3 endPosition =
+                didHit
+                        ? ray.point
+                        : startPosition + direction *
+                                Mathf.Min(currentSettings.maxDistance, OpenAirDistance);
 
         // Smooth the pointer toward the aim point (Gemstone gun feel).
         if (!gunWasHolding || currentSettings.pointerSmoothness <= 0.001f)
@@ -4261,8 +4257,7 @@ public class Main : MonoBehaviour
                     Vector3        origin,
                     Vector3        direction,
                     float          maxDistance,
-                    out RaycastHit hit,
-                    bool           skipPlayers = false)
+                    out RaycastHit hit)
     {
             Ray ray = new(origin, direction);
 
@@ -4295,13 +4290,6 @@ public class Main : MonoBehaviour
                     bool isRig =
                                     rig != null &&
                                     rig != VRRig.LocalRig;
-
-                    // The aim visuals call this with skipPlayers so their line
-                    // and pointer pass people by instead of resting on them.
-                    if (skipPlayers && isRig)
-                    {
-                            continue;
-                    }
 
                     if (!isInteractable && !isRig)
                     {

@@ -272,6 +272,16 @@ public class Settings
         gunSettings.pointerSmoothness = Mathf.Clamp(Mathf.Round(value * 50f) / 50f, 0f, 0.25f);
     }
 
+    public static string GunAimTiltName =>
+            gunSettings.aimTilt.ToString("0");
+
+    public static void ChangeGunAimTilt(bool increment)
+    {
+        float value = gunSettings.aimTilt + (increment ? 5f : -5f);
+
+        gunSettings.aimTilt = Mathf.Clamp(Mathf.Round(value / 5f) * 5f, -45f, 90f);
+    }
+
     public static void ChangeGradientAnimation(bool increment)
     {
         int count = Enum.GetValues(typeof(GradientAnimationMode)).Length;

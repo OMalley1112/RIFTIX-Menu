@@ -19,6 +19,10 @@ namespace StupidTemplate.Classes
         public float lineWidth   = 0.025f;
         public float pointerSize = 0.2f;
 
+        // How far the aim ray tips down out of the hand, in degrees. 0 keeps
+        // the raw controller forward; the reference gunlibs sit around 50-90.
+        public float aimTilt = 0f;
+
         // Gemstone-style pointer smoothing: 0 = instant, higher = lazier follow.
         public float pointerSmoothness = 0.05f;
 

@@ -114,19 +114,21 @@ public abstract class Movement
     }
     public static void TeleportGun()
     {
-        if (!ControllerInputPoller.instance.rightGrab)
+        (RaycastHit ray, GameObject pointer) = RenderGun();
+
+        // Either hand can hold the gun now, same as the rest of the gunlib.
+        if (!GunHelper.Trigger || pointer == null)
             return;
 
-        (RaycastHit Ray, GameObject NewPointer) GunData    = RenderGun();
-        GameObject                              NewPointer = GunData.NewPointer;
+        bool aimPressed = GunHelper.AimTrigger;
 
-        if (ControllerInputPoller.TriggerFloat(XRNode.RightHand) > 0.5f && !previousTeleportTrigger)
+        if (aimPressed && !previousTeleportTrigger)
         {
-            GTPlayer.Instance.TeleportTo(NewPointer.transform.position + Vector3.up, GTPlayer.Instance.transform.rotation);
+            GTPlayer.Instance.TeleportTo(pointer.transform.position + Vector3.up, GTPlayer.Instance.transform.rotation);
             GorillaTagger.Instance.rigidbody.linearVelocity = Vector3.zero;
         }
 
-        previousTeleportTrigger = ControllerInputPoller.TriggerFloat(XRNode.RightHand) > 0.5f;
+        previousTeleportTrigger = aimPressed;
     }
 
     public static void SpeedBoost()
