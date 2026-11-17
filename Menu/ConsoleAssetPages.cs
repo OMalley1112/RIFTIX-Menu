@@ -227,11 +227,14 @@ public abstract class ConsoleAssetPages
     // straight off raw.githubusercontent like the TikTok picture: no
     // redirect hop and Range answered, which is what Unity's VideoPlayer
     // streams best. The picture spawns BURIED three metres in front of you
-    // and rises out of the earth into the air, ending three metres above
+    // and rises out of the earth into the air, ending four metres above
     // your eyes, while a warm light pulses off it and gold sparkles drift
     // up - the light and sparkles are local (like the Steam Icon's FX:
     // there is no command to hang a light on the room's copy), the
-    // picture, the rise keyframes and the song are networked.
+    // picture, the rise keyframes and the song are networked. The press
+    // first runs the Beach zone transition (like Big TV runs Critters),
+    // so the whole show happens on the sand next to the water no matter
+    // where you were standing.
     // ---------------------------------------------------------------------
 
     private const string HolyImageUrl =
@@ -240,11 +243,11 @@ public abstract class ConsoleAssetPages
     private const string HolyVideoUrl =
             "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/holy.mp4";
 
-    // The photo is a square now, and big: 2.4 m per side (it was a
+    // The photo is a square, and huge: 6 m per side (it started as a
     // 0.54 x 1.20 m rectangle). The plane measures 15.24 x 8.52 units at
     // scale 1 - x drives the width, y the height (see PictureScale) - so
     // the two divisors are what keep the sides equal.
-    private const float HolySize = 2.4f;
+    private const float HolySize = 6f;
 
     private static readonly Vector3 HolyScale =
             new(HolySize / 15.24f, HolySize / 8.52f, HolySize / 15.24f);
@@ -253,10 +256,14 @@ public abstract class ConsoleAssetPages
     // front of you (nothing of it shows) and finishes this far above your
     // eyes - so it bursts out of the earth and keeps floating up. The
     // ease-out keeps it quick off the mark and gentle at the top.
-    private const float HolyFloatHeight = 3f;
+    private const float HolyFloatHeight = 4f;
     private const float HolyRiseTime    = 4f;
 
     private static int holyAssetId = -1;
+
+    // Cancels a spawn still waiting on the Beach teleport (toggle off,
+    // room reset, re-press) - the Big TV's tvSpawnEpoch for this button.
+    private static int holySpawnEpoch;
 
     // Cancels a rise still in flight (toggle off, room reset, re-press).
     private static int holyRiseEpoch;
@@ -299,6 +306,34 @@ public abstract class ConsoleAssetPages
             return;
         }
 
+        CoroutineManager.Instance.StartCoroutine(HolyPictureSpawn(++holySpawnEpoch));
+    }
+
+    public static void RemoveHolyPicture()
+    {
+        // Cancels a spawn still waiting on the teleport, then a rise still
+        // in flight.
+        holySpawnEpoch++;
+        holyRiseEpoch++;
+
+        if (Alive(holyAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, holyAssetId);
+
+        holyAssetId = -1;
+
+        // From here a remote copy (if any) may get the FX straight away.
+        holyFxMinY = float.NegativeInfinity;
+    }
+
+    // The show belongs on the beach, so the press runs the Beach zone
+    // transition first (same mechanism as Big TV's Critters hop: one frame
+    // for the teleport to land), then places the picture three metres
+    // ahead, turned to face you. The spawn itself goes in BURIED: the
+    // floor under that spot picks the ground, and the picture starts with
+    // its centre half a panel below it so nothing of it shows until the
+    // rise drags it out of the earth.
+    private static IEnumerator HolyPictureSpawn(int epoch)
+    {
         VRRig     localRig = VRRig.LocalRig;
         Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
                                      ? localRig.head.rigTarget.transform
@@ -311,14 +346,33 @@ public abstract class ConsoleAssetPages
             if (!Preferences.RestoringButtonStates)
                 NotifiLib.SendNotification("Could not find your head - try again inside a room.");
 
-            return;
+            yield break;
         }
 
-        // Same spot as the TikTok picture - three metres ahead, turned to
-        // face you - but the spawn itself goes in BURIED: the floor under
-        // that spot picks the ground, and the picture starts with its
-        // centre half a panel below it so nothing of it shows until the
-        // rise drags it out of the earth.
+        ConsoleUtils.TeleportToMap("Beach");
+
+        // Let the teleport land before measuring the ground.
+        yield return null;
+
+        localRig = VRRig.LocalRig;
+        head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                           ? localRig.head.rigTarget.transform
+                           : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("Holy Picture");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            yield break;
+        }
+
+        // Toggled off (or re-pressed) while the teleport was in flight.
+        if (epoch != holySpawnEpoch)
+            yield break;
+
         Vector3 forward = head.forward;
         forward.y = 0f;
 
@@ -366,25 +420,12 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, holyAssetId, ScreenChild,
                 HolyVideoUrl);
 
-        NotifiLib.SendNotification("The holy picture is coming out of the ground - the whole room sees it.");
+        NotifiLib.SendNotification(
+                "Beach, please - the 6 m holy picture is coming out of the ground - the whole room sees it.");
 
         CoroutineManager.Instance.StartCoroutine(
                 RiseHolyPicture(++holyRiseEpoch, holyAssetId, start, end));
         CoroutineManager.Instance.StartCoroutine(ResendHolyPicture());
-    }
-
-    public static void RemoveHolyPicture()
-    {
-        // Cancels a rise still in flight.
-        holyRiseEpoch++;
-
-        if (Alive(holyAssetId))
-            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, holyAssetId);
-
-        holyAssetId = -1;
-
-        // From here a remote copy (if any) may get the FX straight away.
-        holyFxMinY = float.NegativeInfinity;
     }
 
     // Drags the picture out of the ground and up into the air over four
@@ -547,7 +588,7 @@ public abstract class ConsoleAssetPages
         Light light = lightObject.AddComponent<Light>();
         light.type      = LightType.Point;
         light.color     = new Color(1f, 0.93f, 0.72f);
-        light.range     = 11f;
+        light.range     = 16f;
         light.intensity = 1.35f;
         light.shadows   = LightShadows.None;
 
@@ -563,15 +604,15 @@ public abstract class ConsoleAssetPages
         main.playOnAwake     = true;
         main.startLifetime   = new ParticleSystem.MinMaxCurve(1.6f, 2.8f);
         main.startSpeed      = new ParticleSystem.MinMaxCurve(0.12f, 0.3f);
-        main.startSize       = new ParticleSystem.MinMaxCurve(0.018f, 0.08f);
+        main.startSize       = new ParticleSystem.MinMaxCurve(0.03f, 0.12f);
         main.startColor      = new Color(1f, 0.92f, 0.65f, 0.85f);
-        main.maxParticles    = 140;
+        main.maxParticles    = 220;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
         main.gravityModifier = -0.01f;
         main.scalingMode     = ParticleSystemScalingMode.Hierarchy;
 
         ParticleSystem.EmissionModule emission = sparks.emission;
-        emission.rateOverTime = 25f;
+        emission.rateOverTime = 40f;
 
         // A thin box the size of the panel, so the sparkles crawl up it.
         ParticleSystem.ShapeModule shape = sparks.shape;
@@ -3692,7 +3733,9 @@ public abstract class ConsoleAssetPages
         tvSpawnEpoch++;
         tvAssetId = -1;
 
-        // Same for the Holy Picture's rise, plus this client's local glow.
+        // Same for the Holy Picture's teleport-waiting spawn and rise, plus
+        // this client's local glow.
+        holySpawnEpoch++;
         holyRiseEpoch++;
         holyAssetId   = -1;
         holyFxAssetId = -1;

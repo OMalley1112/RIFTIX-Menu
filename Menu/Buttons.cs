@@ -1146,7 +1146,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnHolyPicture,
                     disableMethod = ConsoleAssetPages.RemoveHolyPicture,
                     displayText   = ConsoleAssetPages.HolyPictureDisplay,
-                    toolTip       = "Spawns the big 2.4 m square meme picture buried three metres in front of you - it comes out of the ground and floats up with warm light, gold sparkles and its song (networked - the whole room sees it).",
+                    toolTip       = "Teleports you to the Beach, then the huge 6 m square meme picture bursts out of the sand three metres in front of you and floats up to 4 m above your eyes with warm light, gold sparkles and its song (networked - the whole room sees it).",
             },
 
             new()
