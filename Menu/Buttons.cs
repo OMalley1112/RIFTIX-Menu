@@ -107,14 +107,6 @@ public abstract class Buttons
 
             new()
             {
-                    buttonText = "Overpowered",
-                    method     = () => SetCategory("Overpowered"),
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Opens the overpowered mods tab.",
-            },
-
-            new()
-            {
                     buttonText = "Safety Mods",
                     method     = () => SetCategory("Safety Mods"),
                     mode       = ButtonMode.Action,
@@ -807,67 +799,6 @@ public abstract class Buttons
             },
     };
 
-    private static readonly ButtonInfo[] OverpoweredButtons =
-    {
-            new()
-            {
-                    buttonText = "Return to Main",
-                    method     = () => SetCategory("Main"),
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Returns to the main page of the menu.",
-            },
-
-            new()
-            {
-                    buttonText = "Mega Jump",
-                    method     = Mods.Overpowered.MegaJump,
-                    toolTip    = "Jump way higher and harder than vanilla. Local only.",
-            },
-
-            new()
-            {
-                    buttonText = "Titan Speed",
-                    method     = Mods.Overpowered.TitanSpeed,
-                    toolTip    = "Huge speed boost that keeps shoving you forward. Local only.",
-            },
-
-            new()
-            {
-                    buttonText    = "Giant Arms",
-                    method        = Mods.Overpowered.GiantArms,
-                    disableMethod = Mods.Overpowered.DisableGiantArms,
-                    toolTip       = "Scales you up to 1.6x, arms included. Turn off to restore.",
-            },
-
-            new()
-            {
-                    buttonText = "Moon Gravity",
-                    method     = Mods.Overpowered.MoonGravity,
-                    toolTip    = "Cancels most of your fall so every hop floats. Local only.",
-            },
-
-            new()
-            {
-                    buttonText = "Super Fly",
-                    method     = Mods.Overpowered.SuperFly,
-                    toolTip    = "Joystick fly with the limiter removed - left joystick moves, right goes up.",
-            },
-
-            new()
-            {
-                    buttonText = "Rocket Rise",
-                    method     = Mods.Overpowered.RocketRise,
-                    toolTip    = "Hold A to rocket straight up through the map.",
-            },
-
-            new()
-            {
-                    buttonText = "Air Boost",
-                    method     = Mods.Overpowered.AirBoost,
-                    toolTip    = "Hold grip to blast forward along your hand's line at full tilt.",
-            },
-    };
-
     private static readonly ButtonInfo[] SafetyModsButtons =
     {
             new()
@@ -1372,12 +1303,6 @@ public abstract class Buttons
             {
                     name    = "Guns",
                     buttons = GunsButtons,
-            },
-
-            new()
-            {
-                    name    = "Overpowered",
-                    buttons = OverpoweredButtons,
             },
 
             new()
