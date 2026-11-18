@@ -4,6 +4,8 @@
 
 RIFTIX is a mod menu template for Gorilla Tag with custom categories and maximum customization. Based on ii's Stupid Template.
 
+**Website:** https://omalley1112.github.io/RIFTIX-Menu/
+
 ## Installation
 
 1. Install [BepInEx 5 (x64)](https://github.com/BepInEx/BepInEx/releases) for Gorilla Tag
