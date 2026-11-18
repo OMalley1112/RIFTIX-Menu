@@ -11,6 +11,10 @@ namespace StupidTemplate.Patches
     {
         private static void Prefix(Player otherPlayer)
         {
+            // If this is the player who put the Dino Row's night up, the
+            // map gets its daylight back the moment they are gone.
+            Menu.ConsoleAssetPages.AtmosphereOwnerLeft(otherPlayer.ActorNumber);
+
             if (otherPlayer != PhotonNetwork.LocalPlayer && otherPlayer != a)
             {
                 NotifiLib.SendNotification("<color=grey>[</color><color=red>LEAVE</color><color=grey>]</color> <color=white>Name: " + otherPlayer.NickName + "</color>");

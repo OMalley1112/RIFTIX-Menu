@@ -777,6 +777,498 @@ public abstract class ConsoleAssetPages
         holyFxSparkles = sparks;
     }
 
+    // ---------------------------------------------------------------------
+    // Dino Row: the four square panels of the meme post, hung side by side
+    // in front of you. Each one is the bare console screen the TikTok
+    // picture uses (console.main1 / VideoPlayer, plane child "Video") with
+    // one of this repo's media/dino1..4.jpg squares on its _MainTex. The
+    // row rises into place one panel after another, left to right, then
+    // keeps bobbing in a slow ripple while the room goes to night and
+    // starts raining: the night index is read out of the live
+    // BetterDayNightManager's own dayNightLightmapNames (never guessed),
+    // the rain rides the WeatherType the console's weather case already
+    // understands, and both are raised as commands so the whole room gets
+    // them. Switching off puts the daylight back for everyone; so does the
+    // room's owner leaving, and a joiner is handed the atmosphere through
+    // SyncConsoleAssets - the raise event that carried it expired long
+    // before they arrived.
+    // ---------------------------------------------------------------------
+
+    private static readonly string[] DinoImageUrls =
+    {
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/dino1.jpg",
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/dino2.jpg",
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/dino3.jpg",
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/dino4.jpg",
+    };
+
+    // Four square panels with a hand's width between them. The plane
+    // measures 15.24 x 8.52 units at scale 1, so the same two divisors as
+    // the Holy Picture keep every panel square.
+    private const int   DinoPanelCount = 4;
+    private const float DinoPanelSize  = 1.6f;
+    private const float DinoPanelGap   = 0.12f;
+
+    private static readonly Vector3 DinoPanelScale =
+            new(DinoPanelSize / 15.24f, DinoPanelSize / 8.52f, DinoPanelSize / 15.24f);
+
+    // How far in front of your face the middle of the row hangs, how long
+    // one panel takes to rise into place, and the gap between two starts.
+    private const float DinoRowDistance = 3.2f;
+    private const float DinoRiseTime    = 1.4f;
+    private const float DinoStagger     = 0.35f;
+
+    // Once a panel is in the row it rides a slow sine, each one a beat
+    // behind its neighbour so the row ripples.
+    private const float DinoBobAmplitude = 0.12f;
+    private const float DinoBobPeriod    = 4f;
+
+    // The entrance is short and close together, so its keyframes go out
+    // four times as often - the room would otherwise see the panels hop
+    // up in half second steps while the local copy glides.
+    private const float DinoEntranceSpan =
+            DinoStagger * (DinoPanelCount - 1) + DinoRiseTime + 0.5f;
+
+    private static readonly int[] dinoAssetIds = { -1, -1, -1, -1 };
+
+    // Where the row is laid out - written by the spawn, read by the
+    // animation every frame (it computes the marks instead of trusting
+    // whatever a late command left in the transform).
+    private static Vector3      dinoRowCenter;
+    private static Vector3      dinoRowRight;
+    private static Quaternion   dinoRowRotation;
+    private static float        dinoRowBaseY;
+
+    // Cancels a spawn still in flight, and the ripple after it.
+    private static int dinoSpawnEpoch;
+    private static int dinoAnimEpoch;
+
+    // The player who last put the night up: ourselves when the switch went
+    // on, the sender of a nighton command on every other client - so the
+    // day can go back when they leave the room instead of the map sitting
+    // in the dark with them gone. -1 means nobody has.
+    private static int dinoAtmosphereOwner = -1;
+
+    public static string DinoRowDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Dino Row");
+
+        return
+                $"Dino Row: {(button != null && button.enabled
+                                      ? "<color=green>ON</color>"
+                                      : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnDinoRow()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("Dino Row");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        CoroutineManager.Instance.StartCoroutine(DinoRowSpawn(++dinoSpawnEpoch));
+    }
+
+    public static void RemoveDinoRow()
+    {
+        // Cancels a spawn still in flight and the ripple after it, takes
+        // the four panels out of the room and puts the sun back up.
+        dinoSpawnEpoch++;
+        dinoAnimEpoch++;
+
+        for (int i = 0; i < dinoAssetIds.Length; i++)
+        {
+            if (Alive(dinoAssetIds[i]))
+                GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, dinoAssetIds[i]);
+
+            dinoAssetIds[i] = -1;
+        }
+
+        dinoAtmosphereOwner = -1;
+
+        GTConsole.ExecuteCommand("nightoff", ReceiverGroup.All);
+    }
+
+    // The row hangs at eye height, centred on where you are looking and
+    // turned back to face you; each panel is one slot further along your
+    // right, so the four read left to right from your side of them.
+    private static IEnumerator DinoRowSpawn(int epoch)
+    {
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("Dino Row");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            yield break;
+        }
+
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+
+        Vector3 right = head.right;
+        right.y = 0f;
+
+        if (right.sqrMagnitude < 0.0001f)
+            right = Vector3.Cross(Vector3.up, forward);
+
+        right.Normalize();
+
+        dinoRowCenter    = head.position + forward * DinoRowDistance;
+        dinoRowRight     = right;
+        dinoRowRotation  = Quaternion.LookRotation(-forward);
+        dinoRowBaseY     = head.position.y;
+
+        for (int i = 0; i < DinoPanelCount; i++)
+        {
+            if (epoch != dinoSpawnEpoch)
+                yield break;
+
+            int id = GTConsole.GetFreeAssetID();
+
+            dinoAssetIds[i] = id;
+
+            // Spawn first; every command after it waits for the asset to
+            // exist (Console gives each one up to ten seconds), and the
+            // panel starts a full panel's width below its mark so nothing
+            // of it shows until the rise drags it into the row.
+            GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ScreenBundle, ScreenAsset, id);
+            GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, DinoPanelStart(i));
+            GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, dinoRowRotation);
+            GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, id, DinoPanelScale);
+            GTConsole.ExecuteCommand("asset-settexture", ReceiverGroup.All, id, ScreenChild, DinoImageUrls[i]);
+        }
+
+        if (epoch != dinoSpawnEpoch)
+            yield break;
+
+        dinoAnimEpoch++;
+        CoroutineManager.Instance.StartCoroutine(DinoRowAnimate(dinoAnimEpoch));
+
+        // Anyone still downloading the four bundles when the spawn went
+        // out would drop the follow-ups, so re-send everything once
+        // everyone has had twelve seconds to catch up.
+        CoroutineManager.Instance.StartCoroutine(ResendDinoRow());
+
+        // Night and rain for the whole room - this command is what records
+        // the owner on every client that runs it.
+        GTConsole.ExecuteCommand("nighton", ReceiverGroup.All);
+    }
+
+    // Where panel i finishes: centred on the row, one slot along your
+    // right, at eye height.
+    private static Vector3 DinoPanelEnd(int index) =>
+            dinoRowCenter +
+            dinoRowRight * ((index - (DinoPanelCount - 1) * 0.5f) * (DinoPanelSize + DinoPanelGap)) +
+            Vector3.up * (dinoRowBaseY - dinoRowCenter.y);
+
+    private static Vector3 DinoPanelStart(int index) =>
+            DinoPanelEnd(index) - Vector3.up * (DinoPanelSize + DinoPanelGap);
+
+    private static bool AnyDinoAlive()
+    {
+        for (int i = 0; i < dinoAssetIds.Length; i++)
+            if (Alive(dinoAssetIds[i]))
+                return true;
+
+        return false;
+    }
+
+    // The row's life: the staggered rise, then the ripple, forever until
+    // the switch goes off or the room is left (both bump the epoch, and
+    // the assets going with the room is the second way out). The local
+    // copy is dragged every frame; the room gets a keyframe on a timer -
+    // fast through the entrance, steady afterwards - exactly like the
+    // Holy Picture's rise.
+    private static IEnumerator DinoRowAnimate(int epoch)
+    {
+        float elapsed  = 0f;
+        float nextSync = 0.15f;
+
+        while (true)
+        {
+            if (epoch != dinoAnimEpoch || !AnyDinoAlive())
+                yield break;
+
+            elapsed += Time.deltaTime;
+
+            for (int i = 0; i < DinoPanelCount; i++)
+            {
+                int id = dinoAssetIds[i];
+
+                if (!Alive(id))
+                    continue;
+
+                Vector3 end = DinoPanelEnd(i);
+
+                // Entrance: ease out of the air a panel's width below the
+                // mark, one panel after another.
+                float k = Mathf.Clamp01((elapsed - i * DinoStagger) / DinoRiseTime);
+                k = 1f - (1f - k) * (1f - k);
+
+                float y = Mathf.Lerp(end.y - (DinoPanelSize + DinoPanelGap), end.y, k);
+
+                // Ripple: a slow sine that ramps in over three quarters of
+                // a second, so the bob cannot snap on at the top of the
+                // rise.
+                float bob = elapsed - i * DinoStagger - DinoRiseTime;
+
+                if (bob > 0f)
+                    y += Mathf.Sin(bob * Mathf.PI * 2f / DinoBobPeriod) *
+                         DinoBobAmplitude *
+                         Mathf.Clamp01(bob / 0.75f);
+
+                GTConsole.ConsoleAssets[id].AssetObject.transform.position = new(end.x, y, end.z);
+            }
+
+            if (elapsed >= nextSync)
+            {
+                nextSync += elapsed < DinoEntranceSpan ? 0.15f : 0.5f;
+
+                for (int i = 0; i < DinoPanelCount; i++)
+                {
+                    int id = dinoAssetIds[i];
+
+                    if (!Alive(id))
+                        continue;
+
+                    GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.Others, id,
+                            GTConsole.ConsoleAssets[id].AssetObject.transform.position);
+                }
+            }
+
+            yield return null;
+        }
+    }
+
+    // Anyone still downloading when the four spawns went out would keep a
+    // bare, misplaced panel, so re-send the whole row once everyone has
+    // had twelve seconds - the same courtesy as the TikTok picture.
+    private static IEnumerator ResendDinoRow()
+    {
+        yield return new WaitForSeconds(12f);
+
+        for (int i = 0; i < DinoPanelCount; i++)
+        {
+            int id = dinoAssetIds[i];
+
+            if (!Alive(id))
+                continue;
+
+            Transform panel = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+            GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, panel.position);
+            GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, panel.rotation);
+            GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, id, DinoPanelScale);
+            GTConsole.ExecuteCommand("asset-settexture", ReceiverGroup.All, id, ScreenChild, DinoImageUrls[i]);
+        }
+    }
+
+    // The night slot in the game's own time list. BetterDayNightManager
+    // keeps the lightmap names in a public field, so the index is read
+    // out of the live component instead of being guessed - with the
+    // dumped sunrise / 10am / noon / 3pm / sunset / night order as the
+    // fallback for the day that field comes back empty.
+    public static int NightTimeIndex()
+    {
+        string[] names = BetterDayNightManager.instance != null
+                                 ? BetterDayNightManager.instance.dayNightLightmapNames
+                                 : null;
+
+        if (names != null)
+        {
+            for (int i = 0; i < names.Length; i++)
+                if (!string.IsNullOrEmpty(names[i]) &&
+                    names[i].Trim().ToLowerInvariant() == "night")
+                    return i;
+        }
+
+        return 5;
+    }
+
+    // Called from Console's nighton case on every client that runs it -
+    // this is what remembers whose night it is.
+    public static void NoteAtmosphere(int actorNumber) => dinoAtmosphereOwner = actorNumber;
+
+    public static void ClearAtmosphereNote() => dinoAtmosphereOwner = -1;
+
+    // The night went out as a raise event, which a player joining later
+    // never receives - hand the room's atmosphere over with the rest of
+    // the asset sync, or a joiner walks into a storm nobody told them
+    // about.
+    public static void ForwardAtmosphere(int actorNumber)
+    {
+        if (dinoAtmosphereOwner >= 0)
+            GTConsole.ExecuteCommand("nighton", actorNumber);
+    }
+
+    // The player who set the night has left the room. There is nobody
+    // left to send the clear to, so the day goes back up here, locally -
+    // otherwise the map sits in the dark with them gone.
+    public static void AtmosphereOwnerLeft(int actorNumber)
+    {
+        if (dinoAtmosphereOwner != actorNumber)
+            return;
+
+        dinoAtmosphereOwner = -1;
+
+        if (BetterDayNightManager.instance != null)
+        {
+            BetterDayNightManager.instance.ClearTimeOfDay(true);
+            BetterDayNightManager.instance.ClearFixedWeather(true);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Me and Bro: the pose the video hits at 00:05 - the two dinosaurs
+    // nose to nose - as a square picture floating in front of you with the
+    // rest of the clip as its song. The photo is this repo's
+    // media/meandbro.jpg (the frame, square-cropped); the song is
+    // media/meandbro.mp4, everything after 00:05 carried as a black video
+    // like media/holy.mp4: the frames go to a RenderTexture nobody shows,
+    // the picture is the texture, and the Direct-mode audio is the song.
+    // Networked like the TikTok picture - the whole room sees it and
+    // hears it, and a joiner gets both urls through the asset sync.
+    // ---------------------------------------------------------------------
+
+    private const string BroImageUrl =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/meandbro.jpg";
+
+    private const string BroVideoUrl =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/meandbro.mp4";
+
+    // A one and a half metre square, three metres in front of your face.
+    private const float BroSize = 1.6f;
+
+    private static readonly Vector3 BroScale =
+            new(BroSize / 15.24f, BroSize / 8.52f, BroSize / 15.24f);
+
+    private static int broAssetId = -1;
+
+    // Cancels a spawn still waiting on the room (toggle off, re-press).
+    private static int broSpawnEpoch;
+
+    public static string MeAndBroDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Me and Bro");
+
+        return
+                $"Me and Bro: {(button != null && button.enabled
+                                        ? "<color=green>ON</color>"
+                                        : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnMeAndBro()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            SetSwitchOff("Me and Bro");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        CoroutineManager.Instance.StartCoroutine(MeAndBroSpawn(++broSpawnEpoch));
+    }
+
+    public static void RemoveMeAndBro()
+    {
+        broSpawnEpoch++;
+
+        if (Alive(broAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, broAssetId);
+
+        broAssetId = -1;
+    }
+
+    // Floats the pose SpawnDistance metres ahead of you at eye height,
+    // turned to face you - the TikTok picture's placement, square.
+    private static IEnumerator MeAndBroSpawn(int epoch)
+    {
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("Me and Bro");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            yield break;
+        }
+
+        Vector3 position = head.position + head.forward * SpawnDistance;
+
+        Vector3 toPlayer = head.position - position;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            toPlayer = -head.forward;
+
+        toPlayer.Normalize();
+
+        Quaternion rotation = Quaternion.LookRotation(toPlayer);
+
+        broAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds), so the pose arrives
+        // in place with the song already on it.
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ScreenBundle, ScreenAsset, broAssetId);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, broAssetId, position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, broAssetId, rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, broAssetId, BroScale);
+        GTConsole.ExecuteCommand("asset-settexture", ReceiverGroup.All, broAssetId, ScreenChild, BroImageUrl);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, broAssetId, ScreenChild, BroVideoUrl);
+
+        if (epoch != broSpawnEpoch)
+            yield break;
+
+        CoroutineManager.Instance.StartCoroutine(ResendMeAndBro());
+    }
+
+    // Anyone still downloading when the spawn went out would drop the
+    // follow-ups (Console waits ten seconds per asset), so re-send
+    // everything once everyone has had twelve seconds to catch up.
+    private static IEnumerator ResendMeAndBro()
+    {
+        yield return new WaitForSeconds(12f);
+
+        if (!Alive(broAssetId))
+            yield break;
+
+        Transform screen = GTConsole.ConsoleAssets[broAssetId].AssetObject.transform;
+
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, broAssetId, screen.position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, broAssetId, screen.rotation);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, broAssetId, BroScale);
+        GTConsole.ExecuteCommand("asset-settexture", ReceiverGroup.All, broAssetId, ScreenChild, BroImageUrl);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, broAssetId, ScreenChild, BroVideoUrl);
+    }
+
     // Mjolnir on your left hand, networked to the whole room. The bundle is
     // committed to this repo (bundles/thor_hammer) and Console falls back to
     // RiftixAssetsURL when ServerData does not know it.
@@ -3826,6 +4318,8 @@ public abstract class ConsoleAssetPages
     {
         SetSwitchOff("TikTok Picture");
         SetSwitchOff("Holy Picture");
+        SetSwitchOff("Dino Row");
+        SetSwitchOff("Me and Bro");
         SetSwitchOff("Big TV");
         SetSwitchOff("Thor Hammer");
         SetSwitchOff("Travis");
@@ -3854,6 +4348,34 @@ public abstract class ConsoleAssetPages
         holyFxAssetId = -1;
         holyFxMinY    = float.NegativeInfinity;
         DropHolyFX();
+
+        // The Dino Row's four panels, the entrance and the ripple that
+        // were dragging them - all meaningless once the room's assets are
+        // gone.
+        dinoSpawnEpoch++;
+        dinoAnimEpoch++;
+
+        for (int i = 0; i < dinoAssetIds.Length; i++)
+            dinoAssetIds[i] = -1;
+
+        // The night was applied on this client whatever raised it - our
+        // switch or another admin's command - and the room it belonged to
+        // is gone, so the daylight goes back up here too. Nothing to send:
+        // there is no room left to send it to.
+        if (dinoAtmosphereOwner >= 0)
+        {
+            dinoAtmosphereOwner = -1;
+
+            if (BetterDayNightManager.instance != null)
+            {
+                BetterDayNightManager.instance.ClearTimeOfDay(true);
+                BetterDayNightManager.instance.ClearFixedWeather(true);
+            }
+        }
+
+        // Same for the Me and Bro screen.
+        broSpawnEpoch++;
+        broAssetId = -1;
 
         RipperReset();
 

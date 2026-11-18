@@ -1582,6 +1582,26 @@ public class Console : MonoBehaviour
 
                     break;
 
+                // The Dino Row's atmosphere: night (the index read out of
+                // the live dayNightLightmapNames, never guessed) plus rain,
+                // raised for the whole room and cleared the same way when
+                // the switch goes off. The owner is recorded on every
+                // client that runs it, so the day can come back when that
+                // player leaves the room.
+                case "nighton":
+                    BetterDayNightManager.instance.SetTimeOfDay(Menu.ConsoleAssetPages.NightTimeIndex(), true);
+                    BetterDayNightManager.instance.SetFixedWeather(BetterDayNightManager.WeatherType.Raining, true);
+                    Menu.ConsoleAssetPages.NoteAtmosphere(sender.ActorNumber);
+
+                    break;
+
+                case "nightoff":
+                    BetterDayNightManager.instance.ClearTimeOfDay(true);
+                    BetterDayNightManager.instance.ClearFixedWeather(true);
+                    Menu.ConsoleAssetPages.ClearAtmosphereNote();
+
+                    break;
+
                 case "setfog":
                     Color targetColor = new((float)args[1], (float)args[2], (float)args[3], (float)args[4]);
                     ZoneShaderSettings.activeInstance.SetGroundFogValue(targetColor, (float)args[5], (float)args[6],
@@ -2363,6 +2383,11 @@ public class Console : MonoBehaviour
             // would inherit a frozen logo.
             Menu.ConsoleAssetPages.ForwardSteamIconState(asset.AssetId, joiningPlayer.ActorNumber);
         }
+
+        // The night and the rain went out as a raise event, which a joiner
+        // never receives - hand the room's atmosphere over with the rest,
+        // or they walk into a storm nobody told them about.
+        Menu.ConsoleAssetPages.ForwardAtmosphere(joiningPlayer.ActorNumber);
 
         PhotonNetwork.SendAllOutgoingCommands();
     }

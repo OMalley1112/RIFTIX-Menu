@@ -1151,6 +1151,24 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Dino Row",
+                    enableMethod  = ConsoleAssetPages.SpawnDinoRow,
+                    disableMethod = ConsoleAssetPages.RemoveDinoRow,
+                    displayText   = ConsoleAssetPages.DinoRowDisplay,
+                    toolTip       = "Hangs the four square meme panels side by side in front of you - they rise into the row one after the other and keep bobbing in a ripple while the room turns to night and starts raining (networked - the whole room sees the row and the storm, and daylight comes back when you switch it off).",
+            },
+
+            new()
+            {
+                    buttonText    = "Me and Bro",
+                    enableMethod  = ConsoleAssetPages.SpawnMeAndBro,
+                    disableMethod = ConsoleAssetPages.RemoveMeAndBro,
+                    displayText   = ConsoleAssetPages.MeAndBroDisplay,
+                    toolTip       = "Floats the nose-to-nose pose from 00:05 of the video in front of you with the rest of the clip as its song (networked - the whole room sees the picture and hears it).",
+            },
+
+            new()
+            {
                     buttonText    = "Thor Hammer",
                     enableMethod  = ConsoleAssetPages.SpawnHammer,
                     disableMethod = ConsoleAssetPages.RemoveHammer,
