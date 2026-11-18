@@ -96,7 +96,6 @@ public class Console : MonoBehaviour
     private static readonly int                             SrcBlend        = Shader.PropertyToID("_SrcBlend");
     private static readonly int                             DstBlend        = Shader.PropertyToID("_DstBlend");
     private static readonly int                             ZWrite          = Shader.PropertyToID("_ZWrite");
-    private static readonly int                             MainTex         = Shader.PropertyToID("_MainTex");
 
     private readonly       Dictionary<VRRig, AdminIndicator> conePool        = new();
 
@@ -540,7 +539,15 @@ public class Console : MonoBehaviour
 
             byte[] bytes = readTask.Result;
             texture = new Texture2D(2, 2);
-            texture.LoadImage(bytes);
+
+            // LoadImage swallows bad bytes and hands back an untouched
+            // 2x2 texture - say so instead of caching a blank forever.
+            if (!texture.LoadImage(bytes))
+            {
+                Log($"Failed to decode texture: {fileName}");
+
+                yield break;
+            }
         }
 
         Textures[url] = texture;
@@ -2581,6 +2588,11 @@ public class Console : MonoBehaviour
             if (!AssetObject.transform.Find(objectName).TryGetComponent(out VideoPlayer video))
                 return;
 
+            // asset-videonorender may have switched the player off for a
+            // picture screen; a video command that arrives afterwards has
+            // to be able to bring it back.
+            video.enabled = true;
+
             // Audio-only screens (the song under a picture that must stay
             // visible): this prefab's VideoPlayer renders in MaterialOverride
             // mode, which repaints the plane's _MainTex with every frame -
@@ -2612,8 +2624,13 @@ public class Console : MonoBehaviour
             if (!AssetObject.transform.Find(objectName).TryGetComponent(out VideoPlayer video))
                 return;
 
-            video.renderMode = VideoRenderMode.APIOnly;
+            // APIOnly alone still leaves playOnAwake armed: take the
+            // component out of the picture for good so nothing repaints
+            // the plane's texture slots behind asset-settexture's back.
+            video.renderMode  = VideoRenderMode.APIOnly;
+            video.playOnAwake = false;
             video.Stop();
+            video.enabled     = false;
         }
 
         public void SetTextureURL(string objectName, string urlName)
@@ -2623,12 +2640,23 @@ public class Console : MonoBehaviour
             TextureUrl      = urlName;
 
             instance.StartCoroutine(instance.GetTextureResource(urlName, texture =>
-                                                                        AssetObject.transform
-                                                                                   .Find(objectName)
-                                                                                   .GetComponent<Renderer>()
-                                                                                   .material.SetTexture(
-                                                                                                MainTex,
-                                                                                                texture)));
+            {
+                // VideoMat's compiled shader binds only _BaseMap - it
+                // declares _MainTex but never samples it, so a lone
+                // SetTexture("_MainTex") was accepted and displayed as
+                // nothing (the white Dino panels). Stamp every texture
+                // slot the material carries, guarded, same rule as the
+                // icon chain's ApplyPlateTexture.
+                if (texture == null || AssetObject == null)
+                    return;
+
+                Transform target = AssetObject.transform.Find(objectName);
+
+                if (target != null && target.TryGetComponent(out Renderer renderer))
+                    ApplyPlateTexture(renderer.material, texture);
+                else
+                    Log($"SetTextureURL: no renderer named '{objectName}'");
+            }));
         }
 
         public void SetColor(string objectName, Color color) =>

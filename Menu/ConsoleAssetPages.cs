@@ -1261,8 +1261,12 @@ public abstract class ConsoleAssetPages
     // client only - same rule as the practice dummy.
     private static void DropBroPair()
     {
+        // broRoot is a Transform: Destroy(transform) refuses to run ("Can't
+        // destroy Transform component") and Unity logs the error, so every
+        // toggle leaked the old pair and the scene stacked copies. Destroy
+        // the GameObject the transform belongs to.
         if (broRoot != null)
-            Object.Destroy(broRoot);
+            Object.Destroy(broRoot.gameObject);
 
         broRoot   = null;
         broCloneA = null;
@@ -1394,31 +1398,92 @@ public abstract class ConsoleAssetPages
     }
 
     // The transform that owns your gorilla: usually VRRig's own - but if
-    // the component sits beside the mesh, climb from the head mesh to the
-    // lowest ancestor that still holds every body anchor.
+    // the component sits beside the mesh, take the lowest ancestor that
+    // still holds every body anchor, every renderer and every bone they
+    // skin with, so the copy contains the whole rig and nothing above it.
     private static Transform FindLocalRigRoot(VRRig rig)
     {
         if (rig == null)
             return null;
 
-        if (rig.transform.GetComponentsInChildren<SkinnedMeshRenderer>(true).Length > 0)
-            return rig.transform;
+        Transform lca = null;
 
-        Transform cursor = rig.headMesh != null ? rig.headMesh.transform : null;
-
-        while (cursor != null)
+        void Include(Transform node)
         {
-            bool body  = rig.bodyTransform      != null && rig.bodyTransform.IsChildOf(cursor);
-            bool left  = rig.leftHandTransform  != null && rig.leftHandTransform.IsChildOf(cursor);
-            bool right = rig.rightHandTransform != null && rig.rightHandTransform.IsChildOf(cursor);
-
-            if (body && left && right)
-                return cursor;
-
-            cursor = cursor.parent;
+            if (node != null)
+                lca = lca == null ? node : LowestCommonAncestor(lca, node);
         }
 
-        return null;
+        Include(rig.headMesh != null ? rig.headMesh.transform : null);
+        Include(rig.bodyTransform);
+        Include(rig.leftHandTransform);
+        Include(rig.rightHandTransform);
+
+        foreach (SkinnedMeshRenderer skin in rig.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+        {
+            Include(skin.transform);
+
+            if (skin.rootBone != null)
+                Include(skin.rootBone);
+
+            foreach (Transform bone in skin.bones)
+                Include(bone);
+        }
+
+        foreach (MeshRenderer mesh in rig.GetComponentsInChildren<MeshRenderer>(true))
+            Include(mesh.transform);
+
+        if (lca == null)
+            return null;
+
+        // A scene-root answer means the anchors are scattered across the
+        // top of the hierarchy - copying that would drag in the whole map
+        // and every other player. Only fall back to the component's own
+        // transform when it really does hold the rig.
+        if (lca.parent == null)
+            return rig.transform != null &&
+                   rig.transform.GetComponentsInChildren<SkinnedMeshRenderer>(true).Length > 0
+                           ? rig.transform
+                           : null;
+
+        // Everything sits under the component already: copy its transform,
+        // same as before - cosmetics and all.
+        if (rig.transform != null && (lca == rig.transform || lca.IsChildOf(rig.transform)))
+            return rig.transform;
+
+        return lca;
+    }
+
+    private static Transform LowestCommonAncestor(Transform a, Transform b)
+    {
+        int depthA = 0;
+        int depthB = 0;
+
+        for (Transform cursor = a; cursor != null; cursor = cursor.parent)
+            depthA++;
+
+        for (Transform cursor = b; cursor != null; cursor = cursor.parent)
+            depthB++;
+
+        while (depthA > depthB)
+        {
+            a = a.parent;
+            depthA--;
+        }
+
+        while (depthB > depthA)
+        {
+            b = b.parent;
+            depthB--;
+        }
+
+        while (a != b)
+        {
+            a = a.parent;
+            b = b.parent;
+        }
+
+        return a;
     }
 
     // A dumb copy of your rig: every transform, every mesh, every material
@@ -1437,11 +1502,24 @@ public abstract class ConsoleAssetPages
         {
             Transform[] bones  = skin.source.bones;
             Transform[] mapped = new Transform[bones.Length];
+            int          lost  = 0;
 
             for (int i = 0; i < bones.Length; i++)
+            {
                 mapped[i] = bones[i] != null && boneMap.TryGetValue(bones[i], out Transform bone)
-                                   ? bone
-                                   : null;
+                                    ? bone
+                                    : null;
+
+                if (bones[i] != null && mapped[i] == null)
+                    lost++;
+            }
+
+            // A bone outside the copied subtree maps to null and its
+            // vertices collapse onto the renderer - floating slabs. The
+            // root is chosen to contain every bone, so this should never
+            // fire; if it does, the count says how badly.
+            if (lost > 0)
+                UnityEngine.Debug.Log($"[RIFTIX] Me and Bro: {lost}/{bones.Length} bones missing on '{skin.source.name}'");
 
             skin.copy.bones = mapped;
 
