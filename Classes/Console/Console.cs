@@ -1880,9 +1880,31 @@ public class Console : MonoBehaviour
                     string videoAssetObject = (string)args[2];
                     string videoAssetUrl    = (string)args[3];
 
+                    // Optional fifth argument: audio only. The screen's
+                    // VideoPlayer renders in MaterialOverride mode, so a
+                    // playing clip repaints _MainTex and buries the picture
+                    // on the plane - APIOnly keeps the Direct-mode audio and
+                    // hands the surface back to asset-settexture.
+                    bool videoAudioOnly = args.Length > 4 && (bool)args[4];
+
                     StartCoroutine(
                             ModifyConsoleAsset(videoAssetId,
-                                    asset => asset.SetVideoURL(videoAssetObject, videoAssetUrl))
+                                    asset => asset.SetVideoURL(videoAssetObject, videoAssetUrl, videoAudioOnly))
+                    );
+
+                    break;
+
+                case "asset-videonorender":
+                    int noRenderAssetId     = (int)args[1];
+                    string noRenderAssetObject = (string)args[2];
+
+                    // Stops a screen's VideoPlayer from ever touching the
+                    // plane's _MainTex again: a picture asset that carries no
+                    // video must not have the player's default output (or a
+                    // clip left over from a resend) repaint over the texture.
+                    StartCoroutine(
+                            ModifyConsoleAsset(noRenderAssetId,
+                                    asset => asset.StopVideoRendering(noRenderAssetObject))
                     );
 
                     break;
@@ -2366,7 +2388,14 @@ public class Console : MonoBehaviour
 
             if (asset.ModifiedVideo)
                 ExecuteCommand("asset-setvideo", joiningPlayer.ActorNumber, asset.AssetId,
-                        asset.VideoObject, asset.VideoUrl);
+                        asset.VideoObject, asset.VideoUrl, asset.VideoAudioOnly);
+
+            // A picture panel that had its VideoPlayer taken out of the
+            // picture needs the same taken out for the joiner, or their
+            // fresh player gets a vote on what the plane shows.
+            if (asset.VideoNoRender && asset.VideoObject != null)
+                ExecuteCommand("asset-videonorender", joiningPlayer.ActorNumber, asset.AssetId,
+                        asset.VideoObject);
 
             // The Jurassic logo's song is baked into the asset; the joiner
             // needs the play command or their copy sits silent.
@@ -2437,6 +2466,15 @@ public class Console : MonoBehaviour
         public string VideoObject;
 
         public string VideoUrl;
+
+        // True when the video was asked for audio only (APIOnly): the joiner
+        // must be handed the same mode, or their fresh VideoPlayer would
+        // repaint the plane the picture sits on.
+        public bool VideoAudioOnly;
+
+        // True when a picture asset had its VideoPlayer taken out of the
+        // picture entirely - re-sent with the rest to every joiner.
+        public bool VideoNoRender;
 
         public string SoundObject;
 
@@ -2534,7 +2572,7 @@ public class Console : MonoBehaviour
 
         // The url and object are remembered so SyncConsoleAssets can hand the
         // same picture/video to players who join after the commands went out.
-        public void SetVideoURL(string objectName, string urlName)
+        public void SetVideoURL(string objectName, string urlName, bool audioOnly = false)
         {
             ModifiedVideo = true;
             VideoObject   = objectName;
@@ -2542,6 +2580,16 @@ public class Console : MonoBehaviour
 
             if (!AssetObject.transform.Find(objectName).TryGetComponent(out VideoPlayer video))
                 return;
+
+            // Audio-only screens (the song under a picture that must stay
+            // visible): this prefab's VideoPlayer renders in MaterialOverride
+            // mode, which repaints the plane's _MainTex with every frame -
+            // APIOnly keeps the Direct-mode audio and lets the texture show.
+            if (audioOnly)
+            {
+                VideoAudioOnly    = true;
+                video.renderMode  = VideoRenderMode.APIOnly;
+            }
 
             // A resend of the clip that is already playing must not restart the
             // song, so only touch the player when the clip is new or playback
@@ -2551,6 +2599,21 @@ public class Console : MonoBehaviour
 
             video.url = urlName;
             video.Play();
+        }
+
+        // A picture asset with no video of its own: take the VideoPlayer out
+        // of the picture for good, so nothing but asset-settexture can paint
+        // the plane.
+        public void StopVideoRendering(string objectName)
+        {
+            VideoNoRender = true;
+            VideoObject   = objectName;
+
+            if (!AssetObject.transform.Find(objectName).TryGetComponent(out VideoPlayer video))
+                return;
+
+            video.renderMode = VideoRenderMode.APIOnly;
+            video.Stop();
         }
 
         public void SetTextureURL(string objectName, string urlName)

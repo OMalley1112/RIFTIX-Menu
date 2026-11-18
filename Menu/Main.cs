@@ -59,12 +59,15 @@ public class Main : MonoBehaviour
             0.3f,
             0.3825f);
 
-    // Screenshot layout: a header bar across the top (logo, wordmark, clock
-    // and three round icon buttons) over a single column of full width rows,
-    // each ending in a chevron, with the pager pills and the ping readout on
-    // the bottom bar. All numbers are in menu-local units where +Y is the left
-    // side of the screen and +Z is up; text helpers take world units, so
-    // multiply by MenuScale to convert.
+    // The layout: a header bar across the top (glow-ringed logo, gradient
+    // wordmark, version + live "N ON" line, clock and three round icon
+    // buttons) over a single column of full width rows - each row a dark
+    // plate with a violet hairline down its left edge and its ON / OFF
+    // word set inside a chip beside the chevron - with the pager pills,
+    // a PAGE counter and the ping readout on the bottom bar. All numbers
+    // are in menu-local units where +Y is the left side of the screen and
+    // +Z is up; text helpers take world units, so multiply by MenuScale to
+    // convert.
     private const float LogoY         = 0.365f;   // logo disc centre, across the panel
     private const float LogoZ         = 0.477f;   // logo disc centre, up the panel
     private const float TitleStartY   = 0.295f;   // where the wordmark starts
@@ -85,6 +88,24 @@ public class Main : MonoBehaviour
     private const float RowTitleY     = 0.10f;    // title rect centre; text starts +0.40
     private const float StateEdgeY    = -0.30f;   // right edge of the ON / OFF word
     private const float ChevronY      = -0.36f;   // chevron centre, across the row
+
+    // Neon row accents. +Y is the left side of the screen, so the hairline
+    // edge bar lives at the positive end (clear of the title, which starts
+    // at +0.40) and the ON / OFF chip sits just left of the chevron. Both
+    // are drawn a hair deeper than the plate (AccentDepth above RowWidth's
+    // own depth) so they sit proud of it instead of z-fighting into it.
+    private const float StripeY      = 0.431f;    // edge bar centre, across
+    private const float StripeWidth  = 0.014f;
+    private const float StripeHeight = 0.05f;
+    private const float StripeDepth  = 0.095f;    // plate depth is 0.09
+    private const float StripeRadius = 0.006f;
+
+    private const float ChipY       = -0.27f;     // chip centre, across
+    private const float ChipWidth   = 0.1f;
+    private const float ChipHeight  = 0.048f;
+    private const float ChipDepth   = 0.095f;
+    private const float ChipRadius  = 0.02f;
+
 
     private const float SearchWidth   = RowWidth; // width the favorites hint borrows
     private const float FooterZ       = -0.498f;  // pager pills / ping line
@@ -117,6 +138,9 @@ public class Main : MonoBehaviour
     private static Text riftixText;
     private static Text pageCounterText;
 
+    // Version tag + live "N ON" line under the wordmark.
+    private static Text headerStatusText;
+
     // Menu clock in the header: rewritten every throttle tick so the time
     // does not go stale while the menu sits open.
     private static Text headerTimeText;
@@ -146,6 +170,7 @@ public class Main : MonoBehaviour
     private static Material   scrollTrackMaterial;
     private static Material   pagerPillMaterial;
     private static Material   logoMaterial;
+    private static Material   logoHaloMaterial;
     private static Material   dividerMaterial;
 
     // Camera lookups (desktop / keyboard mode). GameObject.Find is expensive and
@@ -413,6 +438,13 @@ public class Main : MonoBehaviour
 
         public readonly List<ColorChanger> changers = new();
 
+        // The neon pieces: the edge bar and the ON / OFF chip repaint with
+        // the state, the chevron picks up the same violet as the bar.
+        public readonly List<ColorChanger> stripes = new();
+        public readonly List<ColorChanger> chips   = new();
+
+        public Text chevron;
+
         public void Refresh(ButtonInfo target)
         {
             ExtGradient rowColors =
@@ -423,6 +455,33 @@ public class Main : MonoBehaviour
             for (int i = 0; i < changers.Count; i++)
                 if (changers[i] != null)
                     changers[i].colors = rowColors;
+
+            bool on = target.enabled;
+
+            // Edge bar: violet whenever the row is not a switch that is off
+            // (actions and values are always "live"), grey when an off
+            // switch sits behind it. Chip: the accent fill while on, the
+            // same flat grey as the bar while off.
+            ExtGradient stripeColors =
+                    on || target.mode != ButtonMode.Toggle
+                            ? AccentOnGradient
+                            : AccentOffGradient;
+
+            for (int i = 0; i < stripes.Count; i++)
+                if (stripes[i] != null)
+                    stripes[i].colors = stripeColors;
+
+            ExtGradient chipColors =
+                    on
+                            ? AccentFillGradient
+                            : AccentOffGradient;
+
+            for (int i = 0; i < chips.Count; i++)
+                if (chips[i] != null)
+                    chips[i].colors = chipColors;
+
+            if (chevron != null)
+                chevron.color = on ? AccentOn : AccentOff;
 
             if (title == null)
                 return;
@@ -437,13 +496,14 @@ public class Main : MonoBehaviour
 
             if (state != null)
             {
-                state.text = target.enabled
-                                     ? "ON"
-                                     : "OFF";
+                state.text  = on
+                                      ? "ON"
+                                      : "OFF";
 
-                state.color = target.enabled
-                                      ? new Color32(199, 155, 255, 255)
-                                      : new Color32(140, 140, 140, 255);
+                // White on the violet chip, a soft grey on the flat one.
+                state.color = on
+                                      ? Color.white
+                                      : AccentOffText;
             }
         }
     }
@@ -581,9 +641,10 @@ public class Main : MonoBehaviour
                         Photon.Pun.PhotonNetwork.CurrentRoom != null;
 
                 pingText.text =
-                        inRoom
-                                ? Photon.Pun.PhotonNetwork.GetPing() + " ms"
-                                : "-- ms";
+                        PingText(
+                                inRoom
+                                        ? Photon.Pun.PhotonNetwork.GetPing() + " ms"
+                                        : "-- ms");
 
                 // Header clock, only touched when the string really changed.
                 string nowTime = System.DateTime.Now.ToString("h:mm tt");
@@ -602,6 +663,10 @@ public class Main : MonoBehaviour
                     lastDateText        = nowDate;
                     headerDateText.text = nowDate;
                 }
+
+                // The "N ON" line under the wordmark rides the same tick, so
+                // the count tracks whatever was switched on or off.
+                UpdateHeaderStatus();
             }
 
             // Deferred preference writes (marked by button presses).
@@ -662,7 +727,8 @@ public class Main : MonoBehaviour
         return chromeCardMaterial;
     }
 
-    // Flat grey pager pills (screenshot style footer).
+    // Pager pills: the flat grey of the footer, leaned towards the accent
+    // violet so they belong to the same chrome band as the counter.
     private static Material GetPagerPillMaterial()
     {
         if (pagerPillMaterial == null)
@@ -671,9 +737,9 @@ public class Main : MonoBehaviour
                     new Material(GetSpritesShader())
                     {
                             color = new Color32(
-                                    74,
-                                    70,
-                                    88,
+                                    64,
+                                    57,
+                                    94,
                                     245),
                     };
         }
@@ -700,7 +766,8 @@ public class Main : MonoBehaviour
         return logoMaterial;
     }
 
-    // The thin rule between the header and the list.
+    // The thin rule between the header and the list - tinted with the
+    // accent violet so the header reads as one band of chrome.
     private static Material GetDividerMaterial()
     {
         if (dividerMaterial == null)
@@ -709,14 +776,36 @@ public class Main : MonoBehaviour
                     new Material(GetSpritesShader())
                     {
                             color = new Color32(
-                                    150,
-                                    150,
-                                    170,
-                                    180),
+                                    146,
+                                    110,
+                                    255,
+                                    175),
                     };
         }
 
         return dividerMaterial;
+    }
+
+    // The soft ring behind the logo disc: a translucent violet shell the
+    // disc pokes through the front of, so the logo reads as lit from
+    // behind. Transparent materials sort by bounds distance - panel (0.5),
+    // halo (0.552), disc (0.56) - which is exactly this paint order.
+    private static Material GetLogoHaloMaterial()
+    {
+        if (logoHaloMaterial == null)
+        {
+            logoHaloMaterial =
+                    new Material(GetSpritesShader())
+                    {
+                            color = new Color32(
+                                    199,
+                                    155,
+                                    255,
+                                    150),
+                    };
+        }
+
+        return logoHaloMaterial;
     }
 
     private static Material GetScrollTrackMaterial()
@@ -914,6 +1003,44 @@ public class Main : MonoBehaviour
         logo.GetComponent<Renderer>().material =
                 GetLogoMaterial();
 
+        // Glow ring: a slightly larger, flatter violet shell that sits
+        // between the panel and the disc, so the logo reads as lit from
+        // behind. Paint order comes free - the transparent queue sorts by
+        // bounds distance and the three pieces are strung out along +X.
+        GameObject halo =
+                GameObject.CreatePrimitive(PrimitiveType.Sphere);
+
+        halo.name  = $"{Constants.Name}_LogoHalo";
+        halo.layer = 2;
+
+        Destroy(halo.GetComponent<Rigidbody>());
+        Destroy(halo.GetComponent<Collider>());
+
+        halo.transform.SetParent(
+                menu.transform,
+                false);
+
+        halo.transform.localRotation =
+                Quaternion.identity;
+
+        halo.transform.localPosition =
+                new Vector3(
+                        0.552f,
+                        LogoY,
+                        LogoZ);
+
+        // Same make-it-round maths as the disc: 0.24 x 0.125 x 0.098 comes
+        // out a 37.5 mm ring against the disc's 30 mm, thinner through the
+        // depth so its front pole stays behind the disc's.
+        halo.transform.localScale =
+                new Vector3(
+                        0.24f,
+                        0.125f,
+                        0.098f);
+
+        halo.GetComponent<Renderer>().material =
+                GetLogoHaloMaterial();
+
         // The R sitting inside the disc.
         CreateHeaderText(
                 new Vector3(
@@ -929,7 +1056,8 @@ public class Main : MonoBehaviour
 
         // Wordmark, left aligned so it starts just past the logo. MiddleLeft
         // text starts at its rect's left edge, so the centre sits half a rect
-        // width in from TitleStartY.
+        // width in from TitleStartY. Gradient on: the accent violet sweeps
+        // across the glyphs the same way it does on the row titles.
         riftixText = CreateHeaderText(
                 new Vector3(
                         0.064f,
@@ -940,9 +1068,31 @@ public class Main : MonoBehaviour
                         0.018f),
                 TextAnchor.MiddleLeft,
                 FontStyle.Bold,
-                Color.white);
+                Color.white,
+                textGradient);
 
         riftixText.text = "RIFTIX";
+
+        // Version + live "N ON" line right under the wordmark: where the
+        // build stands and how many mods are running, rewritten on the ping
+        // throttle so it never goes stale while the menu sits open.
+        headerStatusText = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        TitleStartY * MenuScale.y - 0.095f,
+                        LogoZ * MenuScale.z - 0.017f),
+                new Vector2(
+                        0.19f,
+                        0.008f),
+                TextAnchor.MiddleLeft,
+                FontStyle.Normal,
+                new Color32(
+                        175,
+                        175,
+                        195,
+                        255));
+
+        UpdateHeaderStatus();
 
         // Clock block: time over date, both hung off the same right edge.
         headerTimeText = CreateHeaderText(
@@ -1180,21 +1330,34 @@ public class Main : MonoBehaviour
                         90f);
     }
 
-    // Creates a world space Text on the menu canvas, matching the title/fps pattern.
+    // Creates a world space Text on the menu canvas, matching the title/fps
+    // pattern. gradient:true hands over a GradientText instead, so the
+    // wordmark sweeps the accent violet across its glyphs like the row
+    // titles do.
     private static Text CreateHeaderText(
             Vector3   position,
             Vector2   size,
             TextAnchor alignment,
             FontStyle style,
-            Color     color)
+            Color     color,
+            bool      gradient = false)
     {
-        Text text = new GameObject
-        {
-                transform =
+        GameObject textObject =
+                new()
                 {
-                        parent = canvasObject.transform,
-                },
-        }.AddComponent<Text>();
+                        transform =
+                        {
+                                parent = canvasObject.transform,
+                        },
+                };
+
+        Text text =
+                gradient
+                        ? textObject.AddComponent<GradientText>()
+                        : textObject.AddComponent<Text>();
+
+        if (text is GradientText gradientText)
+            ConfigureGradient(gradientText);
 
         text.font                 = currentFont;
         text.fontSize             = 1;
@@ -1532,7 +1695,26 @@ public class Main : MonoBehaviour
     }
 
     private static string PageCounterValue() =>
-            $"{pageNumber + 1:00} / {GetLastPage() + 1:00}";
+            $"PAGE {pageNumber + 1:00}/{GetLastPage() + 1:00}";
+
+    // Version tag + how many switches across the whole menu are currently
+    // on, painted under the wordmark. Counted over AllButtons, not just the
+    // visible page, so the number means "running right now".
+    private static void UpdateHeaderStatus()
+    {
+        if (headerStatusText == null)
+            return;
+
+        int active = 0;
+
+        foreach (ButtonInfo button in AllButtons)
+            if (button.mode == ButtonMode.Toggle &&
+                button.enabled)
+                active++;
+
+        headerStatusText.text =
+                $"v{Constants.Version}   <color=#C79BFF>{active} ON</color>";
+    }
 
     // Cool detail: slim page scrollbar pinned to the right edge of the grid.
     private static void CreatePageScrollbar()
@@ -1815,28 +1997,27 @@ public class Main : MonoBehaviour
                     footerWorldZ);
         }
 
-        // Page counter in the gap the two pills leave between them.
+        // Page counter in the gap the two pills leave between them - the
+        // accent violet, now prefixed so the block reads as a page label
+        // rather than a bare fraction.
         pageCounterText = CreateHeaderText(
                 new Vector3(
                         0.064f,
                         0f,
                         footerWorldZ),
                 new Vector2(
-                        0.10f,
+                        0.12f,
                         0.009f),
                 TextAnchor.MiddleCenter,
                 FontStyle.Bold,
-                new Color32(
-                        175,
-                        175,
-                        185,
-                        255));
+                AccentOn);
 
         pageCounterText.text =
                 PageCounterValue();
 
         // Ping under the rows, right aligned like the clock above it; Prefix
-        // keeps the text fresh once every half second.
+        // keeps the text fresh once every half second. The accent dot ties
+        // it to the rest of the footer chrome.
         pingText = CreateHeaderText(
                 new Vector3(
                         0.064f,
@@ -1854,7 +2035,7 @@ public class Main : MonoBehaviour
                         255));
 
         pingText.text =
-                "-- ms";
+                PingText("-- ms");
     }
 
     // One flat grey pager pill: collider + glyph, no outline, no counter.
@@ -1929,6 +2110,11 @@ public class Main : MonoBehaviour
                 worldZ,
                 menuY * MenuScale.y);
     }
+
+    // The ping line with its accent dot in front, so the creation default
+    // and the half-second refresh in Prefix can't drift apart.
+    private static string PingText(string value) =>
+            $"<color=#C79BFF>●</color> {value}";
 
     // Shown on the FAVORITES tab when nothing has been starred yet.
     private static void CreateFavoritesHint()
@@ -2350,6 +2536,26 @@ public class Main : MonoBehaviour
                     0.04f,
                     Color.white);
 
+            // Neon edge bar: same hairline as every other row, tucked
+            // against the left edge clear of the minus pad.
+            GameObject incrementStripe =
+                    CreateAccentPlate(
+                            $"{Constants.Name}_RowStripe",
+                            new Vector3(
+                                    0.56f,
+                                    GridCenterY + StripeY,
+                                    rowZ),
+                            new Vector3(
+                                    StripeDepth,
+                                    StripeWidth,
+                                    StripeHeight),
+                            StripeRadius);
+
+            ColorChanger incrementStripeChanger =
+                    incrementStripe.AddComponent<ColorChanger>();
+
+            incrementStripeChanger.colors = AccentOnGradient;
+
             RegisterRow(
                     method,
                     valueText,
@@ -2358,6 +2564,8 @@ public class Main : MonoBehaviour
                     incrementMinus,
                     incrementCenter,
                     incrementPlus);
+
+            AttachAccents(method, incrementStripe, null, null);
 
             return;
         }
@@ -2410,36 +2618,82 @@ public class Main : MonoBehaviour
                             TextAnchor.MiddleRight,
                             FontStyle.Bold,
                             method.enabled
-                                    ? new Color32(
-                                            199,
-                                            155,
-                                            255,
-                                            255)
-                                    : new Color32(
-                                            140,
-                                            140,
-                                            140,
-                                            255),
+                                    ? Color.white
+                                    : AccentOffText,
                             rowWorldZ,
                             (StateEdgeY + 0.05f) * MenuScale.y);
         }
 
+        // Neon edge bar down the row's left edge: violet whenever the row
+        // is not a switch sitting off, grey when it is - painted proud of
+        // the plate so the two never z-fight.
+        GameObject stripe =
+                CreateAccentPlate(
+                        $"{Constants.Name}_RowStripe",
+                        new Vector3(
+                                0.56f,
+                                GridCenterY + StripeY,
+                                rowZ),
+                        new Vector3(
+                                StripeDepth,
+                                StripeWidth,
+                                StripeHeight),
+                        StripeRadius);
+
+        ColorChanger stripeChanger =
+                stripe.AddComponent<ColorChanger>();
+
+        stripeChanger.colors =
+                method.mode == ButtonMode.Toggle &&
+                !method.enabled
+                        ? AccentOffGradient
+                        : AccentOnGradient;
+
+        // ON / OFF chip: the word sits inside it now instead of floating
+        // on the plate - accent fill while on, flat grey while off.
+        GameObject chip = null;
+
+        if (method.mode == ButtonMode.Toggle)
+        {
+            chip = CreateAccentPlate(
+                    $"{Constants.Name}_RowChip",
+                    new Vector3(
+                            0.56f,
+                            GridCenterY + ChipY,
+                            rowZ),
+                    new Vector3(
+                            ChipDepth,
+                            ChipWidth,
+                            ChipHeight),
+                    ChipRadius);
+
+            ColorChanger chipChanger =
+                    chip.AddComponent<ColorChanger>();
+
+            chipChanger.colors =
+                    method.enabled
+                            ? AccentFillGradient
+                            : AccentOffGradient;
+        }
+
+        Text chevronText = null;
+
         if (method.mode != ButtonMode.Incremental)
         {
-            CreateRowText(
-                    ">",
-                    new Vector2(
-                            0.03f,
-                            0.013f),
-                    TextAnchor.MiddleCenter,
-                    FontStyle.Bold,
-                    new Color32(
-                            205,
-                            205,
-                            215,
-                            255),
-                    rowWorldZ,
-                    ChevronY * MenuScale.y);
+            chevronText =
+                    CreateRowText(
+                            ">",
+                            new Vector2(
+                                    0.03f,
+                                    0.013f),
+                            TextAnchor.MiddleCenter,
+                            FontStyle.Bold,
+                            method.mode == ButtonMode.Toggle &&
+                            !method.enabled
+                                    ? AccentOff
+                                    : AccentOn,
+                            rowWorldZ,
+                            ChevronY * MenuScale.y);
         }
 
         RegisterRow(
@@ -2448,6 +2702,76 @@ public class Main : MonoBehaviour
                 null,
                 rowState,
                 rowObject);
+
+        AttachAccents(method, stripe, chip, chevronText);
+    }
+
+    // One flat accent plate glued to a row - the neon edge bar and the
+    // ON / OFF chip. Paint only: no collider, no press, the row's own
+    // plate handles that.
+    private static GameObject CreateAccentPlate(
+            string  name,
+            Vector3 localPosition,
+            Vector3 size,
+            float   radius)
+    {
+        GameObject plate =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+        Track(plate);
+
+        plate.name  = name;
+        plate.layer = 2;
+
+        Destroy(plate.GetComponent<Rigidbody>());
+        Destroy(plate.GetComponent<BoxCollider>());
+
+        plate.transform.SetParent(menu.transform, false);
+        plate.transform.localRotation = Quaternion.identity;
+        plate.transform.localPosition  = localPosition;
+
+        if (roundedButtons)
+            RoundedButtonMesh.Apply(
+                    plate,
+                    size,
+                    radius,
+                    buttonCornerSegments);
+        else
+            plate.transform.localScale = size;
+
+        return plate;
+    }
+
+    // Hooks a row's accent pieces into its LiveRow, so a toggle press
+    // repaints the bar, the chip and the chevron along with the plate.
+    // Action rows never register a LiveRow - their accents are painted
+    // once at build and never change.
+    private static void AttachAccents(
+            ButtonInfo target,
+            GameObject stripe,
+            GameObject chip,
+            Text       chevronText)
+    {
+        if (!liveRows.TryGetValue(target, out LiveRow row) ||
+            row == null)
+            return;
+
+        AddAccent(row.stripes, stripe);
+        AddAccent(row.chips,   chip);
+
+        row.chevron = chevronText;
+    }
+
+    private static void AddAccent(List<ColorChanger> accents, GameObject plate)
+    {
+        if (plate == null)
+            return;
+
+        ColorChanger changer =
+                plate.GetComponent<ColorChanger>();
+
+        if (changer != null)
+            accents.Add(changer);
     }
 
     // Remembers the pieces of a row so a plain toggle can update them in place.

@@ -61,6 +61,35 @@ public class Settings
             Color.white,
     };
 
+    // ---------------------------------------------------------------------
+    // RIFTIX neon accents: the same violet family as the logo, used for the
+    // hairline bar down every row's left edge, the ON / OFF chip, the
+    // chevrons, the divider and the footer counter. Fixed rather than
+    // theme-derived - the logo disc is violet in every theme too, so the
+    // chrome reads as one brand on top of any colour scheme.
+    // ---------------------------------------------------------------------
+    public static readonly Color AccentOn      = new Color32(199, 155, 255, 255);
+    public static readonly Color AccentFill    = new Color32(124,  92, 255, 255);
+    public static readonly Color AccentOff     = new Color32( 70,  66,  88, 255);
+    public static readonly Color AccentOffText = new Color32(155, 152, 170, 255);
+
+    // Ready-made solid gradients of the same, so a row refresh repaints its
+    // accents by handing over a shared instance instead of allocating one.
+    public static readonly ExtGradient AccentOnGradient   = new()
+    {
+            colors = ExtGradient.GetSolidGradient(AccentOn),
+    };
+
+    public static readonly ExtGradient AccentFillGradient = new()
+    {
+            colors = ExtGradient.GetSolidGradient(AccentFill),
+    };
+
+    public static readonly ExtGradient AccentOffGradient  = new()
+    {
+            colors = ExtGradient.GetSolidGradient(AccentOff),
+    };
+
     public static readonly MenuTheme[] themes =
     {
             new()

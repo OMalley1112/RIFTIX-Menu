@@ -1164,7 +1164,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnMeAndBro,
                     disableMethod = ConsoleAssetPages.RemoveMeAndBro,
                     displayText   = ConsoleAssetPages.MeAndBroDisplay,
-                    toolTip       = "Floats the nose-to-nose pose from 00:05 of the video in front of you with the rest of the clip as its song (networked - the whole room sees the picture and hears it).",
+                    toolTip       = "Stands two copies of YOUR gorilla nose to nose in front of you - the 00:05 pose - both leaning and bobbing together (local, you only), while the rest of the clip plays as its song for the whole room to hear.",
             },
 
             new()
