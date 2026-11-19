@@ -5,6 +5,7 @@ using Photon.Pun;
 using Photon.Realtime;
 using StupidTemplate.Classes;
 using StupidTemplate.Notifications;
+using TMPro;
 using UnityEngine;
 using UnityEngine.XR;
 using GTConsole = StupidTemplate.Classes.Console.Console;
@@ -836,6 +837,651 @@ public abstract class ConsoleAssetPages
             BetterDayNightManager.instance.ClearTimeOfDay(true);
             BetterDayNightManager.instance.ClearFixedWeather(true);
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Countdown: the live time event - a chessboard hanging in the air
+    // four metres in front of you, ticking the day name and the hours,
+    // minutes and seconds left until tomorrow midnight. The backdrop is a
+    // checkerboard Texture2D painted at runtime (dark squares, teal frame
+    // - no repo image needed) on a quad, with three world TextMeshPros
+    // over it in the game's own nametag font: "TOMORROW IN", a clock
+    // whose colons blink cyan, and tomorrow's weekday. The whole thing
+    // rises with an overshoot on showtime, then floats, sways, breathes
+    // a teal point light and sheds sparkles - the chess-edit brilliant
+    // glow. The board is local like the Steam Icon's FX (there is no
+    // command that can carry text, so it cannot be networked); Adele's
+    // Skyfall - the sound of the edit this came from - rides the
+    // networked audio carrier the old Emote used: a screen scaled to
+    // nothing at your head, audioOnly, so the whole room hears the song
+    // while only you see the board.
+    // ---------------------------------------------------------------------
+
+    // The song off raw.githubusercontent, muxed from the official lyric
+    // video's audio into a black-frame mp4 - the VideoPlayer format this
+    // menu has always streamed.
+    private const string CountdownVideoUrl =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/skyfall.mp4";
+
+    // The board hangs four metres out, half a metre above the eye line so
+    // it fills the view without sitting on it.
+    private const float CountdownDistance = 4f;
+    private const float CountdownLift     = 0.55f;
+
+    // 3.2 x 1.8 m of checkerboard: wide enough for the clock to read
+    // across the forest.
+    private const float CountdownWidth = 3.2f;
+    private const float CountdownTall  = 1.8f;
+
+    // The carrier scaled to nothing: all song, no panel.
+    private static readonly Vector3 CountdownAudioScale = new(0.0005f, 0.00088f, 0.0005f);
+
+    private static GameObject countdownBoard;
+    private static Material   countdownBoardMaterial;
+    private static Material   countdownFrameMaterial;
+    private static Texture2D  countdownTexture;
+    private static Light      countdownLight;
+    private static TextMeshPro countdownTitle;
+    private static TextMeshPro countdownClock;
+    private static TextMeshPro countdownDay;
+
+    // Where the entrance settles: stored when the board is built, animated
+    // from by CountdownRun.
+    private static Vector3    countdownRestPosition;
+    private static Quaternion countdownRestRotation;
+
+    private static int countdownAssetId = -1;
+
+    // Cancels the entrance/idle animation and the song resend (toggle off,
+    // room reset, re-press).
+    private static int countdownEpoch;
+
+    public static string CountdownDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Countdown");
+
+        if (button == null || !button.enabled)
+            return "Countdown: <color=red>OFF</color>";
+
+        return $"Countdown: <color=cyan>{CountdownClockText(CountdownRemaining())}</color>";
+    }
+
+    // Time left until the next local midnight, recomputed from the real
+    // clock on every read - it cannot drift while the board is up, and it
+    // is the same number for everyone (their own midnight).
+    private static System.TimeSpan CountdownRemaining()
+    {
+        System.TimeSpan left = System.DateTime.Now.Date.AddDays(1) - System.DateTime.Now;
+
+        return left < System.TimeSpan.Zero ? System.TimeSpan.Zero : left;
+    }
+
+    private static string CountdownClockText(System.TimeSpan left) =>
+            $"{left.Hours:D2}:{left.Minutes:D2}:{left.Seconds:D2}";
+
+    public static void SpawnCountdown()
+    {
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            // Saved switch states replay at startup before the rig exists;
+            // a real press gets told to try again.
+            SetSwitchOff("Countdown");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again.");
+
+            return;
+        }
+
+        countdownEpoch++;
+
+        BuildCountdownBoard(head);
+        CoroutineManager.Instance.StartCoroutine(CountdownRun(countdownEpoch));
+
+        // The song is the room's half of the event: it needs a room and
+        // an admin seat, the board does not - a lobby press just shows
+        // the board in silence.
+        if (CanSpawn(out string reason))
+        {
+            CoroutineManager.Instance.StartCoroutine(CountdownSong(countdownEpoch));
+        }
+        else
+        {
+            UnityEngine.Debug.Log($"[RIFTIX] Countdown: song skipped - {reason}");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+        }
+    }
+
+    public static void RemoveCountdown()
+    {
+        countdownEpoch++;
+
+        DropCountdownBoard();
+
+        int pending = countdownAssetId;
+        countdownAssetId = -1;
+
+        if (Alive(pending))
+        {
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, pending);
+            UnityEngine.Debug.Log("[RIFTIX] Countdown: off - board down, song stopped");
+        }
+        else if (pending >= 0)
+        {
+            // The carrier was asked for but has not finished loading -
+            // wait it out and take it down the moment it lands, or an
+            // invisible song loops in the room forever.
+            CoroutineManager.Instance.StartCoroutine(KillCountdownLate(pending));
+            UnityEngine.Debug.Log("[RIFTIX] Countdown: off - board down, waiting out the song load");
+        }
+        else
+        {
+            UnityEngine.Debug.Log("[RIFTIX] Countdown: off - board down");
+        }
+    }
+
+    // Waits for a cancelled carrier that is still loading and kills it as
+    // soon as it exists - but never one that has since become the live
+    // song (the free-id scan can hand the same id to a fresh spawn).
+    private static IEnumerator KillCountdownLate(int id)
+    {
+        for (int i = 0; i < 12 && !Alive(id); i++)
+            yield return new WaitForSeconds(1f);
+
+        if (Alive(id) && id != countdownAssetId)
+        {
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, id);
+            UnityEngine.Debug.Log($"[RIFTIX] Countdown: late-killed cancelled carrier {id}");
+        }
+    }
+
+    // The board itself: backdrop, frame, the three text lines, the glow
+    // and the sparkles - all local objects in front of your face.
+    private static void BuildCountdownBoard(Transform head)
+    {
+        DropCountdownBoard();
+
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+
+        Vector3 position = head.position + forward * CountdownDistance + Vector3.up * CountdownLift;
+
+        Vector3 toPlayer = head.position - position;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            toPlayer = -forward;
+
+        toPlayer.Normalize();
+
+        // The picture convention: root +Z at the viewer, so the quad
+        // child paints upright - the text children turn 180 degrees
+        // (3D text reads the way the nametags do, facing away).
+        countdownRestPosition = position;
+        countdownRestRotation = Quaternion.LookRotation(toPlayer);
+
+        GameObject board = new("RIFTIX_CountdownBoard");
+        board.transform.position = countdownRestPosition;
+        board.transform.rotation = countdownRestRotation;
+
+        countdownBoard = board;
+
+        Shader shader =
+                Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Universal Render Pipeline/Lit")
+                ?? Shader.Find("Unlit/Texture")
+                ?? Shader.Find("Sprites/Default");
+
+        countdownTexture = BuildCountdownTexture();
+
+        // The checkerboard itself.
+        GameObject backdrop = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        backdrop.name = "Backdrop";
+        Object.Destroy(backdrop.GetComponent<Collider>());
+        backdrop.transform.SetParent(board.transform, false);
+        backdrop.transform.localScale = new Vector3(CountdownWidth, CountdownTall, 1f);
+
+        countdownBoardMaterial = shader != null ? new Material(shader) : null;
+
+        if (countdownBoardMaterial != null)
+        {
+            countdownBoardMaterial.mainTexture = countdownTexture;
+            backdrop.GetComponent<MeshRenderer>().material = countdownBoardMaterial;
+        }
+
+        // The teal frame glowing out around the edges - the brilliant
+        // badge's border, one centimetre behind the board.
+        GameObject frame = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        frame.name = "Frame";
+        Object.Destroy(frame.GetComponent<Collider>());
+        frame.transform.SetParent(board.transform, false);
+        frame.transform.localPosition = new Vector3(0f, 0f, -0.012f);
+        frame.transform.localScale    = new Vector3(CountdownWidth + 0.14f, CountdownTall + 0.14f, 1f);
+
+        countdownFrameMaterial = shader != null ? new Material(shader) : null;
+
+        if (countdownFrameMaterial != null)
+        {
+            Color teal = new(0.16f, 0.85f, 0.8f);
+            countdownFrameMaterial.color = teal;
+
+            if (countdownFrameMaterial.HasProperty("_BaseColor"))
+                countdownFrameMaterial.SetColor("_BaseColor", teal);
+
+            frame.GetComponent<MeshRenderer>().material = countdownFrameMaterial;
+        }
+
+        countdownTitle = MakeCountdownText(
+                board.transform, "Title", new Vector3(0f, CountdownTall * 0.36f, 0.03f),
+                new Vector2(CountdownWidth - 0.3f, 0.42f), "TOMORROW IN");
+
+        countdownClock = MakeCountdownText(
+                board.transform, "Clock", new Vector3(0f, 0.02f, 0.03f),
+                new Vector2(CountdownWidth - 0.25f, 0.85f), CountdownClockText(CountdownRemaining()));
+
+        countdownDay = MakeCountdownText(
+                board.transform, "Day", new Vector3(0f, -CountdownTall * 0.36f, 0.03f),
+                new Vector2(CountdownWidth - 0.3f, 0.42f), CountdownDayName());
+
+        if (countdownTitle != null)
+            countdownTitle.color = new Color(0.25f, 0.95f, 0.9f);
+
+        if (countdownDay != null)
+            countdownDay.color = new Color(0.45f, 0.85f, 0.85f);
+
+        CreateCountdownFX(board);
+
+        UnityEngine.Debug.Log("[RIFTIX] Countdown: board up in front of you");
+    }
+
+    // One line of the board: 3D text that reads like the nametags (their
+    // font, their outline), auto-sized to its own slot so the clock is as
+    // big as the board allows whatever the font's metrics say.
+    private static TextMeshPro MakeCountdownText(
+            Transform parent, string name, Vector3 localPosition, Vector2 rect, string text)
+    {
+        GameObject line = new(name);
+        line.transform.SetParent(parent, false);
+        line.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        line.transform.localPosition = localPosition;
+
+        TextMeshPro mesh = line.AddComponent<TextMeshPro>();
+        mesh.fontSize           = 1f;
+        mesh.alignment          = TextAlignmentOptions.Center;
+        mesh.rectTransform.sizeDelta = rect;
+        mesh.enableAutoSizing   = true;
+        mesh.fontSizeMin        = 0.06f;
+        mesh.fontSizeMax        = 2.5f;
+        mesh.textWrappingMode  = TextWrappingModes.NoWrap;
+        mesh.outlineColor       = Color.black;
+        mesh.outlineWidth       = 0.3f;
+        mesh.text               = text;
+
+        if (VRRig.LocalRig != null && VRRig.LocalRig.playerText1 != null)
+            mesh.font = VRRig.LocalRig.playerText1.font;
+
+        return mesh;
+    }
+
+    // The chessboard: 8 x 8 dark squares with a teal border stamped into
+    // the pixels, painted here so no image has to live in the repo.
+    private static Texture2D BuildCountdownTexture()
+    {
+        const int cells    = 8;
+        const int cellSize = 16;
+        int size = cells * cellSize;
+
+        Texture2D texture = new(size, size, TextureFormat.RGB24, false);
+
+        Color dark  = new(0.045f, 0.05f, 0.062f);
+        Color light = new(0.088f, 0.098f, 0.118f);
+        Color edge  = new(0.13f, 0.72f, 0.68f);
+
+        Color[] pixels = new Color[size * size];
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                bool border = x < 3 || y < 3 || x >= size - 3 || y >= size - 3;
+
+                pixels[y * size + x] = border
+                        ? edge
+                        : (((x / cellSize) + (y / cellSize)) % 2 == 0 ? dark : light);
+            }
+        }
+
+        texture.SetPixels(pixels);
+        texture.filterMode = FilterMode.Bilinear;
+        texture.wrapMode   = TextureWrapMode.Clamp;
+        texture.Apply(false, false);
+
+        return texture;
+    }
+
+    // The glow: a teal point light breathing at the board's centre (it
+    // reaches the trees around it - lights only occlude when they cast
+    // shadows) and cyan sparkles drifting up off the checkerboard. Local
+    // like the Holy Picture's FX, hung straight off the board, whose
+    // scale is 1 - no counter-scaling needed.
+    private static void CreateCountdownFX(GameObject board)
+    {
+        GameObject lightObject = new("CountdownLight");
+        lightObject.transform.SetParent(board.transform, false);
+
+        Light light = lightObject.AddComponent<Light>();
+        light.type      = LightType.Point;
+        light.color     = new Color(0.3f, 0.95f, 0.9f);
+        light.range     = 14f;
+        light.intensity = 1.4f;
+        light.shadows   = LightShadows.None;
+
+        countdownLight = light;
+
+        GameObject sparkleObject = new("CountdownSparkles");
+        sparkleObject.transform.SetParent(board.transform, false);
+
+        ParticleSystem sparks = sparkleObject.AddComponent<ParticleSystem>();
+
+        ParticleSystem.MainModule main = sparks.main;
+        main.loop            = true;
+        main.playOnAwake     = true;
+        main.startLifetime   = new ParticleSystem.MinMaxCurve(1.8f, 3.2f);
+        main.startSpeed      = new ParticleSystem.MinMaxCurve(0.1f, 0.28f);
+        main.startSize       = new ParticleSystem.MinMaxCurve(0.03f, 0.11f);
+        main.startColor      = new Color(0.6f, 1f, 0.97f, 0.9f);
+        main.maxParticles    = 260;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.gravityModifier = -0.012f;
+        main.scalingMode     = ParticleSystemScalingMode.Hierarchy;
+
+        ParticleSystem.EmissionModule emission = sparks.emission;
+        emission.rateOverTime = 55f;
+
+        // A thin box the size of the board, so the sparkles crawl up it.
+        ParticleSystem.ShapeModule shape = sparks.shape;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale     = new Vector3(CountdownWidth, CountdownTall, 0.15f);
+
+        ParticleSystem.VelocityOverLifetimeModule velocity = sparks.velocityOverLifetime;
+        velocity.enabled = true;
+        velocity.space   = ParticleSystemSimulationSpace.World;
+        velocity.x       = new ParticleSystem.MinMaxCurve(-0.03f, 0.03f);
+        velocity.y       = new ParticleSystem.MinMaxCurve(0.16f, 0.38f);
+        velocity.z       = new ParticleSystem.MinMaxCurve(-0.03f, 0.03f);
+
+        ParticleSystem.ColorOverLifetimeModule colorOverLife = sparks.colorOverLifetime;
+        colorOverLife.enabled = true;
+
+        Gradient gradient = new();
+        gradient.SetKeys(
+                new[]
+                {
+                        new GradientColorKey(new Color(0.75f, 1f, 0.98f), 0f),
+                        new GradientColorKey(new Color(0.2f, 0.85f, 0.8f), 1f),
+                },
+                new[]
+                {
+                        new GradientAlphaKey(0.9f, 0f), new GradientAlphaKey(0.5f, 0.5f),
+                        new GradientAlphaKey(0f, 1f),
+                });
+        colorOverLife.color = new ParticleSystem.MinMaxGradient(gradient);
+
+        ParticleSystemRenderer sparkRenderer = sparkleObject.GetComponent<ParticleSystemRenderer>();
+
+        Shader sparkShader =
+                Shader.Find("Universal Render Pipeline/Particles/Unlit")
+                ?? Shader.Find("Universal Render Pipeline/Particles/Lit")
+                ?? Shader.Find("Particles/Standard Unlit")
+                ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended")
+                ?? Shader.Find("Sprites/Default");
+
+        if (sparkShader != null)
+        {
+            Material sparkMaterial = new(sparkShader);
+            sparkMaterial.mainTexture = GetSteamParticleTexture();
+            sparkRenderer.material    = sparkMaterial;
+        }
+
+        sparkRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+    }
+
+    private static void DropCountdownBoard()
+    {
+        // Unity's null check reads a destroyed component as null, so a
+        // board already gone is skipped instead of throwing.
+        if (countdownBoard != null)
+            Object.Destroy(countdownBoard);
+
+        if (countdownBoardMaterial != null)
+            Object.Destroy(countdownBoardMaterial);
+
+        if (countdownFrameMaterial != null)
+            Object.Destroy(countdownFrameMaterial);
+
+        if (countdownTexture != null)
+            Object.Destroy(countdownTexture);
+
+        countdownBoard         = null;
+        countdownBoardMaterial = null;
+        countdownFrameMaterial = null;
+        countdownTexture       = null;
+        countdownLight         = null;
+        countdownTitle         = null;
+        countdownClock         = null;
+        countdownDay           = null;
+    }
+
+    // Tomorrow's weekday, in English whatever the machine's locale says.
+    private static string CountdownDayName() =>
+            System.DateTime.Now.Date.AddDays(1)
+                    .ToString("dddd", System.Globalization.CultureInfo.InvariantCulture)
+                    .ToUpperInvariant();
+
+    // The show: the rise with its overshoot, then the endless idle - slow
+    // float, lazy sway, breathing glow, ticking clock with blinking
+    // colons. One loop for the whole show; the epoch ends it.
+    private static IEnumerator CountdownRun(int epoch)
+    {
+        GameObject board = countdownBoard;
+
+        if (board == null)
+            yield break;
+
+        // The entrance: up from a metre and a half below, easing out and
+        // overshooting the resting place by a few centimetres before it
+        // settles (ease-out-back), growing out of nothing on the way.
+        const float riseTime = 1.5f;
+        const float dropFrom = 1.5f;
+
+        Vector3    startScale = new(0.45f, 0.45f, 0.45f);
+        float      elapsed    = 0f;
+
+        while (elapsed < riseTime)
+        {
+            yield return null;
+
+            if (epoch != countdownEpoch || board == null)
+                yield break;
+
+            elapsed += Time.deltaTime;
+
+            float k = Mathf.Clamp01(elapsed / riseTime);
+            float e = k - 1f;
+
+            float back  = 1f + 2.70158f * e * e * e + 1.70158f * e * e;
+            float cubic = 1f - e * e * e;
+
+            board.transform.localScale = Vector3.Lerp(startScale, Vector3.one, cubic);
+            board.transform.position   = countdownRestPosition + Vector3.down * (dropFrom * (1f - back));
+        }
+
+        if (epoch != countdownEpoch || board == null)
+            yield break;
+
+        board.transform.localScale = Vector3.one;
+        board.transform.position   = countdownRestPosition;
+
+        string lastClockLine = null;
+        string lastDay       = null;
+
+        while (epoch == countdownEpoch && board != null)
+        {
+            yield return null;
+
+            if (board == null)
+                yield break;
+
+            float time = Time.time;
+
+            // The idle: a slow breath of height and a lazy sway around
+            // the resting pose.
+            board.transform.localScale = Vector3.one;
+            board.transform.position   = countdownRestPosition + Vector3.up * (Mathf.Sin(time * 1.4f) * 0.05f);
+            board.transform.rotation   = countdownRestRotation *
+                                         Quaternion.Euler(
+                                                 0f,
+                                                 Mathf.Sin(time * 0.6f) * 4f,
+                                                 Mathf.Sin(time * 0.45f) * 1.2f);
+
+            float pulse = 0.5f + 0.5f * Mathf.Sin(time * 2.2f);
+
+            if (countdownLight != null)
+                countdownLight.intensity = 1.15f + pulse * 0.75f;
+
+            if (countdownTitle != null)
+                countdownTitle.color = Color.Lerp(new Color(0.25f, 0.95f, 0.9f), Color.white, pulse * 0.7f);
+
+            // The nametag font can arrive a frame or two late (the rig
+            // may not be up when the board was built) - fill it in the
+            // moment it exists, exactly like Visual's nametags do.
+            if (countdownTitle != null && countdownTitle.font == null &&
+                VRRig.LocalRig != null &&
+                VRRig.LocalRig.playerText1 != null &&
+                VRRig.LocalRig.playerText1.font != null)
+            {
+                TMP_FontAsset font = VRRig.LocalRig.playerText1.font;
+
+                countdownTitle.font = font;
+                countdownClock.font = font;
+                countdownDay.font   = font;
+            }
+
+            // The clock: recomputed from the real date every frame (so it
+            // is still exact at the midnight it counts down to), the
+            // colons blinking by rich-text colour only - the string's
+            // width never changes, so the auto-sized text never twitches.
+            System.TimeSpan left = CountdownRemaining();
+
+            string colon = time % 1f < 0.5f
+                    ? "<color=#3df3e0>:</color>"
+                    : "<color=#0b3b37>:</color>";
+
+            string clock      = CountdownClockText(left);
+            string clockLine  = clock.Substring(0, 2) + colon +
+                                clock.Substring(3, 2) + colon +
+                                clock.Substring(6, 2);
+
+            if (countdownClock != null && clockLine != lastClockLine)
+            {
+                countdownClock.text  = clockLine;
+                countdownClock.color = Color.Lerp(new Color(0.85f, 1f, 0.98f), Color.white, pulse);
+                lastClockLine        = clockLine;
+            }
+
+            string day = CountdownDayName();
+
+            if (countdownDay != null && day != lastDay)
+            {
+                countdownDay.text = day;
+                lastDay           = day;
+            }
+        }
+    }
+
+    // The song: a screen scaled to nothing right at your head - it paints
+    // nothing, and at zero distance the song is full volume in your ear.
+    // The room hears it from here too (networked, audioOnly).
+    private static IEnumerator CountdownSong(int epoch)
+    {
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            UnityEngine.Debug.Log("[RIFTIX] Countdown: head missing - no song");
+            yield break;
+        }
+
+        Vector3 carrier = head.position + Vector3.up * 0.2f;
+
+        int id = GTConsole.GetFreeAssetID();
+        countdownAssetId = id;
+
+        // Spawn first; every command after it waits for the asset to
+        // exist (Console gives each one up to ten seconds).
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ScreenBundle, ScreenAsset, id);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, carrier);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, id, CountdownAudioScale);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, id, ScreenChild,
+                CountdownVideoUrl, true);
+
+        UnityEngine.Debug.Log($"[RIFTIX] Countdown: carrier {id} spawned, Skyfall sent");
+
+        if (epoch != countdownEpoch)
+        {
+            // Turned off while the commands were still going out.
+            if (Alive(id))
+                GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, id);
+
+            if (countdownAssetId == id)
+                countdownAssetId = -1;
+
+            yield break;
+        }
+
+        // Anyone still downloading when the song went out would drop the
+        // follow-ups, so re-send the carrier once everyone has had twelve
+        // seconds to catch up (Console skips the setvideo if the song is
+        // already playing, so nothing restarts).
+        CoroutineManager.Instance.StartCoroutine(ResendCountdownSong(epoch));
+    }
+
+    private static IEnumerator ResendCountdownSong(int epoch)
+    {
+        yield return new WaitForSeconds(12f);
+
+        if (epoch != countdownEpoch)
+            yield break;
+
+        if (!Alive(countdownAssetId))
+        {
+            UnityEngine.Debug.Log("[RIFTIX] Countdown: song screen never spawned (asset missing after 12s)");
+            yield break;
+        }
+
+        int id = countdownAssetId;
+
+        Transform carrier = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, carrier.position);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, id, CountdownAudioScale);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, id, ScreenChild,
+                CountdownVideoUrl, true);
     }
 
     // Mjolnir on your left hand, networked to the whole room. The bundle is
@@ -3895,6 +4541,7 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("King Minos");
         SetSwitchOff("Ripper");
         SetSwitchOff("Dummy");
+        SetSwitchOff("Countdown");
 
         pictureAssetId = -1;
         hammerAssetId  = -1;
@@ -3915,6 +4562,13 @@ public abstract class ConsoleAssetPages
         holyFxAssetId = -1;
         holyFxMinY    = float.NegativeInfinity;
         DropHolyFX();
+
+        // The countdown board is this client's own object - the room
+        // taking the assets does not touch it - so it goes down here with
+        // the switch, and its song carrier's id goes with the room.
+        countdownEpoch++;
+        countdownAssetId = -1;
+        DropCountdownBoard();
 
         // The night was applied on this client whatever raised it - our
         // switch or another admin's command - and the room it belonged to

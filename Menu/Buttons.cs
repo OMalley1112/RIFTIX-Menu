@@ -1259,6 +1259,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Countdown",
+                    enableMethod  = ConsoleAssetPages.SpawnCountdown,
+                    disableMethod = ConsoleAssetPages.RemoveCountdown,
+                    displayText   = ConsoleAssetPages.CountdownDisplay,
+                    toolTip       = "Raises a chessboard countdown board in the air four metres in front of you - the day name and the hours, minutes and seconds until tomorrow midnight, ticking live on a board that rises with an overshoot, floats, sways, blinks its colons and glows teal with sparkles (the board is yours alone; the song rides a networked carrier - Adele's Skyfall, the sound of the edit this came from - so the whole room hears it).",
+            },
+
+            new()
+            {
                     buttonText = "Return to Main",
                     method     = () => SetCategory("Main"),
                     mode       = ButtonMode.Action,
