@@ -1155,7 +1155,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnDinoRow,
                     disableMethod = ConsoleAssetPages.RemoveDinoRow,
                     displayText   = ConsoleAssetPages.DinoRowDisplay,
-                    toolTip       = "Hangs the four square meme panels side by side in front of you - they deal into the row with a bouncy rise, keep rippling, and dance hard while the Emote plays, all while the room turns to night and starts raining (networked - the whole room sees the row and the storm, and daylight comes back when you switch it off).",
+                    toolTip       = "Hangs the four square meme panels side by side in front of you and plays Drowning (feat. Kodak Black) with them - they deal into the row with a bouncy rise, dance hard to the beat while the song runs, and the room turns to night and starts raining (networked - the whole room hears the song, sees the row and the storm, and daylight comes back when you switch it off).",
             },
 
             new()
@@ -1164,7 +1164,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnEmote,
                     disableMethod = ConsoleAssetPages.RemoveEmote,
                     displayText   = ConsoleAssetPages.EmoteDisplay,
-                    toolTip       = "Plays Drowning (feat. Kodak Black) by A Boogie Wit Da Hoodie for the whole room off an invisible screen, and the Dino Row breaks into a dance to it (networked - everyone hears the song and sees the row dance).",
+                    toolTip       = "Plays Drowning (feat. Kodak Black) by A Boogie Wit Da Hoodie for the whole room and raises the Dino Row with it if it is down - the panels dance to the beat (networked - everyone hears the song and sees the row dance).",
             },
 
             new()

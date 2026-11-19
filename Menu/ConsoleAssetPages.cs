@@ -779,20 +779,22 @@ public abstract class ConsoleAssetPages
 
     // ---------------------------------------------------------------------
     // Dino Row: the four square panels of the meme post, hung side by side
-    // in front of you. Each one is the bare console screen the TikTok
-    // picture uses (console.main1 / VideoPlayer, plane child "Video") with
-    // one of this repo's media/dino1..4.jpg squares on its _MainTex. The
-    // row deals itself into place one panel after another with a bouncy
-    // rise, then keeps rippling while the room goes to night and starts
-    // raining - and while the Emote's song plays it drops the ripple and
-    // dances: hop, roll and sway on the beat. The night index is read out
-    // of the live BetterDayNightManager's own dayNightLightmapNames (never
-    // guessed), the rain rides the WeatherType the console's weather case
-    // already understands, and both are raised as commands so the whole
-    // room gets them. Switching off puts the daylight back for everyone;
-    // so does the room's owner leaving, and a joiner is handed the
-    // atmosphere through SyncConsoleAssets - the raise event that carried
-    // it expired long before they arrived.
+    // in front of you, playing Drowning (feat. Kodak Black) - the track
+    // from the link - as they rise. Each one is the bare console screen the
+    // TikTok picture uses (console.main1 / VideoPlayer, plane child
+    // "Video") with one of this repo's media/dino1..4.jpg squares on its
+    // _MainTex. The row deals itself into place one panel after another
+    // with a bouncy rise, then ripples and dances to the song while the
+    // room goes to night and starts raining. The song is the same one the
+    // Emote asks for - one carrier serves both switches (SyncEmoteSong).
+    // The night index is read out of the live BetterDayNightManager's own
+    // dayNightLightmapNames (never guessed), the rain rides the
+    // WeatherType the console's weather case already understands, and both
+    // are raised as commands so the whole room gets them. Switching off
+    // puts the daylight back for everyone; so does the room's owner
+    // leaving, and a joiner is handed the atmosphere through
+    // SyncConsoleAssets - the raise event that carried it expired long
+    // before they arrived.
     // ---------------------------------------------------------------------
 
     private static readonly string[] DinoImageUrls =
@@ -886,7 +888,15 @@ public abstract class ConsoleAssetPages
             return;
         }
 
+        // The row plays Drowning as it rises - the panels are only half
+        // the show, the song from the link rides with them and the dance
+        // runs to it (the Emote asks for the same song; one carrier
+        // serves both).
+        dinoWantsSong = true;
+
         CoroutineManager.Instance.StartCoroutine(DinoRowSpawn(++dinoSpawnEpoch));
+
+        SyncEmoteSong("Dino Row");
     }
 
     public static void RemoveDinoRow()
@@ -895,6 +905,11 @@ public abstract class ConsoleAssetPages
         // the four panels out of the room and puts the sun back up.
         dinoSpawnEpoch++;
         dinoAnimEpoch++;
+
+        // The row's claim on the song goes with it - if the Emote is not
+        // still holding it, the music stops here.
+        dinoWantsSong = false;
+        SyncEmoteSong("Dino Row off");
 
         for (int i = 0; i < dinoAssetIds.Length; i++)
         {
@@ -1239,11 +1254,10 @@ public abstract class ConsoleAssetPages
     // track from the link - played for the whole room off a screen scaled
     // to nothing (APIOnly: the room hears the song, nobody sees a panel -
     // the carrier trick the TikTok picture's song uses, without the
-    // picture). It also raises dinoDance, the flag DinoRowAnimate reads
-    // every frame: put the Dino Row up first (or after) and the four
-    // panels break into the beat while the song plays - switching the
-    // Emote off stops the song and lets the row settle back into its
-    // ripple.
+    // picture). The button also raises the Dino Row if it is down, because
+    // the Emote's animation IS the row dancing: both switches ask for the
+    // same song through SyncEmoteSong, the carrier goes up once, the row
+    // dances while it runs, and the music stops when neither wants it.
     // ---------------------------------------------------------------------
 
     // The track, encoded as drowning.mp4 (black video + the song, so the
@@ -1255,11 +1269,84 @@ public abstract class ConsoleAssetPages
     // The carrier scaled to nothing: all song, no panel.
     private static readonly Vector3 EmoteAudioScale = new(0.0005f, 0.00088f, 0.0005f);
 
+    // The row's four panels come out of the same bundle the carrier uses,
+    // on a 0.35 s stagger - the carrier joins them after the first frames
+    // alone, or the two loads race and the loser never arrives.
+    private const float EmoteSongDelay = 2f;
+
     private static int emoteAssetId = -1;
     private static int emoteSpawnEpoch;
 
     // What DinoRowAnimate reads every frame: the beat is up, dance the row.
     private static bool dinoDance;
+
+    // One song for both buttons: the Emote and the Dino Row each ask for
+    // it, it plays while either still wants it, and the row dances the
+    // whole time it runs. A spawn still in the air counts as wanted until
+    // it is told otherwise (emoteStarting), so two switches asking in the
+    // same breath start one carrier, not two.
+    private static bool emoteWantsSong;
+    private static bool dinoWantsSong;
+    private static bool emoteStarting;
+
+    // Wants changed (either button, on or off): start the song, keep it,
+    // or take it down with whoever last asked.
+    private static void SyncEmoteSong(string who)
+    {
+        bool want = emoteWantsSong || dinoWantsSong;
+
+        if (want)
+        {
+            dinoDance = true;
+
+            if (Alive(emoteAssetId) || emoteStarting)
+                return;
+
+            emoteStarting = true;
+
+            UnityEngine.Debug.Log($"[RIFTIX] Song: start ({who})");
+            CoroutineManager.Instance.StartCoroutine(EmoteSpawn(++emoteSpawnEpoch));
+        }
+        else
+        {
+            emoteStarting = false;
+            emoteSpawnEpoch++;
+
+            int pending = emoteAssetId;
+            emoteAssetId = -1;
+
+            if (Alive(pending))
+            {
+                GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, pending);
+            }
+            else if (pending >= 0)
+            {
+                // The carrier was asked for but has not finished loading -
+                // wait it out and take it down the moment it lands, or an
+                // invisible song loops in the room forever.
+                CoroutineManager.Instance.StartCoroutine(KillEmoteLate(pending));
+            }
+
+            dinoDance = false;
+
+            UnityEngine.Debug.Log($"[RIFTIX] Song: stop ({who})");
+        }
+    }
+
+    // Waits for a cancelled carrier that is still loading and kills it as
+    // soon as it exists - but never one that has since become the live
+    // song (the free-id scan can hand the same id to a fresh spawn).
+    private static IEnumerator KillEmoteLate(int id)
+    {
+        for (int i = 0; i < 12 && !Alive(id); i++)
+            yield return new WaitForSeconds(1f);
+
+        if (Alive(id) && id != emoteAssetId)
+        {
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, id);
+            UnityEngine.Debug.Log($"[RIFTIX] Emote: late-killed cancelled carrier {id}");
+        }
+    }
 
     public static string EmoteDisplay()
     {
@@ -1286,27 +1373,47 @@ public abstract class ConsoleAssetPages
             return;
         }
 
-        UnityEngine.Debug.Log("[RIFTIX] Emote: button accepted - starting the song");
-        CoroutineManager.Instance.StartCoroutine(EmoteSpawn(++emoteSpawnEpoch));
+        UnityEngine.Debug.Log("[RIFTIX] Emote: button accepted");
+
+        emoteWantsSong = true;
+
+        // The Emote has to have something to SEE: with the row down its
+        // animation is nothing, so raise the Dino Row with it - panels,
+        // song and dance as one show.
+        ButtonInfo row = Buttons.GetIndex("Dino Row");
+
+        if (row != null && !row.enabled)
+        {
+            row.enabled = true;
+            SpawnDinoRow();
+        }
+
+        SyncEmoteSong("Emote");
     }
 
-    // The song stops with the switch - the carrier goes out of the room
-    // and the Dino Row, if it is up, eases back out of the dance.
+    // The song only goes down with the Emote if the Dino Row is not
+    // keeping it up on its own.
     public static void RemoveEmote()
     {
-        emoteSpawnEpoch++;
-
-        if (Alive(emoteAssetId))
-            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, emoteAssetId);
-
-        emoteAssetId = -1;
-        dinoDance    = false;
-
-        UnityEngine.Debug.Log("[RIFTIX] Emote: off - song stopped, dance cleared");
+        emoteWantsSong = false;
+        SyncEmoteSong("Emote off");
     }
 
     private static IEnumerator EmoteSpawn(int epoch)
     {
+        // Let the row's first panels take the bundle alone (or, with the
+        // row already up, let the button press land first): the carrier
+        // waits out the stagger, re-checks it is still wanted, then goes.
+        yield return new WaitForSeconds(EmoteSongDelay);
+
+        if (epoch != emoteSpawnEpoch)
+        {
+            // Turned off during the wait - nothing was sent, nothing to
+            // clean up.
+            emoteStarting = false;
+            yield break;
+        }
+
         VRRig     localRig = VRRig.LocalRig;
         Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
                                      ? localRig.head.rigTarget.transform
@@ -1315,6 +1422,9 @@ public abstract class ConsoleAssetPages
         if (head == null)
         {
             UnityEngine.Debug.Log("[RIFTIX] Emote: head missing - abort");
+            emoteStarting = false;
+            emoteWantsSong = false;
+            dinoWantsSong  = false;
             SetSwitchOff("Emote");
 
             if (!Preferences.RestoringButtonStates)
@@ -1338,27 +1448,26 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, emoteAssetId, ScreenChild,
                 EmoteVideoUrl, true);
 
-        if (epoch != emoteSpawnEpoch)
-            yield break;
+        emoteStarting = false;
 
-        // The row dances from the first beat - whether it is already up or
-        // spawns later, DinoRowAnimate picks the flag up every frame.
-        dinoDance = true;
-
-        UnityEngine.Debug.Log($"[RIFTIX] Emote: carrier {emoteAssetId} spawned, song sent, dance on");
+        UnityEngine.Debug.Log($"[RIFTIX] Emote: carrier {emoteAssetId} spawned, song sent");
 
         // Anyone still downloading when the song went out would drop the
         // follow-ups, so re-send the carrier once everyone has had twelve
         // seconds to catch up (Console skips the setvideo if the song is
         // already playing, so nothing restarts).
-        CoroutineManager.Instance.StartCoroutine(ResendEmote());
+        CoroutineManager.Instance.StartCoroutine(ResendEmote(epoch));
     }
 
     // The same courtesy as the rest of the media: a client twelve seconds
     // behind gets the carrier redone in its place, its size and its song.
-    private static IEnumerator ResendEmote()
+    private static IEnumerator ResendEmote(int epoch)
     {
         yield return new WaitForSeconds(12f);
+
+        // Switched off (or restarted) since the spawn - not a failure.
+        if (epoch != emoteSpawnEpoch)
+            yield break;
 
         if (!Alive(emoteAssetId))
         {
@@ -4480,11 +4589,15 @@ public abstract class ConsoleAssetPages
             }
         }
 
-        // The Emote's song screen is gone with the room, and the Dino
-        // Row's dance beat goes with it - nothing left to dance to.
+        // The Emote's song screen is gone with the room, and with it both
+        // buttons' claim on it - nothing left to dance to, nobody waiting
+        // on a load that can no longer land.
         emoteSpawnEpoch++;
-        emoteAssetId = -1;
-        dinoDance    = false;
+        emoteAssetId     = -1;
+        emoteStarting    = false;
+        emoteWantsSong   = false;
+        dinoWantsSong    = false;
+        dinoDance        = false;
 
         RipperReset();
 
