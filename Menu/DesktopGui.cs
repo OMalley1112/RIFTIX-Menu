@@ -596,6 +596,31 @@ public class DesktopGui : MonoBehaviour
 
         GUILayout.Space(6);
 
+        // The live event's kill switch, right here on the desktop: one
+        // press to raise the sky countdown for the room, one press to
+        // take it all down - no in-game menu needed.
+        if (isAdmin)
+        {
+            ButtonInfo countdown = Buttons.GetIndex("Countdown");
+
+            if (countdown != null)
+            {
+                bool on       = countdown.enabled;
+                string label  = on
+                        ? "  COUNTDOWN IS LIVE - PRESS TO END IT  "
+                        : "  START THE COUNTDOWN LIVE EVENT  ";
+
+                if (GUILayout.Button(new GUIContent(label, countdown.toolTip),
+                                    on ? toggleOnStyle : toggleOffStyle,
+                                    GUILayout.Height(24), GUILayout.ExpandWidth(true)))
+                {
+                    SafeToggle(countdown);
+                }
+
+                GUILayout.Space(6);
+            }
+        }
+
         modScrollPosition = GUILayout.BeginScrollView(modScrollPosition, GUILayout.ExpandHeight(true));
 
         float cardW = (WindowW - 28f - 10f) / 2f;

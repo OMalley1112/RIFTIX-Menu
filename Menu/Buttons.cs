@@ -1263,7 +1263,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnCountdown,
                     disableMethod = ConsoleAssetPages.RemoveCountdown,
                     displayText   = ConsoleAssetPages.CountdownDisplay,
-                    toolTip       = "Raises a chessboard countdown board in the air four metres in front of you - the day name and the hours, minutes and seconds until tomorrow midnight, ticking live on a board that rises with an overshoot, floats, sways, blinks its colons and glows teal with sparkles (the board is yours alone; the song rides a networked carrier - Adele's Skyfall, the sound of the edit this came from - so the whole room hears it).",
+                    toolTip       = "Raises an eleven-metre chessboard in the sky twelve metres out and seven up - the day name and the hours, minutes and seconds until tomorrow midnight, ticking live on a board that rises with an overshoot onto its perch, floats, blinks its colons and glows teal with sparkles. Networked: the whole room sees the board and song (Adele's Skyfall on a hidden carrier) the moment it goes up, anyone who joins later inherits it automatically, and at midnight the board bursts up again for the new day. The desktop Home tab has a quick on/off button so you never need the in-game menu.",
             },
 
             new()
