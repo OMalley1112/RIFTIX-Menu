@@ -2609,9 +2609,21 @@ public class Console : MonoBehaviour
             if (video.url == urlName && video.isPlaying)
                 return;
 
+            // A VideoPlayer fails silently - a file it cannot decode or a
+            // url that dies gives no log line of its own, so hook its error
+            // (idempotent for the same static handler).
+            video.errorReceived -= OnVideoError;
+            video.errorReceived += OnVideoError;
+
             video.url = urlName;
             video.Play();
+
+            Log($"SetVideoURL: playing {urlName} (audioOnly={audioOnly})");
         }
+
+        // Where every silent VideoPlayer failure ends up instead of nowhere.
+        private static void OnVideoError(VideoPlayer source, string message) =>
+                Log($"VideoPlayer error: {message} ({source.url})");
 
         // A picture asset with no video of its own: take the VideoPlayer out
         // of the picture for good, so nothing but asset-settexture can paint

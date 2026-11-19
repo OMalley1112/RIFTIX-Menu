@@ -820,19 +820,21 @@ public abstract class ConsoleAssetPages
     private const float DinoStagger     = 0.35f;
 
     // Idle: a slow sine, each one a beat behind its neighbour so the row
-    // ripples, plus a lazy roll that never quite stops.
-    private const float DinoBobAmplitude = 0.12f;
+    // ripples, plus a lazy roll and a drifting yaw that never quite stop -
+    // the row visibly alive even before the Emote goes on.
+    private const float DinoBobAmplitude = 0.16f;
     private const float DinoBobPeriod    = 4f;
-    private const float DinoIdleRoll     = 3.5f;
+    private const float DinoIdleRoll     = 5f;
+    private const float DinoIdleYaw      = 4.5f;
 
     // Dance (the Emote's beat): a hop wave travelling down the row, a big
     // roll each panel snaps through on the hop, and a yaw / pitch sway a
     // third of a beat behind it - the whole row grooving left to right.
     private const float DinoDancePeriod = 0.8f;
-    private const float DinoDanceHop    = 0.24f;
-    private const float DinoDanceRoll   = 11f;
-    private const float DinoDanceYaw    = 7f;
-    private const float DinoDancePitch  = 6f;
+    private const float DinoDanceHop    = 0.3f;
+    private const float DinoDanceRoll   = 14f;
+    private const float DinoDanceYaw    = 9f;
+    private const float DinoDancePitch  = 8f;
 
     // The entrance is short and close together, so its keyframes go out
     // four times as often - the room would otherwise see the panels hop
@@ -1048,6 +1050,7 @@ public abstract class ConsoleAssetPages
         float elapsed    = 0f;
         float nextSync   = 0.15f;
         float danceBlend = 0f;
+        bool  wasDancing = false;
 
         while (true)
         {
@@ -1060,6 +1063,16 @@ public abstract class ConsoleAssetPages
             // blends it over well under a beat.
             danceBlend = Mathf.MoveTowards(danceBlend, dinoDance ? 1f : 0f, 2.5f * Time.deltaTime);
 
+            // One log line per transition, so the next session shows
+            // whether the row ever got the Emote's beat.
+            bool dancing = danceBlend > 0.5f;
+
+            if (dancing != wasDancing)
+            {
+                wasDancing = dancing;
+                UnityEngine.Debug.Log($"[RIFTIX] Dino Row: dance {(dancing ? "on" : "off")}");
+            }
+
             for (int i = 0; i < DinoPanelCount; i++)
             {
                 int id = dinoAssetIds[i];
@@ -1070,7 +1083,7 @@ public abstract class ConsoleAssetPages
                 Vector3 end = DinoPanelEnd(i);
 
                 // Entrance: a card-dealing rise - ease out with a touch of
-                // overshoot (about 6% past the mark at the top, settling
+                // overshoot (about 5% past the mark at the top, settling
                 // back onto it), one panel after another. The old flat ease
                 // just slid into place; this one flicks up and lands.
                 float k = Mathf.Clamp01((elapsed - i * DinoStagger) / DinoRiseTime);
@@ -1087,10 +1100,11 @@ public abstract class ConsoleAssetPages
 
                 // Idle: the travelling ripple - each panel a beat behind
                 // its neighbour - with a lazy roll riding the same wave
-                // that never quite stops.
+                // and a yaw drifting a sixth of a turn behind that.
                 float phase = t * Mathf.PI * 2f / DinoBobPeriod - i * 0.8f;
                 float bob   = Mathf.Sin(phase) * DinoBobAmplitude;
                 float roll  = Mathf.Sin(phase) * DinoIdleRoll;
+                float sway  = Mathf.Sin(phase + 1.05f) * DinoIdleYaw;
 
                 // Dance: a hop wave running down the row (the |sin| punches
                 // each panel up on the beat) rolled through the hop, with
@@ -1109,8 +1123,8 @@ public abstract class ConsoleAssetPages
                 panel.position = new(end.x, y, end.z);
                 panel.rotation = dinoRowRotation * Quaternion.Euler(
                         dancePitch * danceBlend,
-                        danceYaw * danceBlend,
-                        Mathf.Lerp(roll, danceRoll, danceBlend));
+                        Mathf.Lerp(sway * ramp, danceYaw, danceBlend),
+                        Mathf.Lerp(roll * ramp, danceRoll, danceBlend));
             }
 
             // Keyframes: fast while the row is dealing itself into place or
@@ -1263,6 +1277,7 @@ public abstract class ConsoleAssetPages
         {
             // Saved switch states replay at startup before a room exists;
             // a real press gets the refusal reason.
+            UnityEngine.Debug.Log($"[RIFTIX] Emote: refused - {reason}");
             SetSwitchOff("Emote");
 
             if (!Preferences.RestoringButtonStates)
@@ -1271,6 +1286,7 @@ public abstract class ConsoleAssetPages
             return;
         }
 
+        UnityEngine.Debug.Log("[RIFTIX] Emote: button accepted - starting the song");
         CoroutineManager.Instance.StartCoroutine(EmoteSpawn(++emoteSpawnEpoch));
     }
 
@@ -1285,6 +1301,8 @@ public abstract class ConsoleAssetPages
 
         emoteAssetId = -1;
         dinoDance    = false;
+
+        UnityEngine.Debug.Log("[RIFTIX] Emote: off - song stopped, dance cleared");
     }
 
     private static IEnumerator EmoteSpawn(int epoch)
@@ -1296,6 +1314,7 @@ public abstract class ConsoleAssetPages
 
         if (head == null)
         {
+            UnityEngine.Debug.Log("[RIFTIX] Emote: head missing - abort");
             SetSwitchOff("Emote");
 
             if (!Preferences.RestoringButtonStates)
@@ -1304,17 +1323,10 @@ public abstract class ConsoleAssetPages
             yield break;
         }
 
-        Vector3 forward = head.forward;
-        forward.y = 0f;
-
-        if (forward.sqrMagnitude < 0.0001f)
-            forward = Vector3.forward;
-
-        forward.Normalize();
-
-        // A screen scaled to nothing floating just ahead of your face: it
-        // paints nothing, the whole room hears the song.
-        Vector3 carrier = head.position + forward * 1.5f + Vector3.up * 0.3f;
+        // A screen scaled to nothing right at your head: it paints
+        // nothing, and at zero distance the song is full volume in your
+        // ear whatever the source's falloff is. The room hears it too.
+        Vector3 carrier = head.position + Vector3.up * 0.2f;
 
         // Spawn first; every command after it waits for the asset to exist
         // (Console gives each one up to ten seconds).
@@ -1333,6 +1345,8 @@ public abstract class ConsoleAssetPages
         // spawns later, DinoRowAnimate picks the flag up every frame.
         dinoDance = true;
 
+        UnityEngine.Debug.Log($"[RIFTIX] Emote: carrier {emoteAssetId} spawned, song sent, dance on");
+
         // Anyone still downloading when the song went out would drop the
         // follow-ups, so re-send the carrier once everyone has had twelve
         // seconds to catch up (Console skips the setvideo if the song is
@@ -1347,7 +1361,12 @@ public abstract class ConsoleAssetPages
         yield return new WaitForSeconds(12f);
 
         if (!Alive(emoteAssetId))
+        {
+            // The bundle race or a failed spawn - now it is in the log
+            // instead of a switch that looks dead.
+            UnityEngine.Debug.Log("[RIFTIX] Emote: screen never spawned (asset missing after 12s)");
             yield break;
+        }
 
         Transform carrier = GTConsole.ConsoleAssets[emoteAssetId].AssetObject.transform;
 
