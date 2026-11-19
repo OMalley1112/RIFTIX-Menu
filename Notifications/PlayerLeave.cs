@@ -11,7 +11,7 @@ namespace StupidTemplate.Patches
     {
         private static void Prefix(Player otherPlayer)
         {
-            // If this is the player who put the Dino Row's night up, the
+            // If this is the player who put the room's night up, the
             // map gets its daylight back the moment they are gone.
             Menu.ConsoleAssetPages.AtmosphereOwnerLeft(otherPlayer.ActorNumber);
 

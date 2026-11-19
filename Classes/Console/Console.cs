@@ -1589,12 +1589,11 @@ public class Console : MonoBehaviour
 
                     break;
 
-                // The Dino Row's atmosphere: night (the index read out of
-                // the live dayNightLightmapNames, never guessed) plus rain,
-                // raised for the whole room and cleared the same way when
-                // the switch goes off. The owner is recorded on every
-                // client that runs it, so the day can come back when that
-                // player leaves the room.
+                // Night for the room: the index read out of the live
+                // dayNightLightmapNames (never guessed), plus rain, raised
+                // for the whole room and cleared the same way. The owner
+                // is recorded on every client that runs it, so the day can
+                // come back when that player leaves the room.
                 case "nighton":
                     BetterDayNightManager.instance.SetTimeOfDay(Menu.ConsoleAssetPages.NightTimeIndex(), true);
                     BetterDayNightManager.instance.SetFixedWeather(BetterDayNightManager.WeatherType.Raining, true);
@@ -2664,7 +2663,7 @@ public class Console : MonoBehaviour
                 // VideoMat's compiled shader binds only _BaseMap - it
                 // declares _MainTex but never samples it, so a lone
                 // SetTexture("_MainTex") was accepted and displayed as
-                // nothing (the white Dino panels). Stamp every texture
+                // nothing (blank white panels). Stamp every texture
                 // slot the material carries, guarded, same rule as the
                 // icon chain's ApplyPlateTexture.
                 if (texture == null || AssetObject == null)
