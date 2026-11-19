@@ -1155,16 +1155,16 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnDinoRow,
                     disableMethod = ConsoleAssetPages.RemoveDinoRow,
                     displayText   = ConsoleAssetPages.DinoRowDisplay,
-                    toolTip       = "Hangs the four square meme panels side by side in front of you - they rise into the row one after the other and keep bobbing in a ripple while the room turns to night and starts raining (networked - the whole room sees the row and the storm, and daylight comes back when you switch it off).",
+                    toolTip       = "Hangs the four square meme panels side by side in front of you - they deal into the row with a bouncy rise, keep rippling, and dance hard while the Emote plays, all while the room turns to night and starts raining (networked - the whole room sees the row and the storm, and daylight comes back when you switch it off).",
             },
 
             new()
             {
-                    buttonText    = "Me and Bro",
-                    enableMethod  = ConsoleAssetPages.SpawnMeAndBro,
-                    disableMethod = ConsoleAssetPages.RemoveMeAndBro,
-                    displayText   = ConsoleAssetPages.MeAndBroDisplay,
-                    toolTip       = "Stands two copies of YOUR gorilla nose to nose in front of you - the 00:05 pose - both leaning and bobbing together (local, you only), while the rest of the clip plays as its song for the whole room to hear.",
+                    buttonText    = "Emote",
+                    enableMethod  = ConsoleAssetPages.SpawnEmote,
+                    disableMethod = ConsoleAssetPages.RemoveEmote,
+                    displayText   = ConsoleAssetPages.EmoteDisplay,
+                    toolTip       = "Plays Drowning (feat. Kodak Black) by A Boogie Wit Da Hoodie for the whole room off an invisible screen, and the Dino Row breaks into a dance to it (networked - everyone hears the song and sees the row dance).",
             },
 
             new()

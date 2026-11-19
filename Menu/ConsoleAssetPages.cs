@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using GorillaLocomotion;
 using Photon.Pun;
@@ -782,16 +782,17 @@ public abstract class ConsoleAssetPages
     // in front of you. Each one is the bare console screen the TikTok
     // picture uses (console.main1 / VideoPlayer, plane child "Video") with
     // one of this repo's media/dino1..4.jpg squares on its _MainTex. The
-    // row rises into place one panel after another, left to right, then
-    // keeps bobbing in a slow ripple while the room goes to night and
-    // starts raining: the night index is read out of the live
-    // BetterDayNightManager's own dayNightLightmapNames (never guessed),
-    // the rain rides the WeatherType the console's weather case already
-    // understands, and both are raised as commands so the whole room gets
-    // them. Switching off puts the daylight back for everyone; so does the
-    // room's owner leaving, and a joiner is handed the atmosphere through
-    // SyncConsoleAssets - the raise event that carried it expired long
-    // before they arrived.
+    // row deals itself into place one panel after another with a bouncy
+    // rise, then keeps rippling while the room goes to night and starts
+    // raining - and while the Emote's song plays it drops the ripple and
+    // dances: hop, roll and sway on the beat. The night index is read out
+    // of the live BetterDayNightManager's own dayNightLightmapNames (never
+    // guessed), the rain rides the WeatherType the console's weather case
+    // already understands, and both are raised as commands so the whole
+    // room gets them. Switching off puts the daylight back for everyone;
+    // so does the room's owner leaving, and a joiner is handed the
+    // atmosphere through SyncConsoleAssets - the raise event that carried
+    // it expired long before they arrived.
     // ---------------------------------------------------------------------
 
     private static readonly string[] DinoImageUrls =
@@ -818,10 +819,20 @@ public abstract class ConsoleAssetPages
     private const float DinoRiseTime    = 1.4f;
     private const float DinoStagger     = 0.35f;
 
-    // Once a panel is in the row it rides a slow sine, each one a beat
-    // behind its neighbour so the row ripples.
+    // Idle: a slow sine, each one a beat behind its neighbour so the row
+    // ripples, plus a lazy roll that never quite stops.
     private const float DinoBobAmplitude = 0.12f;
     private const float DinoBobPeriod    = 4f;
+    private const float DinoIdleRoll     = 3.5f;
+
+    // Dance (the Emote's beat): a hop wave travelling down the row, a big
+    // roll each panel snaps through on the hop, and a yaw / pitch sway a
+    // third of a beat behind it - the whole row grooving left to right.
+    private const float DinoDancePeriod = 0.8f;
+    private const float DinoDanceHop    = 0.24f;
+    private const float DinoDanceRoll   = 11f;
+    private const float DinoDanceYaw    = 7f;
+    private const float DinoDancePitch  = 6f;
 
     // The entrance is short and close together, so its keyframes go out
     // four times as often - the room would otherwise see the panels hop
@@ -961,8 +972,7 @@ public abstract class ConsoleAssetPages
 
             // The screen's VideoPlayer renders in MaterialOverride mode: it
             // must never be allowed to repaint the plane this picture sits
-            // on (the Me and Bro bug - a black carrier clip buried the
-            // texture completely).
+            // on (a black carrier clip would bury the texture completely).
             GTConsole.ExecuteCommand("asset-videonorender", ReceiverGroup.All, id, ScreenChild);
 
             // Start the entrance when the first panel is up; the spawn gap
@@ -1026,16 +1036,18 @@ public abstract class ConsoleAssetPages
         return false;
     }
 
-    // The row's life: the staggered rise, then the ripple, forever until
-    // the switch goes off or the room is left (both bump the epoch, and
-    // the assets going with the room is the second way out). The local
-    // copy is dragged every frame; the room gets a keyframe on a timer -
-    // fast through the entrance, steady afterwards - exactly like the
-    // Holy Picture's rise.
+    // The row's life: the staggered card-deal into place, then the
+    // ripple - and the dance whenever the Emote's beat is up - until the
+    // switch goes off or the room is left (both bump the epoch, and the
+    // assets going with the room is the second way out). The local copy is
+    // dragged every frame; the room gets position AND rotation keyframes
+    // on a timer - fast through the entrance and the dance, steady
+    // through the idle - exactly like the Holy Picture's rise.
     private static IEnumerator DinoRowAnimate(int epoch)
     {
-        float elapsed  = 0f;
-        float nextSync = 0.15f;
+        float elapsed    = 0f;
+        float nextSync   = 0.15f;
+        float danceBlend = 0f;
 
         while (true)
         {
@@ -1043,6 +1055,10 @@ public abstract class ConsoleAssetPages
                 yield break;
 
             elapsed += Time.deltaTime;
+
+            // The dance eases in and out instead of snapping: 2.5 a second
+            // blends it over well under a beat.
+            danceBlend = Mathf.MoveTowards(danceBlend, dinoDance ? 1f : 0f, 2.5f * Time.deltaTime);
 
             for (int i = 0; i < DinoPanelCount; i++)
             {
@@ -1053,29 +1069,57 @@ public abstract class ConsoleAssetPages
 
                 Vector3 end = DinoPanelEnd(i);
 
-                // Entrance: ease out of the air a panel's width below the
-                // mark, one panel after another.
+                // Entrance: a card-dealing rise - ease out with a touch of
+                // overshoot (about 6% past the mark at the top, settling
+                // back onto it), one panel after another. The old flat ease
+                // just slid into place; this one flicks up and lands.
                 float k = Mathf.Clamp01((elapsed - i * DinoStagger) / DinoRiseTime);
-                k = 1f - (1f - k) * (1f - k);
+                float u = k - 1f;
+                float e = 1f + 2.2f * u * u * u + 1.2f * u * u;
 
-                float y = Mathf.Lerp(end.y - (DinoPanelSize + DinoPanelGap), end.y, k);
+                float y = Mathf.Lerp(end.y - (DinoPanelSize + DinoPanelGap), end.y, e);
 
-                // Ripple: a slow sine that ramps in over three quarters of
-                // a second, so the bob cannot snap on at the top of the
-                // rise.
-                float bob = elapsed - i * DinoStagger - DinoRiseTime;
+                // Everything below ramps in only once this panel has
+                // landed, so the ripple or the dance can never yank a
+                // panel that is still mid-rise.
+                float t     = elapsed - i * DinoStagger - DinoRiseTime;
+                float ramp  = Mathf.Clamp01(t / 0.75f);
 
-                if (bob > 0f)
-                    y += Mathf.Sin(bob * Mathf.PI * 2f / DinoBobPeriod) *
-                         DinoBobAmplitude *
-                         Mathf.Clamp01(bob / 0.75f);
+                // Idle: the travelling ripple - each panel a beat behind
+                // its neighbour - with a lazy roll riding the same wave
+                // that never quite stops.
+                float phase = t * Mathf.PI * 2f / DinoBobPeriod - i * 0.8f;
+                float bob   = Mathf.Sin(phase) * DinoBobAmplitude;
+                float roll  = Mathf.Sin(phase) * DinoIdleRoll;
 
-                GTConsole.ConsoleAssets[id].AssetObject.transform.position = new(end.x, y, end.z);
+                // Dance: a hop wave running down the row (the |sin| punches
+                // each panel up on the beat) rolled through the hop, with
+                // yaw and pitch swinging a third of a beat behind - the row
+                // grooving left to right instead of politely bobbing.
+                float beat       = elapsed * Mathf.PI * 2f / DinoDancePeriod - i * 1.15f;
+                float hop        = Mathf.Abs(Mathf.Sin(beat)) * DinoDanceHop;
+                float danceRoll  = Mathf.Sin(beat) * DinoDanceRoll;
+                float danceYaw   = Mathf.Sin(beat - 2.094f) * DinoDanceYaw;
+                float dancePitch = Mathf.Sin(beat - 2.094f) * DinoDancePitch;
+
+                y += Mathf.Lerp(bob, hop, danceBlend) * ramp;
+
+                Transform panel = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+                panel.position = new(end.x, y, end.z);
+                panel.rotation = dinoRowRotation * Quaternion.Euler(
+                        dancePitch * danceBlend,
+                        danceYaw * danceBlend,
+                        Mathf.Lerp(roll, danceRoll, danceBlend));
             }
 
+            // Keyframes: fast while the row is dealing itself into place or
+            // dancing - every step shows there - half-second steps through
+            // the idle ripple. The rotation rides along now too, or the
+            // room would see a row that hops but never rolls.
             if (elapsed >= nextSync)
             {
-                nextSync += elapsed < DinoEntranceSpan ? 0.15f : 0.5f;
+                nextSync += elapsed < DinoEntranceSpan || danceBlend > 0f ? 0.15f : 0.5f;
 
                 for (int i = 0; i < DinoPanelCount; i++)
                 {
@@ -1084,8 +1128,12 @@ public abstract class ConsoleAssetPages
                     if (!Alive(id))
                         continue;
 
+                    Transform panel = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
                     GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.Others, id,
-                            GTConsole.ConsoleAssets[id].AssetObject.transform.position);
+                            panel.position);
+                    GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.Others, id,
+                            panel.rotation);
                 }
             }
 
@@ -1173,67 +1221,49 @@ public abstract class ConsoleAssetPages
     }
 
     // ---------------------------------------------------------------------
-    // Me and Bro: two copies of YOUR gorilla standing nose to nose - the
-    // 00:05 pose - leaning in and bobbing together in front of you. The
-    // pair is built on this client from your own rig (a dumb copy of its
-    // transforms and renderers, no scripts - nothing on it reaches for the
-    // network), which is what makes it literally your rig, twice, doing the
-    // same move at the same time. The song is the rest of the clip after
-    // 00:05 (media/meandbro.mp4), carried by a screen scaled down to
-    // nothing and played APIOnly: the whole room hears it, nobody sees a
-    // panel - the old black square was that clip repainting the plane in
-    // MaterialOverride mode.
+    // Emote: Drowning (feat. Kodak Black) by A Boogie Wit Da Hoodie - the
+    // track from the link - played for the whole room off a screen scaled
+    // to nothing (APIOnly: the room hears the song, nobody sees a panel -
+    // the carrier trick the TikTok picture's song uses, without the
+    // picture). It also raises dinoDance, the flag DinoRowAnimate reads
+    // every frame: put the Dino Row up first (or after) and the four
+    // panels break into the beat while the song plays - switching the
+    // Emote off stops the song and lets the row settle back into its
+    // ripple.
     // ---------------------------------------------------------------------
 
-    private const string BroVideoUrl =
-            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/meandbro.mp4";
+    // The track, encoded as drowning.mp4 (black video + the song, so the
+    // VideoPlayer has a track to play) and committed to this menu's
+    // public repo - served raw like the rest of the media folder.
+    private const string EmoteVideoUrl =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/media/drowning.mp4";
 
-    // The song's screen: seven millimetres across, floating between the
-    // two copies - audible through the room, invisible to it.
-    private static readonly Vector3 BroAudioScale = new(0.0005f, 0.00088f, 0.0005f);
+    // The carrier scaled to nothing: all song, no panel.
+    private static readonly Vector3 EmoteAudioScale = new(0.0005f, 0.00088f, 0.0005f);
 
-    // How far in front of you the pair stands, how far apart the copies
-    // are (nose to nose across a gorilla's depth), and the lean and bob
-    // they share.
-    private const float BroStandDistance = 2.4f;
-    private const float BroPairGap       = 1.05f;
-    private const float BroLeanAngle     = 7f;
-    private const float BroLeanSwing     = 2.5f;
-    private const float BroBobAmplitude  = 0.03f;
-    private const float BroBobPeriod     = 3.2f;
+    private static int emoteAssetId = -1;
+    private static int emoteSpawnEpoch;
 
-    private static int broAssetId = -1;
+    // What DinoRowAnimate reads every frame: the beat is up, dance the row.
+    private static bool dinoDance;
 
-    // Cancels a spawn still in flight (toggle off, re-press), and the pose
-    // animation after it.
-    private static int broSpawnEpoch;
-    private static int broPoseEpoch;
-
-    // The pair: one parent holding both copies, the copies themselves and
-    // the marks the animation swings around.
-    private static Transform  broRoot;
-    private static Transform  broCloneA;
-    private static Transform  broCloneB;
-    private static Vector3    broBaseA;
-    private static Vector3    broBaseB;
-    private static Quaternion broLookA;
-    private static Quaternion broLookB;
-
-    public static string MeAndBroDisplay()
+    public static string EmoteDisplay()
     {
-        ButtonInfo button = Buttons.GetIndex("Me and Bro");
+        ButtonInfo button = Buttons.GetIndex("Emote");
 
         return
-                $"Me and Bro: {(button != null && button.enabled
-                                        ? "<color=green>ON</color>"
-                                        : "<color=red>OFF</color>")}";
+                $"Emote: {(button != null && button.enabled
+                                   ? "<color=green>ON</color>"
+                                   : "<color=red>OFF</color>")}";
     }
 
-    public static void SpawnMeAndBro()
+    public static void SpawnEmote()
     {
         if (!CanSpawn(out string reason))
         {
-            SetSwitchOff("Me and Bro");
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("Emote");
 
             if (!Preferences.RestoringButtonStates)
                 NotifiLib.SendNotification(reason);
@@ -1241,39 +1271,23 @@ public abstract class ConsoleAssetPages
             return;
         }
 
-        CoroutineManager.Instance.StartCoroutine(MeAndBroSpawn(++broSpawnEpoch));
+        CoroutineManager.Instance.StartCoroutine(EmoteSpawn(++emoteSpawnEpoch));
     }
 
-    public static void RemoveMeAndBro()
+    // The song stops with the switch - the carrier goes out of the room
+    // and the Dino Row, if it is up, eases back out of the dance.
+    public static void RemoveEmote()
     {
-        broSpawnEpoch++;
-        broPoseEpoch++;
+        emoteSpawnEpoch++;
 
-        if (Alive(broAssetId))
-            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, broAssetId);
+        if (Alive(emoteAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, emoteAssetId);
 
-        broAssetId = -1;
-
-        DropBroPair();
+        emoteAssetId = -1;
+        dinoDance    = false;
     }
 
-    // The pair is built from this client's own rig, so it lives on this
-    // client only - same rule as the practice dummy.
-    private static void DropBroPair()
-    {
-        // broRoot is a Transform: Destroy(transform) refuses to run ("Can't
-        // destroy Transform component") and Unity logs the error, so every
-        // toggle leaked the old pair and the scene stacked copies. Destroy
-        // the GameObject the transform belongs to.
-        if (broRoot != null)
-            Object.Destroy(broRoot.gameObject);
-
-        broRoot   = null;
-        broCloneA = null;
-        broCloneB = null;
-    }
-
-    private static IEnumerator MeAndBroSpawn(int epoch)
+    private static IEnumerator EmoteSpawn(int epoch)
     {
         VRRig     localRig = VRRig.LocalRig;
         Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
@@ -1282,7 +1296,7 @@ public abstract class ConsoleAssetPages
 
         if (head == null)
         {
-            SetSwitchOff("Me and Bro");
+            SetSwitchOff("Emote");
 
             if (!Preferences.RestoringButtonStates)
                 NotifiLib.SendNotification("Could not find your head - try again inside a room.");
@@ -1290,31 +1304,6 @@ public abstract class ConsoleAssetPages
             yield break;
         }
 
-        Transform rigRoot = FindLocalRigRoot(localRig);
-
-        if (rigRoot == null)
-        {
-            SetSwitchOff("Me and Bro");
-
-            if (!Preferences.RestoringButtonStates)
-                NotifiLib.SendNotification("Could not find your gorilla - try again inside a room.");
-
-            yield break;
-        }
-
-        DropBroPair();
-
-        broRoot = new GameObject("RIFTIX_MeAndBro").transform;
-
-        broCloneA = BuildRigCopy(rigRoot);
-        broCloneB = BuildRigCopy(rigRoot);
-
-        broCloneA.SetParent(broRoot, false);
-        broCloneB.SetParent(broRoot, false);
-
-        // Stand the pair side by side in front of you, each copy turned
-        // into the other's face - the nose-to-nose seen from the side,
-        // which is how the video frames it.
         Vector3 forward = head.forward;
         forward.y = 0f;
 
@@ -1323,277 +1312,49 @@ public abstract class ConsoleAssetPages
 
         forward.Normalize();
 
-        Vector3 right  = Vector3.Cross(Vector3.up, forward);
-        Vector3 centre = head.position + forward * BroStandDistance;
+        // A screen scaled to nothing floating just ahead of your face: it
+        // paints nothing, the whole room hears the song.
+        Vector3 carrier = head.position + forward * 1.5f + Vector3.up * 0.3f;
 
-        // Feet on the floor under the pair: the standing floor in front of
-        // you if there is one, your own height minus a gorilla otherwise.
-        float groundY = Physics.Raycast(centre + Vector3.up * 2f, Vector3.down, out RaycastHit ground, 6f)
-                                ? ground.point.y
-                                : head.position.y - 1.4f;
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds).
+        emoteAssetId = GTConsole.GetFreeAssetID();
 
-        broBaseA = centre - right * (BroPairGap * 0.5f);
-        broBaseB = centre + right * (BroPairGap * 0.5f);
-        broBaseA.y = groundY;
-        broBaseB.y = groundY;
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ScreenBundle, ScreenAsset, emoteAssetId);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, emoteAssetId, carrier);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, emoteAssetId, EmoteAudioScale);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, emoteAssetId, ScreenChild,
+                EmoteVideoUrl, true);
 
-        Vector3 faceA = broBaseB - broBaseA;
-        Vector3 faceB = broBaseA - broBaseB;
-        faceA.y = 0f;
-        faceB.y = 0f;
-
-        broLookA = Quaternion.LookRotation(faceA);
-        broLookB = Quaternion.LookRotation(faceB);
-
-        broCloneA.SetPositionAndRotation(broBaseA, broLookA * Quaternion.Euler(BroLeanAngle, 0f, 0f));
-        broCloneB.SetPositionAndRotation(broBaseB, broLookB * Quaternion.Euler(BroLeanAngle, 0f, 0f));
-
-        if (epoch != broSpawnEpoch)
+        if (epoch != emoteSpawnEpoch)
             yield break;
 
-        broPoseEpoch++;
-        CoroutineManager.Instance.StartCoroutine(MeAndBroPose(broPoseEpoch));
+        // The row dances from the first beat - whether it is already up or
+        // spawns later, DinoRowAnimate picks the flag up every frame.
+        dinoDance = true;
 
-        // The song: a screen scaled to nothing and played APIOnly, so it
-        // paints nothing - the whole room still hears the rest of the clip.
-        broAssetId = GTConsole.GetFreeAssetID();
-
-        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ScreenBundle, ScreenAsset, broAssetId);
-        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, broAssetId,
-                centre + Vector3.up * 1.4f);
-        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, broAssetId, BroAudioScale);
-        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, broAssetId, ScreenChild, BroVideoUrl, true);
-
-        if (epoch != broSpawnEpoch)
-            yield break;
-
-        CoroutineManager.Instance.StartCoroutine(ResendMeAndBro());
+        // Anyone still downloading when the song went out would drop the
+        // follow-ups, so re-send the carrier once everyone has had twelve
+        // seconds to catch up (Console skips the setvideo if the song is
+        // already playing, so nothing restarts).
+        CoroutineManager.Instance.StartCoroutine(ResendEmote());
     }
 
-    // The two copies move as one: the same lean, the same bob, the same
-    // instant - nose to nose for as long as the switch stays on.
-    private static IEnumerator MeAndBroPose(int epoch)
-    {
-        float elapsed = 0f;
-
-        while (true)
-        {
-            if (epoch != broPoseEpoch || broCloneA == null || broCloneB == null)
-                yield break;
-
-            elapsed += Time.deltaTime;
-
-            float phase = elapsed * Mathf.PI * 2f / BroBobPeriod;
-            float lean  = BroLeanAngle + Mathf.Sin(phase) * BroLeanSwing;
-            float bob   = Mathf.Sin(phase) * BroBobAmplitude;
-
-            broCloneA.SetPositionAndRotation(broBaseA + Vector3.up * bob,
-                    broLookA * Quaternion.Euler(lean, 0f, 0f));
-
-            broCloneB.SetPositionAndRotation(broBaseB + Vector3.up * bob,
-                    broLookB * Quaternion.Euler(lean, 0f, 0f));
-
-            yield return null;
-        }
-    }
-
-    // The transform that owns your gorilla: usually VRRig's own - but if
-    // the component sits beside the mesh, take the lowest ancestor that
-    // still holds every body anchor, every renderer and every bone they
-    // skin with, so the copy contains the whole rig and nothing above it.
-    private static Transform FindLocalRigRoot(VRRig rig)
-    {
-        if (rig == null)
-            return null;
-
-        Transform lca = null;
-
-        void Include(Transform node)
-        {
-            if (node != null)
-                lca = lca == null ? node : LowestCommonAncestor(lca, node);
-        }
-
-        Include(rig.headMesh != null ? rig.headMesh.transform : null);
-        Include(rig.bodyTransform);
-        Include(rig.leftHandTransform);
-        Include(rig.rightHandTransform);
-
-        foreach (SkinnedMeshRenderer skin in rig.GetComponentsInChildren<SkinnedMeshRenderer>(true))
-        {
-            Include(skin.transform);
-
-            if (skin.rootBone != null)
-                Include(skin.rootBone);
-
-            foreach (Transform bone in skin.bones)
-                Include(bone);
-        }
-
-        foreach (MeshRenderer mesh in rig.GetComponentsInChildren<MeshRenderer>(true))
-            Include(mesh.transform);
-
-        if (lca == null)
-            return null;
-
-        // A scene-root answer means the anchors are scattered across the
-        // top of the hierarchy - copying that would drag in the whole map
-        // and every other player. Only fall back to the component's own
-        // transform when it really does hold the rig.
-        if (lca.parent == null)
-            return rig.transform != null &&
-                   rig.transform.GetComponentsInChildren<SkinnedMeshRenderer>(true).Length > 0
-                           ? rig.transform
-                           : null;
-
-        // Everything sits under the component already: copy its transform,
-        // same as before - cosmetics and all.
-        if (rig.transform != null && (lca == rig.transform || lca.IsChildOf(rig.transform)))
-            return rig.transform;
-
-        return lca;
-    }
-
-    private static Transform LowestCommonAncestor(Transform a, Transform b)
-    {
-        int depthA = 0;
-        int depthB = 0;
-
-        for (Transform cursor = a; cursor != null; cursor = cursor.parent)
-            depthA++;
-
-        for (Transform cursor = b; cursor != null; cursor = cursor.parent)
-            depthB++;
-
-        while (depthA > depthB)
-        {
-            a = a.parent;
-            depthA--;
-        }
-
-        while (depthB > depthA)
-        {
-            b = b.parent;
-            depthB--;
-        }
-
-        while (a != b)
-        {
-            a = a.parent;
-            b = b.parent;
-        }
-
-        return a;
-    }
-
-    // A dumb copy of your rig: every transform, every mesh, every material
-    // and none of the scripts - no VRRig, no PhotonView, nothing that
-    // would reach for the room. The bones are re-pointed at the copies, so
-    // the skin stays on the body instead of dragging the live rig's
-    // skeleton around.
-    private static Transform BuildRigCopy(Transform source)
-    {
-        Dictionary<Transform, Transform> boneMap = [];
-        List<(SkinnedMeshRenderer copy, SkinnedMeshRenderer source)> skins = [];
-
-        Transform root = CopyRigBranch(source, null, boneMap, skins);
-
-        foreach ((SkinnedMeshRenderer copy, SkinnedMeshRenderer source) skin in skins)
-        {
-            Transform[] bones  = skin.source.bones;
-            Transform[] mapped = new Transform[bones.Length];
-            int          lost  = 0;
-
-            for (int i = 0; i < bones.Length; i++)
-            {
-                mapped[i] = bones[i] != null && boneMap.TryGetValue(bones[i], out Transform bone)
-                                    ? bone
-                                    : null;
-
-                if (bones[i] != null && mapped[i] == null)
-                    lost++;
-            }
-
-            // A bone outside the copied subtree maps to null and its
-            // vertices collapse onto the renderer - floating slabs. The
-            // root is chosen to contain every bone, so this should never
-            // fire; if it does, the count says how badly.
-            if (lost > 0)
-                UnityEngine.Debug.Log($"[RIFTIX] Me and Bro: {lost}/{bones.Length} bones missing on '{skin.source.name}'");
-
-            skin.copy.bones = mapped;
-
-            if (skin.source.rootBone != null &&
-                boneMap.TryGetValue(skin.source.rootBone, out Transform rootBone))
-                skin.copy.rootBone = rootBone;
-        }
-
-        return root;
-    }
-
-    private static Transform CopyRigBranch(Transform source, Transform parent,
-            Dictionary<Transform, Transform> boneMap, List<(SkinnedMeshRenderer, SkinnedMeshRenderer)> skins)
-    {
-        GameObject copy = new(source.name);
-
-        Transform transform = copy.transform;
-
-        if (parent != null)
-            transform.SetParent(parent, false);
-
-        transform.localPosition = source.localPosition;
-        transform.localRotation = source.localRotation;
-        transform.localScale    = source.localScale;
-        copy.layer              = source.gameObject.layer;
-
-        boneMap[source] = transform;
-
-        // Renderers only: the shared mesh, the shared materials (your
-        // colour and cosmetics ride along) and nothing else.
-        if (source.TryGetComponent(out MeshFilter filter) && filter.sharedMesh != null)
-            copy.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
-
-        if (source.TryGetComponent(out MeshRenderer renderer))
-        {
-            MeshRenderer copied = copy.AddComponent<MeshRenderer>();
-
-            copied.sharedMaterials = renderer.sharedMaterials;
-            copied.enabled         = renderer.enabled;
-        }
-
-        if (source.TryGetComponent(out SkinnedMeshRenderer skin) && skin.sharedMesh != null)
-        {
-            SkinnedMeshRenderer copied = copy.AddComponent<SkinnedMeshRenderer>();
-
-            copied.sharedMesh          = skin.sharedMesh;
-            copied.sharedMaterials     = skin.sharedMaterials;
-            copied.enabled             = skin.enabled;
-            copied.updateWhenOffscreen = true;
-
-            skins.Add((copied, skin));
-        }
-
-        foreach (Transform child in source)
-            CopyRigBranch(child, transform, boneMap, skins);
-
-        return transform;
-    }
-
-    // Anyone still downloading when the song went out would drop the
-    // follow-ups, so re-send the audio screen once everyone has had twelve
-    // seconds to catch up.
-    private static IEnumerator ResendMeAndBro()
+    // The same courtesy as the rest of the media: a client twelve seconds
+    // behind gets the carrier redone in its place, its size and its song.
+    private static IEnumerator ResendEmote()
     {
         yield return new WaitForSeconds(12f);
 
-        if (!Alive(broAssetId))
+        if (!Alive(emoteAssetId))
             yield break;
 
-        Transform screen = GTConsole.ConsoleAssets[broAssetId].AssetObject.transform;
+        Transform carrier = GTConsole.ConsoleAssets[emoteAssetId].AssetObject.transform;
 
-        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, broAssetId, screen.position);
-        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, broAssetId, BroAudioScale);
-        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, broAssetId, ScreenChild, BroVideoUrl, true);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, emoteAssetId, carrier.position);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, emoteAssetId, EmoteAudioScale);
+        GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, emoteAssetId, ScreenChild,
+                EmoteVideoUrl, true);
     }
 
     // Mjolnir on your left hand, networked to the whole room. The bundle is
@@ -4646,7 +4407,7 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("TikTok Picture");
         SetSwitchOff("Holy Picture");
         SetSwitchOff("Dino Row");
-        SetSwitchOff("Me and Bro");
+        SetSwitchOff("Emote");
         SetSwitchOff("Big TV");
         SetSwitchOff("Thor Hammer");
         SetSwitchOff("Travis");
@@ -4700,13 +4461,11 @@ public abstract class ConsoleAssetPages
             }
         }
 
-        // Same for the Me and Bro song screen, and the local pair it was
-        // standing in front of - the room is gone, the pair goes with it.
-        broSpawnEpoch++;
-        broPoseEpoch++;
-        broAssetId = -1;
-
-        DropBroPair();
+        // The Emote's song screen is gone with the room, and the Dino
+        // Row's dance beat goes with it - nothing left to dance to.
+        emoteSpawnEpoch++;
+        emoteAssetId = -1;
+        dinoDance    = false;
 
         RipperReset();
 
