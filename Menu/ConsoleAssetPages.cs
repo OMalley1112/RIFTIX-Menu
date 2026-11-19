@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using GorillaLocomotion;
+using GorillaTag.Gravity;
 using Photon.Pun;
 using Photon.Realtime;
 using StupidTemplate.Classes;
@@ -855,8 +856,9 @@ public abstract class ConsoleAssetPages
     // owns the motion: a rise with an overshoot onto the perch, then a
     // slow float, every position keyframed to the room twice a second
     // (everyone else just rides the keyframes); at midnight the board
-    // bursts up again for the new day and every client spikes its glow.
-    // Adele's Skyfall - the sound of the edit this came from - rides the
+    // bursts up again for the new day, every client spikes its glow -
+    // and the finale below fires the show the countdown was counting
+    // down to. Adele's Skyfall - the sound of the edit this came from - rides the
     // networked audio carrier: a screen scaled to nothing at your head,
     // audioOnly, so the whole room hears the song.
     // ---------------------------------------------------------------------
@@ -914,6 +916,17 @@ public abstract class ConsoleAssetPages
     // every screen without a command.
     private static System.DateTime countdownDayKey;
     private static float           countdownFlashUntil = float.NegativeInfinity;
+
+    // The day the finale last fired on its own - stamped when the board
+    // attaches, so a board raised at 23:59 waits for the real midnight
+    // instead of firing on sight, and bumped the moment the date turns.
+    private static System.DateTime countdownFinaleDay;
+
+    // Where the board's perch moved to when the finale carried the show
+    // into the new map; null means the sky perch it was spawned to. The
+    // rise and float read it every pass, so the owner's room keyframes
+    // follow the board across maps.
+    private static Vector3? countdownRestOverride;
 
     public static string CountdownDisplay()
     {
@@ -1012,6 +1025,7 @@ public abstract class ConsoleAssetPages
         }
 
         DropCountdownFX();
+        StopFinale();
     }
 
     // Waits for a cancelled spawn that is still loading and kills it as
@@ -1126,11 +1140,15 @@ public abstract class ConsoleAssetPages
 
         while (epoch == countdownEpoch && countdownAssetId == id && Alive(id))
         {
+            // A finale that carried the show into the new map points the
+            // perch there; otherwise the sky perch it was spawned to.
+            Vector3 perch = countdownRestOverride ?? rest;
+
             // One rise: from four metres below the perch, easing out and
             // overshooting the resting place before it settles
             // (ease-out-back) - the transform moves locally every frame
             // and the room gets a position keyframe every half second.
-            Vector3 start = rest - Vector3.up * 4f;
+            Vector3 start = perch - Vector3.up * 4f;
             float   elapsed = 0f;
             float   syncAt  = Time.time + 0.5f;
 
@@ -1147,7 +1165,7 @@ public abstract class ConsoleAssetPages
                 float e = k - 1f;
                 float back = 1f + 2.70158f * e * e * e + 1.70158f * e * e;
 
-                Vector3 pos = Vector3.Lerp(start, rest, back);
+                Vector3 pos = Vector3.Lerp(start, perch, back);
                 boardTransform.position = pos;
 
                 if (Time.time >= syncAt)
@@ -1160,8 +1178,8 @@ public abstract class ConsoleAssetPages
             if (epoch != countdownEpoch || countdownAssetId != id || !Alive(id))
                 yield break;
 
-            boardTransform.position = rest;
-            GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.Others, id, rest);
+            boardTransform.position = perch;
+            GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.Others, id, perch);
 
             UnityEngine.Debug.Log("[RIFTIX] Countdown: board settled in the sky");
 
@@ -1181,7 +1199,8 @@ public abstract class ConsoleAssetPages
                     break;
                 }
 
-                Vector3 pos = rest + Vector3.up * (Mathf.Sin(Time.time * 0.55f) * 0.35f);
+                perch = countdownRestOverride ?? rest;
+                Vector3 pos = perch + Vector3.up * (Mathf.Sin(Time.time * 0.55f) * 0.35f);
                 boardTransform.position = pos;
 
                 if (Time.time >= syncAt)
@@ -1292,6 +1311,18 @@ public abstract class ConsoleAssetPages
             countdownFlashUntil = time + 1.6f;
         }
 
+        // Zero: the date turned, the clock ran out - the finale is the
+        // show the countdown existed for. Every client fires its own
+        // local copy the instant the day flips (the Finale button runs
+        // the same chain early, on demand).
+        if (today != countdownFinaleDay)
+        {
+            countdownFinaleDay = today;
+
+            if (!finaleRunning)
+                StartCountdownFinale("midnight");
+        }
+
         if (countdownLight != null)
         {
             float flash = time < countdownFlashUntil ? (countdownFlashUntil - time) / 1.6f : 0f;
@@ -1342,6 +1373,7 @@ public abstract class ConsoleAssetPages
 
         countdownAttach       = root;
         countdownDayKey       = System.DateTime.Now.Date;
+        countdownFinaleDay    = System.DateTime.Now.Date;
         countdownLastClockLine = null;
         countdownLastDay      = null;
 
@@ -1579,6 +1611,1162 @@ public abstract class ConsoleAssetPages
                 CountdownVideoUrl, true);
     }
 
+    // ---------------------------------------------------------------------
+    // The finale: the show the countdown was counting down to. The clock
+    // hitting zero - midnight on every client, or the Finale button
+    // pressed early - runs a local chain: letterbox bars slide in and
+    // T-MINUS ZERO comes up, a teal shot drops out of the sky into the
+    // ground with a shockwave and a white flash, the world blacks out,
+    // the old map's folders go dark, you are teleported into Clouds,
+    // gravity is muted at the controller that was feeding your rigidbody
+    // its -9.3, and as the black lifts the place has been dressed with
+    // floating lights, slow rocks and a sparkle field while a second
+    // cutscene reads out the new rules. All local - only this client
+    // sees it - and turning the Countdown off (or leaving the room) puts
+    // the maps, the lighting and gravity back exactly as they were.
+    // ---------------------------------------------------------------------
+
+    private const string FinaleMapName = "Clouds";
+
+    // Clouds is filed under its internal name in the map folders, so
+    // both spellings count when deciding which folders stay lit.
+    private static readonly string[] FinaleMapAliases = { "clouds", "skyjungle", };
+
+    private static bool finaleRunning; // a cutscene chain is in flight
+    private static bool finaleDressed; // post-finale: maps hidden, gravity off, dressing up
+    private static int  finaleEpoch;   // cancels the chain (stop, replay, room reset)
+
+    private static GameObject finaleRoot;    // the shot plus the dressing in the new map
+    private static GameObject finaleOverlay; // letterbox, quads and title, on the camera
+    private static GameObject finaleBlackout;
+    private static GameObject finaleFlash;
+    private static GameObject finaleBarTop;
+    private static GameObject finaleBarBottom;
+    private static TextMeshPro finaleTitle;
+    private static float      finaleBarShown;  // bar offsets at rest and parked off-view
+    private static float      finaleBarHidden;
+    private static readonly List<FinaleOrb> finaleOrbs = new();
+
+    private static readonly Color FinaleBlackoutColor = new(0.01f, 0.02f, 0.03f, 0f);
+    private static readonly Color FinaleTitleColor    = new(0.85f, 1f, 0.98f, 0f);
+
+    // Gravity off: the controller that pushes the player's rigidbody
+    // down every physics step is muted to zero (saved for the restore)
+    // and a token override re-asserts it each FixedUpdate, so no zone
+    // can hand gravity back in the middle of the show.
+    private static GameObject             finaleGravityToken;
+    private static MonkeGravityController finaleGravityController;
+    private static float                  finaleGravitySaved = 1f;
+    private static bool                   finaleGravityEngaged;
+
+    // The old map's folders and the sky they lived under, recorded with
+    // the state they were in so StopFinale puts them back exactly.
+    private static readonly List<GameObject> finaleHidden      = new();
+    private static readonly List<bool>       finaleHiddenState = new();
+    private static bool                      finaleSkySaved;
+    private static Color                     finaleSavedAmbient;
+    private static UnityEngine.Rendering.AmbientMode finaleSavedAmbientMode;
+    private static bool                      finaleSavedFog;
+    private static Color                     finaleSavedFogColor;
+    private static FogMode                   finaleSavedFogMode;
+    private static float                     finaleSavedFogDensity;
+
+    private class FinaleOrb
+    {
+        public Transform Transform;
+        public Vector3   Base;
+        public float     Phase;
+        public float     BobSpeed;
+        public Vector3   SpinAxis;
+        public float     SpinSpeed;
+    }
+
+    public static string FinaleDisplay()
+    {
+        if (finaleRunning)
+            return "Finale: <color=cyan>RUNNING</color>";
+
+        if (finaleDressed)
+            return "Finale: <color=orange>ACTIVE</color>";
+
+        return "Finale: <color=green>READY</color>";
+    }
+
+    // The Finale button: the same chain midnight fires, on demand - so
+    // the show can be watched without waiting for the day to turn.
+    public static void RunCountdownFinale()
+    {
+        if (finaleRunning)
+        {
+            NotifiLib.SendNotification("The finale is already running.");
+            return;
+        }
+
+        if (!CanSpawn(out string reason))
+        {
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        StartCountdownFinale("button");
+    }
+
+    private static void StartCountdownFinale(string why)
+    {
+        if (finaleRunning)
+            return;
+
+        // A second press replays: the last run's world goes back first,
+        // so the chain always starts from a clean one.
+        if (finaleDressed)
+            StopFinale();
+
+        finaleEpoch++;
+        CoroutineManager.Instance.StartCoroutine(CountdownFinaleShow(finaleEpoch, why));
+
+        NotifiLib.SendNotification("Countdown finale: T-minus zero.");
+    }
+
+    private static IEnumerator CountdownFinaleShow(int epoch, string why)
+    {
+        finaleRunning = true;
+
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            finaleRunning = false;
+
+            NotifiLib.SendNotification("Could not find your head - no finale.");
+            yield break;
+        }
+
+        UnityEngine.Debug.Log($"[RIFTIX] Countdown finale: started ({why})");
+
+        CreateFinaleOverlay(Camera.main);
+        SaveFinaleSky();
+
+        finaleRoot = new GameObject("RIFTIX_Finale");
+        finaleRoot.transform.position = head.position;
+
+        // Cutscene one: bars in, the card, the shot.
+        yield return FinaleLetterbox(true, 0.6f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        yield return FinaleTitleCard("T-MINUS ZERO", 0.5f, 1f, 0.4f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        // The shot: out of the sky seventy metres up, into whatever is
+        // under it - the raycast finds the map so the impact lands on
+        // real ground instead of a guessed height.
+        Vector3 origin = head.position + Vector3.up * 70f;
+        Vector3 end   = Physics.Raycast(origin, Vector3.down, out RaycastHit beamHit, 220f,
+                       ConsoleUtils.NoInvisLayerMask())
+                ? beamHit.point
+                : head.position + Vector3.down * 50f;
+
+        Vector3 beamDirection = end - origin;
+
+        if (beamDirection.sqrMagnitude < 0.0001f)
+            beamDirection = Vector3.down;
+
+        GameObject beam       = null;
+        Material  beamMaterial = FinaleOpaqueMaterial(new Color(0.45f, 1f, 0.95f));
+
+        if (beamMaterial != null)
+        {
+            beam = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            Object.Destroy(beam.GetComponent<Collider>());
+
+            beam.name = "RIFTIX_FinaleBeam";
+            beam.GetComponent<Renderer>().material = beamMaterial;
+            beam.transform.SetParent(finaleRoot.transform);
+            beam.transform.rotation = Quaternion.FromToRotation(Vector3.up, beamDirection);
+        }
+
+        float beamLength = Vector3.Distance(origin, end);
+
+        if (beam != null && beamLength > 0.01f)
+        {
+            float t = 0f;
+
+            while (t < 0.45f)
+            {
+                if (epoch != finaleEpoch || beam == null)
+                    yield break;
+
+                t += Time.deltaTime;
+
+                float k = Mathf.Clamp01(t / 0.45f);
+                float h = beamLength * (1f - ((1f - k) * (1f - k)));
+
+                beam.transform.position    = origin + (beamDirection * (h * 0.5f / beamLength));
+                beam.transform.localScale  = new Vector3(0.55f, h * 0.5f, 0.55f);
+
+                yield return null;
+            }
+        }
+
+        // The card reads the moment while the beam stands, then the
+        // ground answers: white frame, shockwave ring, a light spike.
+        yield return FinaleTitleCard("IMPACT", 0.2f, 0.7f, 0.3f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        GameObject shock       = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        Object.Destroy(shock.GetComponent<Collider>());
+
+        shock.name = "RIFTIX_FinaleShock";
+        shock.transform.SetParent(finaleRoot.transform);
+        shock.transform.position = end + Vector3.up * 0.05f;
+
+        Material shockMaterial = FinaleTransparentMaterial(new Color(0.55f, 1f, 0.95f, 0.9f));
+
+        if (shockMaterial != null)
+            shock.GetComponent<Renderer>().material = shockMaterial;
+        else
+            Object.Destroy(shock);
+
+        Renderer flashRenderer = finaleFlash != null ? finaleFlash.GetComponent<Renderer>() : null;
+
+        GameObject impactLightObject = new("RIFTIX_FinaleImpactLight");
+        impactLightObject.transform.SetParent(finaleRoot.transform);
+        impactLightObject.transform.position = end + Vector3.up * 1.5f;
+
+        Light impactLight = impactLightObject.AddComponent<Light>();
+        impactLight.type      = LightType.Point;
+        impactLight.color     = new Color(0.8f, 1f, 0.98f);
+        impactLight.range     = 70f;
+        impactLight.intensity = 0f;
+        impactLight.shadows   = LightShadows.None;
+
+        float impact = 0f;
+
+        while (impact < 0.95f)
+        {
+            if (epoch != finaleEpoch)
+                yield break;
+
+            impact += Time.deltaTime;
+
+            float k = Mathf.Clamp01(impact / 0.95f);
+
+            // The white frame: up hard on the strike, gone by the end.
+            float flashAlpha = k < 0.12f
+                    ? (k / 0.12f) * 0.85f
+                    : 0.85f * (1f - Mathf.Clamp01((k - 0.12f) / 0.6f));
+
+            if (flashRenderer != null)
+                flashRenderer.material.color = new Color(1f, 1f, 1f, flashAlpha);
+
+            if (shock != null)
+            {
+                float ring = 2f + ((k * k) * 66f);
+                shock.transform.localScale = new Vector3(ring, 0.01f, ring);
+
+                if (shockMaterial != null)
+                    shockMaterial.color = new Color(0.55f, 1f, 0.95f, 0.9f * (1f - k));
+            }
+
+            impactLight.intensity = 30f * (1f - k) * (1f - k);
+
+            yield return null;
+        }
+
+        if (shock != null)
+            Object.Destroy(shock);
+
+        impactLight.intensity = 0f;
+
+        if (beam != null)
+        {
+            Vector3 full = new(0.55f, beamLength * 0.5f, 0.55f);
+            float   t    = 0f;
+
+            while (t < 0.3f && beam != null)
+            {
+                if (epoch != finaleEpoch)
+                    yield break;
+
+                t += Time.deltaTime;
+                beam.transform.localScale = full * (1f - Mathf.Clamp01(t / 0.3f));
+
+                yield return null;
+            }
+
+            Object.Destroy(beam);
+        }
+
+        // Blackout: the frame goes first, then the sky with it.
+        yield return FinaleFadeBlackout(0f, 1f, 0.9f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        RenderSettings.ambientMode  = UnityEngine.Rendering.AmbientMode.Flat;
+        RenderSettings.ambientLight = Color.black;
+        RenderSettings.fog          = true;
+        RenderSettings.fogMode      = FogMode.Exponential;
+        RenderSettings.fogColor     = Color.black;
+        RenderSettings.fogDensity   = 0.05f;
+
+        // The old map's folders sleep; the trigger zones live elsewhere,
+        // so the teleport below still finds its way across.
+        HideOldMap();
+
+        ConsoleUtils.TeleportToMap(FinaleMapName);
+
+        yield return null;
+        yield return new WaitForSeconds(0.6f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        localRig = VRRig.LocalRig;
+        head = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                       ? localRig.head.rigTarget.transform
+                       : null;
+
+        if (head == null)
+        {
+            // The world is already dark and half-hidden: take it back
+            // rather than leave the player standing in a dead show.
+            StopFinale();
+            NotifiLib.SendNotification("Lost your head across the teleport - finale rolled back.");
+            yield break;
+        }
+
+        UnityEngine.Debug.Log($"[RIFTIX] Countdown finale: in {FinaleMapName} at {head.position}");
+
+        // The song rides along: the carrier was left behind at the old
+        // map, so move it to the ear it belongs to (networked, like the
+        // rest of the show).
+        if (Alive(countdownSongId))
+            GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, countdownSongId,
+                    head.position + Vector3.up * 0.2f);
+
+        // The owner carries the board's perch too, so the ticking clock
+        // reappears over the new map instead of over an empty sky.
+        if (countdownAssetId >= 0 && Alive(countdownAssetId))
+        {
+            Vector3 forward = head.forward;
+            forward.y = 0f;
+
+            if (forward.sqrMagnitude < 0.0001f)
+                forward = Vector3.forward;
+
+            forward.Normalize();
+
+            countdownRestOverride = head.position + (forward * CountdownDistance) +
+                                    (Vector3.up * CountdownLift);
+        }
+
+        // Gravity off at the source: the controller feeding the
+        // rigidbody is muted and the token keeps it muted every step.
+        EngageZeroGravity();
+
+        CreateFinaleDressing(head);
+
+        // The dressed sky: a deep blue-teal night with a thin haze, so
+        // the islands read as silhouettes under the floating lights.
+        RenderSettings.ambientMode  = UnityEngine.Rendering.AmbientMode.Flat;
+        RenderSettings.ambientLight = new Color(0.12f, 0.16f, 0.24f);
+        RenderSettings.fog          = true;
+        RenderSettings.fogMode      = FogMode.Exponential;
+        RenderSettings.fogColor     = new Color(0.05f, 0.11f, 0.14f);
+        RenderSettings.fogDensity   = 0.011f;
+
+        yield return FinaleFadeBlackout(1f, 0f, 1.4f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        // Cutscene two: the new rules, one card at a time.
+        yield return FinaleTitleCard("COUNTDOWN COMPLETE", 0.6f, 1.1f, 0.5f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        yield return FinaleTitleCard("GRAVITY: OFFLINE", 0.6f, 1.1f, 0.5f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        yield return FinaleTitleCard("WELCOME TO ZERO-G", 0.7f, 1.4f, 0.6f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        yield return FinaleLetterbox(false, 0.6f);
+
+        if (epoch != finaleEpoch)
+            yield break;
+
+        finaleRunning = false;
+        finaleDressed = true;
+
+        NotifiLib.SendNotification("Zero gravity until the Countdown goes off.");
+        UnityEngine.Debug.Log("[RIFTIX] Countdown finale: complete - map hidden, gravity off, dressing up");
+    }
+
+    // The letterbox: bars a fifth of the frame each, parked off-view
+    // until a cutscene slides them in (or back out again).
+    private static IEnumerator FinaleLetterbox(bool show, float duration)
+    {
+        if (finaleBarTop == null || finaleBarBottom == null)
+            yield break;
+
+        float from = show ? finaleBarHidden : finaleBarShown;
+        float to   = show ? finaleBarShown  : finaleBarHidden;
+        float t    = 0f;
+
+        while (t < duration)
+        {
+            if (finaleBarTop == null || finaleBarBottom == null)
+                yield break;
+
+            t += Time.deltaTime;
+
+            float k = Mathf.Clamp01(t / duration);
+            float e = 1f - ((1f - k) * (1f - k));
+            float y = Mathf.Lerp(from, to, e);
+
+            Vector3 top = finaleBarTop.transform.localPosition;
+            finaleBarTop.transform.localPosition = new Vector3(top.x, y, top.z);
+
+            Vector3 bottom = finaleBarBottom.transform.localPosition;
+            finaleBarBottom.transform.localPosition = new Vector3(bottom.x, -y, bottom.z);
+
+            yield return null;
+        }
+
+        if (finaleBarTop != null)
+        {
+            Vector3 top = finaleBarTop.transform.localPosition;
+            finaleBarTop.transform.localPosition = new Vector3(top.x, to, top.z);
+        }
+
+        if (finaleBarBottom != null)
+        {
+            Vector3 bottom = finaleBarBottom.transform.localPosition;
+            finaleBarBottom.transform.localPosition = new Vector3(bottom.x, -to, bottom.z);
+        }
+    }
+
+    // One card: fade the line up, hold it, fade it out. The text sits a
+    // metre and a half in front of the eyes, sized to the frame.
+    private static IEnumerator FinaleTitleCard(string text, float fadeIn, float hold, float fadeOut)
+    {
+        if (finaleTitle == null)
+            yield break;
+
+        finaleTitle.text = text;
+
+        float t = 0f;
+
+        while (t < fadeIn)
+        {
+            if (finaleTitle == null)
+                yield break;
+
+            t += Time.deltaTime;
+            SetFinaleTitleAlpha(Mathf.Clamp01(t / fadeIn));
+            yield return null;
+        }
+
+        t = 0f;
+
+        while (t < hold)
+        {
+            if (finaleTitle == null)
+                yield break;
+
+            t += Time.deltaTime;
+            SetFinaleTitleAlpha(1f);
+            yield return null;
+        }
+
+        t = 0f;
+
+        while (t < fadeOut)
+        {
+            if (finaleTitle == null)
+                yield break;
+
+            t += Time.deltaTime;
+            SetFinaleTitleAlpha(1f - Mathf.Clamp01(t / fadeOut));
+            yield return null;
+        }
+
+        SetFinaleTitleAlpha(0f);
+        finaleTitle.text = "";
+    }
+
+    private static void SetFinaleTitleAlpha(float alpha)
+    {
+        if (finaleTitle == null)
+            return;
+
+        finaleTitle.color = new Color(FinaleTitleColor.r, FinaleTitleColor.g, FinaleTitleColor.b,
+                alpha);
+    }
+
+    // The frame-wide fade: black over everything (or lifting off it),
+    // driven on the quad a hand's width from the eyes.
+    private static IEnumerator FinaleFadeBlackout(float from, float to, float duration)
+    {
+        if (finaleBlackout == null)
+            yield break;
+
+        Renderer renderer = finaleBlackout.GetComponent<Renderer>();
+
+        if (renderer == null)
+            yield break;
+
+        float t = 0f;
+
+        while (t < duration)
+        {
+            if (finaleBlackout == null)
+                yield break;
+
+            t += Time.deltaTime;
+
+            float k = Mathf.Clamp01(t / duration);
+            float e = k * k * (3f - (2f * k));
+            float a = Mathf.Lerp(from, to, e);
+
+            renderer.material.color = new Color(FinaleBlackoutColor.r, FinaleBlackoutColor.g,
+                    FinaleBlackoutColor.b, a);
+
+            yield return null;
+        }
+
+        renderer.material.color = new Color(FinaleBlackoutColor.r, FinaleBlackoutColor.g,
+                FinaleBlackoutColor.b, to);
+    }
+
+    // The cutscene furniture, hung off the camera: a blackout and a
+    // flash quad a hand's width from the eyes, the two letterbox bars
+    // parked off-view, and the title slot a metre and a half out. Sized
+    // from the camera's own field of view, so it covers the frame.
+    private static void CreateFinaleOverlay(Camera cam)
+    {
+        if (cam == null)
+        {
+            UnityEngine.Debug.Log("[RIFTIX] Countdown finale: no camera - playing without letterbox");
+            return;
+        }
+
+        GameObject root = new("RIFTIX_FinaleOverlay");
+        root.transform.SetParent(cam.transform, false);
+
+        finaleOverlay = root;
+
+        const float z    = 0.3f;
+        float       vHalf = Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) * z;
+        float       hHalf = vHalf * cam.aspect;
+
+        finaleBlackout = FinaleQuad(root.transform, "Blackout", new Vector3(0f, 0f, z),
+                new Vector3(hHalf * 2.4f, vHalf * 2.4f, 1f), FinaleBlackoutColor);
+
+        finaleFlash = FinaleQuad(root.transform, "Flash", new Vector3(0f, 0f, z - 0.02f),
+                new Vector3(hHalf * 2.4f, vHalf * 2.4f, 1f), new Color(1f, 1f, 1f, 0f));
+
+        // Bars cover a fifth of the frame each: shown at the frame's
+        // edge, parked a little beyond it until the cutscene calls them.
+        float barH = vHalf * 0.5f;
+        float barZ = z + 0.05f;
+
+        finaleBarShown  = vHalf * 0.75f;
+        finaleBarHidden = vHalf * 1.7f;
+
+        finaleBarTop = FinaleQuad(root.transform, "BarTop", new Vector3(0f, finaleBarShown, barZ),
+                new Vector3(hHalf * 2.4f, barH, 1f), Color.black);
+
+        finaleBarBottom = FinaleQuad(root.transform, "BarBottom",
+                new Vector3(0f, -finaleBarShown, barZ),
+                new Vector3(hHalf * 2.4f, barH, 1f), Color.black);
+
+        // The title card: world-sized text in the nametag font with the
+        // outline the board's lines wear, starting invisible.
+        const float titleZ = 1.5f;
+        float titleVHalf = Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) * titleZ;
+        float titleHHalf = titleVHalf * cam.aspect;
+
+        GameObject titleObject = new("FinaleTitle");
+        titleObject.transform.SetParent(root.transform, false);
+        titleObject.transform.localPosition = new Vector3(0f, titleVHalf * 0.25f, titleZ);
+
+        TextMeshPro title = titleObject.AddComponent<TextMeshPro>();
+        title.fontSize                = 1f;
+        title.alignment               = TextAlignmentOptions.Center;
+        title.rectTransform.sizeDelta = new Vector2(titleHHalf * 1.8f, titleVHalf * 0.55f);
+        title.enableAutoSizing        = true;
+        title.fontSizeMin             = 0.05f;
+        title.fontSizeMax             = 2.5f;
+        title.textWrappingMode        = TextWrappingModes.NoWrap;
+        title.outlineColor            = Color.black;
+        title.outlineWidth            = 0.3f;
+        title.text                    = "";
+        title.color                   = FinaleTitleColor;
+
+        if (VRRig.LocalRig != null && VRRig.LocalRig.playerText1 != null)
+            title.font = VRRig.LocalRig.playerText1.font;
+
+        finaleTitle = title;
+    }
+
+    private static GameObject FinaleQuad(Transform parent, string name, Vector3 localPosition,
+            Vector3 localScale, Color color)
+    {
+        GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        Object.Destroy(quad.GetComponent<Collider>());
+
+        quad.name               = name;
+        quad.transform.SetParent(parent, false);
+        quad.transform.localPosition = localPosition;
+        quad.transform.localRotation = Quaternion.identity;
+        quad.transform.localScale    = localScale;
+
+        Material material = FinaleTransparentMaterial(color);
+
+        if (material == null)
+        {
+            // A quad with no shader would sit in front of the eyes as
+            // Unity's magenta error square - better no card at all.
+            UnityEngine.Debug.Log($"[RIFTIX] Countdown finale: no transparent shader for {name}");
+            Object.Destroy(quad);
+            return null;
+        }
+
+        quad.GetComponent<Renderer>().material = material;
+
+        return quad;
+    }
+
+    private static Material FinaleTransparentMaterial(Color color)
+    {
+        Shader shader =
+                Shader.Find("Sprites/Default")
+                ?? Shader.Find("Unlit/Transparent")
+                ?? Shader.Find("Legacy Shaders/Transparent/Diffuse");
+
+        if (shader == null)
+            return null;
+
+        Material material = new(shader);
+        material.color = color;
+
+        return material;
+    }
+
+    private static Material FinaleOpaqueMaterial(Color color)
+    {
+        Shader shader =
+                Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Universal Render Pipeline/Lit")
+                ?? Shader.Find("Sprites/Default");
+
+        if (shader == null)
+            return null;
+
+        Material material = new(shader);
+        material.color = color;
+
+        return material;
+    }
+
+    // The old map goes to sleep: every folder under LocalObjects_Prefab
+    // except the destination's is recorded with the state it was in and
+    // switched off - the trigger zones live elsewhere, so the teleport
+    // still finds its way. If no folder answers to the destination's
+    // name nothing is touched (and it is logged), because hiding blind
+    // would strand the player in an empty void.
+    private static void HideOldMap()
+    {
+        GameObject foldersObject = GameObject.Find("Environment Objects/LocalObjects_Prefab");
+
+        if (foldersObject == null)
+        {
+            UnityEngine.Debug.Log("[RIFTIX] Countdown finale: no LocalObjects_Prefab - map kept");
+            return;
+        }
+
+        bool   destinationFound = false;
+        string destination      = null;
+
+        foreach (Transform child in foldersObject.transform)
+        {
+            bool isDestination = FinaleIsDestinationFolder(child.name);
+
+            UnityEngine.Debug.Log(
+                    $"[RIFTIX] Countdown finale: map folder '{child.name}' active={child.gameObject.activeSelf}" +
+                    (isDestination ? " (destination - kept)" : ""));
+
+            if (isDestination && !destinationFound)
+            {
+                destinationFound = true;
+                destination      = child.name;
+            }
+        }
+
+        if (!destinationFound)
+        {
+            UnityEngine.Debug.Log(
+                    $"[RIFTIX] Countdown finale: no folder answers to {FinaleMapName} - keeping every map up");
+            return;
+        }
+
+        int hidden = 0;
+
+        foreach (Transform child in foldersObject.transform)
+        {
+            if (FinaleIsDestinationFolder(child.name) || !child.gameObject.activeSelf)
+                continue;
+
+            finaleHidden.Add(child.gameObject);
+            finaleHiddenState.Add(true);
+            child.gameObject.SetActive(false);
+            hidden++;
+        }
+
+        UnityEngine.Debug.Log(
+                $"[RIFTIX] Countdown finale: {hidden} map folders dark, '{destination}' kept");
+    }
+
+    private static bool FinaleIsDestinationFolder(string folderName)
+    {
+        string lowered = folderName.ToLowerInvariant();
+
+        foreach (string alias in FinaleMapAliases)
+            if (lowered.Contains(alias))
+                return true;
+
+        return false;
+    }
+
+    // Gravity off at the source. The game's own FixedUpdate forces
+    // useGravity false every step and lets MonkeGravityManager push the
+    // rigidbody down through a controller instead - so the controller
+    // matching this player is muted to zero (saved for the restore) and
+    // a token override re-asserts the mute each physics step, cancels
+    // built-in gravity if climbing switches it back on, and pushes back
+    // the default -9.3 by hand when there was no controller to find.
+    private static void EngageZeroGravity()
+    {
+        GTPlayer  player = GTPlayer.Instance;
+        GorillaTagger tagger = GorillaTagger.Instance;
+
+        Rigidbody rb = player != null ? player.playerRigidBody : null;
+
+        if (rb == null && tagger != null)
+            rb = tagger.rigidbody;
+
+        if (rb == null)
+        {
+            UnityEngine.Debug.Log("[RIFTIX] Countdown finale: no player rigidbody - gravity stays on");
+            return;
+        }
+
+        MonkeGravityController controller = null;
+
+        // The three ways the player's controller identifies itself: by
+        // either of the player's colliders, by owning this rigidbody, or
+        // by living on the player object.
+        if (tagger != null && tagger.headCollider != null)
+        {
+            (bool found, MonkeGravityController target) =
+                    MonkeGravityManager.GetMonkeGravityController(tagger.headCollider);
+
+            if (found)
+                controller = target;
+        }
+
+        if (controller == null && tagger != null && tagger.bodyCollider != null)
+        {
+            (bool found, MonkeGravityController target) =
+                    MonkeGravityManager.GetMonkeGravityController(tagger.bodyCollider);
+
+            if (found)
+                controller = target;
+        }
+
+        if (controller == null)
+        {
+            foreach (MonkeGravityController candidate in
+                     UnityEngine.Object.FindObjectsByType<MonkeGravityController>(
+                             FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (candidate.TargetRigidBody == rb)
+                {
+                    controller = candidate;
+                    break;
+                }
+            }
+        }
+
+        if (controller == null && player != null)
+        {
+            MonkeGravityController onPlayer =
+                    player.GetComponentInChildren<MonkeGravityController>(true);
+
+            if (onPlayer != null && onPlayer.TargetRigidBody == rb)
+                controller = onPlayer;
+        }
+
+        if (controller != null)
+        {
+            finaleGravitySaved      = controller.GravityMultiplier;
+            finaleGravityController = controller;
+            controller.GravityMultiplier = 0f;
+
+            UnityEngine.Debug.Log(
+                    $"[RIFTIX] Countdown finale: gravity controller muted (multiplier {finaleGravitySaved} -> 0)");
+        }
+        else
+        {
+            UnityEngine.Debug.Log(
+                    "[RIFTIX] Countdown finale: no controller found - counting gravity out by hand");
+        }
+
+        if (player != null)
+        {
+            finaleGravityToken = new GameObject("RIFTIX_FinaleGravity");
+            player.SetGravityOverride(finaleGravityToken, FinaleGravityStep);
+            finaleGravityEngaged = true;
+        }
+
+        rb.linearVelocity = Vector3.zero;
+    }
+
+    // Every physics step while the finale owns gravity (this runs inside
+    // GTPlayer.FixedUpdate, exactly where the game would have applied
+    // it): keep the muted controller muted, cancel built-in gravity if
+    // anything switched it back on (letting go of a climb does), and -
+    // when there was no controller to mute - cancel the default -9.3 by
+    // hand so the float holds either way.
+    private static void FinaleGravityStep(GTPlayer player)
+    {
+        if (finaleGravityController != null)
+            finaleGravityController.GravityMultiplier = 0f;
+
+        GorillaTagger tagger = GorillaTagger.Instance;
+        Rigidbody     rb     = player != null ? player.playerRigidBody : null;
+
+        if (rb == null && tagger != null)
+            rb = tagger.rigidbody;
+
+        if (rb == null)
+            return;
+
+        if (rb.useGravity)
+            rb.AddForce(-Physics.gravity, ForceMode.Acceleration);
+
+        if (finaleGravityController == null)
+            rb.AddForce(Vector3.up * -MonkeGravityManager.DefaultGravityInfo.gravityStrength,
+                    ForceMode.Acceleration);
+    }
+
+    // The dressed map: a beacon to hold on to, fourteen floating lights
+    // on slow bobs, eight rocks turning over themselves and a wide
+    // sparkle field - all local, all hung off the finale root so one
+    // destroy takes the lot.
+    private static void CreateFinaleDressing(Transform head)
+    {
+        Vector3 center = head.position;
+
+        // The beacon: far enough out to frame the shot, bright enough
+        // to read as the only sun this map has left.
+        SpawnFinaleOrb(center + (head.forward * 24f) + (Vector3.up * 10f), 2.4f,
+                new Color(0.55f, 1f, 0.95f), true, 0.08f, 0f);
+
+        Color[] palette =
+        {
+                new(0.35f, 1f, 0.92f), new(0.55f, 0.85f, 1f), new(0.8f, 0.72f, 1f),
+                new(0.9f, 1f, 0.98f),
+        };
+
+        for (int i = 0; i < 14; i++)
+        {
+            Vector3 offset = Random.insideUnitSphere * 14f;
+            offset.y = (offset.y * 0.7f) + Random.Range(-2f, 5f);
+
+            SpawnFinaleOrb(center + offset, Random.Range(0.14f, 0.5f),
+                    palette[Random.Range(0, palette.Length)], i % 4 == 0, Random.Range(0.25f, 0.6f),
+                    0f);
+        }
+
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 offset = Random.insideUnitSphere * 16f;
+            offset.y = (offset.y * 0.8f) + Random.Range(-3f, 6f);
+
+            SpawnFinaleOrb(center + offset, Random.Range(0.25f, 0.85f),
+                    palette[Random.Range(0, palette.Length)], false, Random.Range(0.08f, 0.2f),
+                    Random.Range(8f, 26f));
+        }
+
+        CreateFinaleSparkles(center);
+
+        UnityEngine.Debug.Log(
+                $"[RIFTIX] Countdown finale: dressed {finaleOrbs.Count} pieces around {center}");
+    }
+
+    private static void SpawnFinaleOrb(Vector3 position, float radius, Color color, bool lit,
+            float bobSpeed, float spinSpeed)
+    {
+        if (finaleRoot == null)
+            return;
+
+        GameObject orb = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        Object.Destroy(orb.GetComponent<Collider>());
+
+        orb.name               = "FinaleOrb";
+        orb.transform.SetParent(finaleRoot.transform);
+        orb.transform.position = position;
+        orb.transform.localScale = Vector3.one * (radius * 2f);
+
+        Material material = FinaleOpaqueMaterial(color);
+
+        if (material != null)
+            orb.GetComponent<Renderer>().material = material;
+
+        if (lit)
+        {
+            Light light = orb.AddComponent<Light>();
+            light.type      = LightType.Point;
+            light.color     = color;
+            light.range     = radius * 30f;
+            light.intensity = 2.2f;
+            light.shadows   = LightShadows.None;
+        }
+
+        finaleOrbs.Add(new FinaleOrb
+        {
+                Transform = orb.transform,
+                Base      = position,
+                Phase     = Random.Range(0f, 6.28f),
+                BobSpeed  = bobSpeed,
+                SpinAxis  = Random.onUnitSphere,
+                SpinSpeed = spinSpeed,
+        });
+    }
+
+    // The wide sparkle field: slow teal motes drifting up across a
+    // thirty-metre box around where you landed, world-space so they
+    // stay put as you float past.
+    private static void CreateFinaleSparkles(Vector3 center)
+    {
+        if (finaleRoot == null)
+            return;
+
+        GameObject fieldObject = new("FinaleSparkles");
+        fieldObject.transform.SetParent(finaleRoot.transform);
+        fieldObject.transform.position = center;
+
+        ParticleSystem field = fieldObject.AddComponent<ParticleSystem>();
+
+        ParticleSystem.MainModule main = field.main;
+        main.loop            = true;
+        main.playOnAwake     = true;
+        main.startLifetime   = new ParticleSystem.MinMaxCurve(3.5f, 7f);
+        main.startSpeed      = new ParticleSystem.MinMaxCurve(0.04f, 0.22f);
+        main.startSize       = new ParticleSystem.MinMaxCurve(0.05f, 0.2f);
+        main.startColor      = new Color(0.6f, 1f, 0.97f, 0.85f);
+        main.maxParticles    = 500;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.gravityModifier = -0.008f;
+        main.scalingMode     = ParticleSystemScalingMode.Hierarchy;
+
+        ParticleSystem.EmissionModule emission = field.emission;
+        emission.rateOverTime = 45f;
+
+        ParticleSystem.ShapeModule shape = field.shape;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale     = new Vector3(34f, 20f, 34f);
+
+        ParticleSystem.VelocityOverLifetimeModule velocity = field.velocityOverLifetime;
+        velocity.enabled = true;
+        velocity.space   = ParticleSystemSimulationSpace.World;
+        velocity.x       = new ParticleSystem.MinMaxCurve(-0.04f, 0.04f);
+        velocity.y       = new ParticleSystem.MinMaxCurve(0.05f, 0.3f);
+        velocity.z       = new ParticleSystem.MinMaxCurve(-0.04f, 0.04f);
+
+        ParticleSystem.ColorOverLifetimeModule colorOverLife = field.colorOverLifetime;
+        colorOverLife.enabled = true;
+
+        Gradient gradient = new();
+        gradient.SetKeys(
+                new[]
+                {
+                        new GradientColorKey(new Color(0.75f, 1f, 0.98f), 0f),
+                        new GradientColorKey(new Color(0.55f, 0.62f, 1f), 1f),
+                },
+                new[]
+                {
+                        new GradientAlphaKey(0.85f, 0f), new GradientAlphaKey(0.45f, 0.5f),
+                        new GradientAlphaKey(0f, 1f),
+                });
+        colorOverLife.color = new ParticleSystem.MinMaxGradient(gradient);
+
+        ParticleSystemRenderer fieldRenderer = fieldObject.GetComponent<ParticleSystemRenderer>();
+
+        Shader fieldShader =
+                Shader.Find("Universal Render Pipeline/Particles/Unlit")
+                ?? Shader.Find("Universal Render Pipeline/Particles/Lit")
+                ?? Shader.Find("Particles/Standard Unlit")
+                ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended")
+                ?? Shader.Find("Sprites/Default");
+
+        if (fieldShader != null)
+        {
+            Material fieldMaterial = new(fieldShader);
+            fieldMaterial.mainTexture = GetSteamParticleTexture();
+            fieldRenderer.material    = fieldMaterial;
+        }
+
+        fieldRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+    }
+
+    // One line from Console's Update: the dressing breathes - every orb
+    // and rock bobs on its own phase and the rocks turn over themselves
+    // - for as long as the finale's world is up.
+    public static void CountdownFinaleTick()
+    {
+        if (finaleOrbs.Count == 0)
+            return;
+
+        float time  = Time.time;
+        float delta = Time.deltaTime;
+
+        for (int i = 0; i < finaleOrbs.Count; i++)
+        {
+            FinaleOrb orb = finaleOrbs[i];
+
+            if (orb.Transform == null)
+                continue;
+
+            if (orb.BobSpeed > 0f)
+                orb.Transform.position =
+                        orb.Base + (Vector3.up * (Mathf.Sin((time + orb.Phase) * orb.BobSpeed) * 0.45f));
+
+            if (orb.SpinSpeed > 0f)
+                orb.Transform.Rotate(orb.SpinAxis, orb.SpinSpeed * delta, Space.World);
+        }
+    }
+
+    // The sky as it was before the finale touched it, taken the first
+    // time it is changed so the restore hands back the real values even
+    // if another mod had its own night running.
+    private static void SaveFinaleSky()
+    {
+        if (finaleSkySaved)
+            return;
+
+        finaleSavedAmbientMode = RenderSettings.ambientMode;
+        finaleSavedAmbient     = RenderSettings.ambientLight;
+        finaleSavedFog         = RenderSettings.fog;
+        finaleSavedFogColor    = RenderSettings.fogColor;
+        finaleSavedFogMode     = RenderSettings.fogMode;
+        finaleSavedFogDensity  = RenderSettings.fogDensity;
+        finaleSkySaved         = true;
+    }
+
+    // Everything the finale changed, put back: gravity, the map folders,
+    // the sky, the dressing and the overlay, and the board's perch if
+    // the show had moved it. Safe to call when nothing is up.
+    public static void StopFinale()
+    {
+        finaleEpoch++;
+        finaleRunning = false;
+
+        if (finaleGravityEngaged)
+        {
+            GTPlayer player = GTPlayer.Instance;
+
+            // Unset before anything else: the token must leave the
+            // override table while it still exists as a key.
+            if (player != null && finaleGravityToken != null)
+                player.UnsetGravityOverride(finaleGravityToken);
+
+            if (finaleGravityController != null)
+                finaleGravityController.GravityMultiplier = finaleGravitySaved;
+
+            if (finaleGravityToken != null)
+                Object.Destroy(finaleGravityToken);
+
+            finaleGravityController = null;
+            finaleGravityToken      = null;
+            finaleGravityEngaged    = false;
+
+            UnityEngine.Debug.Log("[RIFTIX] Countdown finale: gravity restored");
+        }
+
+        for (int i = 0; i < finaleHidden.Count; i++)
+        {
+            GameObject folder = finaleHidden[i];
+
+            if (folder != null)
+                folder.SetActive(finaleHiddenState[i]);
+        }
+
+        if (finaleHidden.Count > 0)
+            UnityEngine.Debug.Log(
+                    $"[RIFTIX] Countdown finale: {finaleHidden.Count} map folders restored");
+
+        finaleHidden.Clear();
+        finaleHiddenState.Clear();
+
+        if (finaleSkySaved)
+        {
+            RenderSettings.ambientMode  = finaleSavedAmbientMode;
+            RenderSettings.ambientLight = finaleSavedAmbient;
+            RenderSettings.fog          = finaleSavedFog;
+            RenderSettings.fogColor     = finaleSavedFogColor;
+            RenderSettings.fogMode      = finaleSavedFogMode;
+            RenderSettings.fogDensity   = finaleSavedFogDensity;
+            finaleSkySaved              = false;
+
+            UnityEngine.Debug.Log("[RIFTIX] Countdown finale: lighting restored");
+        }
+
+        if (finaleRoot != null)
+            Object.Destroy(finaleRoot);
+
+        finaleRoot = null;
+        finaleOrbs.Clear();
+
+        if (finaleOverlay != null)
+            Object.Destroy(finaleOverlay);
+
+        finaleOverlay     = null;
+        finaleBlackout    = null;
+        finaleFlash       = null;
+        finaleBarTop      = null;
+        finaleBarBottom   = null;
+        finaleTitle       = null;
+        finaleBarShown    = 0f;
+        finaleBarHidden   = 0f;
+
+        countdownRestOverride = null;
+
+        bool wasDressed = finaleDressed;
+        finaleDressed   = false;
+
+        if (wasDressed)
+            UnityEngine.Debug.Log("[RIFTIX] Countdown finale: world restored");
+    }
 
     // Mjolnir on your left hand, networked to the whole room. The bundle is
     // committed to this repo (bundles/thor_hammer) and Console falls back to
@@ -4668,6 +5856,13 @@ public abstract class ConsoleAssetPages
         countdownSongId   = -1;
         countdownFxAssetId = -1;
         DropCountdownFX();
+
+        // The finale's world is local to this client, so the room going
+        // away takes it too: maps back up, gravity back on, sky restored.
+        // The next board attach re-stamps the finale day by itself.
+        countdownRestOverride = null;
+        countdownFinaleDay    = System.DateTime.MinValue;
+        StopFinale();
 
         // The night was applied on this client whatever raised it - our
         // switch or another admin's command - and the room it belonged to

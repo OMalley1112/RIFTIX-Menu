@@ -1263,7 +1263,16 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnCountdown,
                     disableMethod = ConsoleAssetPages.RemoveCountdown,
                     displayText   = ConsoleAssetPages.CountdownDisplay,
-                    toolTip       = "Raises an eleven-metre chessboard in the sky twelve metres out and seven up - the day name and the hours, minutes and seconds until tomorrow midnight, ticking live on a board that rises with an overshoot onto its perch, floats, blinks its colons and glows teal with sparkles. Networked: the whole room sees the board and song (Adele's Skyfall on a hidden carrier) the moment it goes up, anyone who joins later inherits it automatically, and at midnight the board bursts up again for the new day. The desktop Home tab has a quick on/off button so you never need the in-game menu.",
+                    toolTip       = "Raises an eleven-metre chessboard in the sky twelve metres out and seven up - the day name and the hours, minutes and seconds until tomorrow midnight, ticking live on a board that rises with an overshoot onto its perch, floats, blinks its colons and glows teal with sparkles. Networked: the whole room sees the board and song (Adele's Skyfall on a hidden carrier) the moment it goes up, anyone who joins later inherits it automatically, and at midnight the board bursts up again for the new day before the finale fires - letterboxed cutscene, a teal shot dropped into the map, the world blacked out and the old map's folders put to sleep, then a teleport into Clouds with gravity switched off and the place dressed with floating lights for a second cutscene. Turning the Countdown off (or leaving the room) restores the maps, the lighting and gravity. The desktop Home tab has a quick on/off button so you never need the in-game menu.",
+            },
+
+            new()
+            {
+                    buttonText    = "Finale",
+                    method        = ConsoleAssetPages.RunCountdownFinale,
+                    mode          = ButtonMode.Action,
+                    displayText   = ConsoleAssetPages.FinaleDisplay,
+                    toolTip       = "Plays the countdown's finale now instead of waiting for midnight: letterbox bars slide in and T-MINUS ZERO comes up, a teal shot falls out of the sky into the ground with a shockwave and a white flash, the world blacks out, the old map's folders go dark, you are teleported to Clouds, gravity is muted at the controller that feeds your rigidbody, and as the black lifts the map is dressed with floating lights, slow rocks and a sparkle field while a second cutscene reads out the new rules (COUNTDOWN COMPLETE, GRAVITY: OFFLINE, WELCOME TO ZERO-G). Local - only you see it - and everything is restored when the Countdown goes off or you leave the room. Press again to replay.",
             },
 
             new()
