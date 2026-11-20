@@ -96,6 +96,45 @@ public abstract class ConsoleAssetPages
 
     private static int hammerAssetId = -1;
 
+    // The cowboy set: Cowboy Hat (head anchor) and Schofield (right hand),
+    // wrapped roots built by Assets/Build Cowboy Set Bundle in the bundle
+    // project and committed to this repo under bundles/cowboy_set - like
+    // the hammer, ServerData has no room for it, so Console falls back to
+    // RiftixAssetsURL when the download there misses.
+    private const string CowboyBundle   = "cowboy_set";
+    private const string CowboyHatAsset = "CowboyHat";
+    private const string CowboyGunAsset = "Schofield";
+
+    // BindObject's anchor slots: 0 head, 1 left hand, 2 right hand, 3 body.
+    private const int CowboyHatAnchor = 0;
+    private const int CowboyGunAnchor = 2;
+
+    // Half the wrapper's barrel length: the wrapper is built with the
+    // Schofield's longest axis down +Z and its centre as the pivot, so the
+    // muzzle is exactly this far along the local forward.
+    private const float CowboyMuzzleForward = 0.15f;
+
+    private const float CowboySpinSpeed    = 420f; // degrees per second
+    private const float CowboyBulletSpeed  = 55f;  // metres per second
+
+    private static int cowboyHatAssetId = -1;
+    private static int cowboyGunAssetId  = -1;
+
+    // The Schofield's local show: the flourish (angle kept across the
+    // post-shot pause so it resumes cleanly from level), the trigger edge,
+    // the bullet in flight, the muzzle flash burning down, and the kills
+    // this client is currently staging.
+    private static float      cowboySpinAngle;
+    private static float      cowboySpinResumeAt = float.NegativeInfinity;
+    private static bool       cowboyTriggerWasDown;
+    private static GameObject cowboyBullet;
+    private static Vector3    cowboyBulletVelocity;
+    private static float      cowboyBulletLife;
+    private static GameObject cowboyFlash;
+    private static float      cowboyFlashUntil = float.NegativeInfinity;
+    private static int        cowboyKillEpoch;
+    private static readonly List<VRRig> cowboyKills = new();
+
     public static string PictureDisplay()
     {
         ButtonInfo button = Buttons.GetIndex("TikTok Picture");
@@ -2872,6 +2911,418 @@ public abstract class ConsoleAssetPages
 
             yield return null;
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // The cowboy set: a worn hat on your head and a Schofield on your right
+    // hand, both networked so the whole room sees the outfit. The gun twirls
+    // on your finger until the trigger stops it - then it fires: a brass
+    // bullet out of the muzzle, and a hit lays the player out on the ground,
+    // drops them out of sight for half a minute and puts them back.
+    // ---------------------------------------------------------------------
+
+    public static string CowboyDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Cowboy Set");
+
+        return
+                $"Cowboy Set: {(button != null && button.enabled
+                                        ? "<color=green>ON</color>"
+                                        : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnCowboy()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Same quiet flip-off as the picture: saved switch states replay
+            // at startup before a room exists (a real press gets the reason).
+            SetSwitchOff("Cowboy Set");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        cowboyHatAssetId = GTConsole.GetFreeAssetID();
+        SendCowboyAnchor(cowboyHatAssetId, CowboyHatAnchor, CowboyHatAsset, Vector3.zero);
+
+        cowboyGunAssetId = GTConsole.GetFreeAssetID();
+        SendCowboyAnchor(cowboyGunAssetId, CowboyGunAnchor, CowboyGunAsset, Vector3.zero);
+
+        cowboySpinAngle      = 0f;
+        cowboySpinResumeAt   = float.NegativeInfinity;
+        cowboyTriggerWasDown = false;
+
+        NotifiLib.SendNotification("Cowboy set on: hat on your head, Schofield in your right hand.");
+
+        CoroutineManager.Instance.StartCoroutine(ResendCowboy());
+        CoroutineManager.Instance.StartCoroutine(FitCowboyHat(cowboyHatAssetId));
+    }
+
+    // The full spawn/anchor/pose run for one piece: spawn, colliders out
+    // (hands must not climb their own outfit), anchor, then the pose -
+    // anchor goes before the pose because BindObject re-parents and would
+    // otherwise carry the pose away with it.
+    private static void SendCowboyAnchor(int assetId, int anchorSlot, string assetName,
+            Vector3 localPosition)
+    {
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, CowboyBundle, assetName, assetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, assetId);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, assetId, anchorSlot,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, assetId, localPosition);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, assetId,
+                Quaternion.identity);
+    }
+
+    // The hat rides the crown, fitted from the head mesh's own bounds so it
+    // always lands above the eyes instead of over them (the source prefab's
+    // off-origin parking is what used to drop it across your face). Waits for
+    // the bundle to land, measures the head and the hat, then sets the fit.
+    private static IEnumerator FitCowboyHat(int assetId)
+    {
+        float giveUp = Time.time + 12f;
+
+        while (!Alive(assetId) && Time.time < giveUp)
+            yield return null;
+
+        if (!Alive(assetId))
+            yield break;
+
+        VRRig localRig = VRRig.LocalRig;
+
+        if (localRig == null || localRig.headMesh == null)
+            yield break;
+
+        Transform headMesh = localRig.headMesh.transform;
+
+        Renderer headRenderer = localRig.headMesh.GetComponentInChildren<Renderer>();
+        float    headTop      = headRenderer != null
+                                        ? headRenderer.bounds.max.y
+                                        : headMesh.position.y + 0.12f;
+
+        Renderer hatRenderer = GTConsole.ConsoleAssets[assetId].AssetObject
+                                       .GetComponentInChildren<Renderer>();
+        float hatHalf = hatRenderer != null ? hatRenderer.bounds.size.y * 0.5f : 0.09f;
+
+        // Centre of the hat a little under the top of the head's bounds, so
+        // the crown sinks in a touch and the brim clears the brow.
+        Vector3 world = new(headMesh.position.x, headTop + (hatHalf * 0.75f), headMesh.position.z);
+
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, assetId,
+                headMesh.InverseTransformPoint(world));
+    }
+
+    // Anyone still downloading the bundle when the spawn went out would drop
+    // the follow-up commands (Console waits ten seconds for the asset), so
+    // re-send both pieces once everyone has had twelve seconds to catch up -
+    // the hat gets re-fitted because the re-anchor runs after its fit.
+    private static IEnumerator ResendCowboy()
+    {
+        int hatId = cowboyHatAssetId;
+        int gunId = cowboyGunAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (Alive(hatId))
+        {
+            GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, hatId);
+            GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, hatId, CowboyHatAnchor,
+                    PhotonNetwork.LocalPlayer.ActorNumber);
+            CoroutineManager.Instance.StartCoroutine(FitCowboyHat(hatId));
+        }
+
+        if (Alive(gunId))
+        {
+            GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, gunId);
+            GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, gunId, CowboyGunAnchor,
+                    PhotonNetwork.LocalPlayer.ActorNumber);
+            GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, gunId,
+                    Vector3.zero);
+            GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, gunId,
+                    Quaternion.identity);
+        }
+    }
+
+    public static void RemoveCowboy()
+    {
+        if (Alive(cowboyHatAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, cowboyHatAssetId);
+
+        if (Alive(cowboyGunAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, cowboyGunAssetId);
+
+        cowboyHatAssetId = -1;
+        cowboyGunAssetId = -1;
+
+        DropCowboyFX();
+        RestoreCowboyKills();
+    }
+
+    // The bullet, the flash and the trigger state go with the set.
+    private static void DropCowboyFX()
+    {
+        if (cowboyBullet != null)
+            Object.Destroy(cowboyBullet);
+
+        if (cowboyFlash != null)
+            Object.Destroy(cowboyFlash);
+
+        cowboyBullet         = null;
+        cowboyFlash          = null;
+        cowboyBulletLife     = 0f;
+        cowboySpinResumeAt   = float.NegativeInfinity;
+        cowboyTriggerWasDown = false;
+    }
+
+    // One line from Console's Update: the flourish twirls the Schofield on
+    // the finger, the trigger edge stops it and fires, the bullet flies and
+    // the muzzle flash burns down.
+    public static void CowboyTick()
+    {
+        bool gunAlive = Alive(cowboyGunAssetId);
+
+        if (cowboyFlash != null && Time.time >= cowboyFlashUntil)
+        {
+            Object.Destroy(cowboyFlash);
+            cowboyFlash = null;
+        }
+
+        if (gunAlive && Time.time >= cowboySpinResumeAt)
+        {
+            // The flourish: the gun rolls about the axis through the finger.
+            // The wrapper points the barrel down +Z, so the roll is around
+            // local X - the barrel sweeps the vertical like a real twirl.
+            cowboySpinAngle = (cowboySpinAngle + (CowboySpinSpeed * Time.deltaTime)) % 360f;
+
+            GTConsole.ConsoleAssets[cowboyGunAssetId].AssetObject.transform.localRotation =
+                    Quaternion.AngleAxis(cowboySpinAngle, Vector3.right);
+        }
+
+        if (cowboyBullet != null)
+        {
+            Vector3 from = cowboyBullet.transform.position;
+            Vector3 step = cowboyBulletVelocity * Time.deltaTime;
+
+            RaycastHit hit = default;
+
+            bool struck = step.sqrMagnitude > 0f &&
+                          Physics.Raycast(from, step.normalized, out hit,
+                                  step.magnitude, ConsoleUtils.NoInvisLayerMask());
+
+            if (struck || cowboyBulletLife <= 0f)
+            {
+                if (struck)
+                {
+                    VRRig victim = hit.collider != null
+                                           ? hit.collider.GetComponentInParent<VRRig>()
+                                           : null;
+
+                    // The kill is local theatre: this client lays the rig
+                    // out and hides it, the room (and the player) see no
+                    // change at all - the same deal as the Ripper's hides.
+                    if (victim != null && !victim.isLocal)
+                    {
+                        CoroutineManager.Instance.StartCoroutine(CowboyKill(victim));
+                        NotifiLib.SendNotification("Hit - they are down.");
+                    }
+                    else
+                    {
+                        CowboySpark(hit.point);
+                    }
+                }
+
+                Object.Destroy(cowboyBullet);
+                cowboyBullet = null;
+            }
+            else
+            {
+                cowboyBullet.transform.position = from + step;
+                cowboyBulletLife -= Time.deltaTime;
+            }
+        }
+
+        bool trigger;
+
+        try
+        {
+            trigger = ControllerInputPoller.TriggerFloat(XRNode.RightHand) > 0.5f;
+        }
+        catch
+        {
+            return;
+        }
+
+        bool fresh = trigger && !cowboyTriggerWasDown;
+        cowboyTriggerWasDown = trigger;
+
+        if (fresh && gunAlive)
+            CowboyFire();
+    }
+
+    // The shot: the flourish holds (the gun snaps level first, so the
+    // bullet leaves down the barrel's own forward), the bullet starts at
+    // the muzzle and the right hand feels the kick.
+    private static void CowboyFire()
+    {
+        if (!Alive(cowboyGunAssetId))
+            return;
+
+        // Level now, twirl back in a moment: the spin angle resets with the
+        // pose, so the flourish picks up exactly where level leaves off.
+        cowboySpinAngle    = 0f;
+        cowboySpinResumeAt = Time.time + 0.9f;
+
+        Transform gun = GTConsole.ConsoleAssets[cowboyGunAssetId].AssetObject.transform;
+        gun.localRotation = Quaternion.identity;
+
+        Vector3 muzzle = gun.TransformPoint(0f, 0f, CowboyMuzzleForward);
+        Vector3 dir    = gun.TransformDirection(Vector3.forward);
+
+        SpawnCowboyFlash(muzzle, 6f, 9f, 0.07f, new Color(1f, 0.85f, 0.55f));
+        SpawnCowboyBullet(muzzle, dir);
+
+        GorillaTagger tagger = GorillaTagger.Instance;
+
+        if (tagger != null)
+            tagger.StartVibration(false, 0.7f, 0.12f);
+    }
+
+    // The bullet: a stretched capsule - brass body the wrapper's own
+    // material family - with no collider, because the raycast does the
+    // hitting. Straight and a little heavy over its short life.
+    private static void SpawnCowboyBullet(Vector3 position, Vector3 direction)
+    {
+        if (cowboyBullet != null)
+            Object.Destroy(cowboyBullet);
+
+        GameObject bullet = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+        Object.Destroy(bullet.GetComponent<Collider>());
+
+        bullet.name = "RIFTIX_CowboyBullet";
+        bullet.transform.position = position;
+        bullet.transform.rotation = Quaternion.LookRotation(direction) *
+                                    Quaternion.Euler(90f, 0f, 0f);
+        bullet.transform.localScale = new(0.02f, 0.05f, 0.02f);
+
+        Material material = FinaleOpaqueMaterial(new Color(0.85f, 0.66f, 0.28f));
+
+        if (material != null)
+            bullet.GetComponent<Renderer>().material = material;
+
+        cowboyBullet         = bullet;
+        cowboyBulletVelocity = direction * CowboyBulletSpeed;
+        cowboyBulletLife     = 1.5f;
+    }
+
+    // One hot point light where the muzzle was (or where the bullet met
+    // the world), burning down over a couple of frames.
+    private static void SpawnCowboyFlash(Vector3 position, float range, float intensity,
+            float duration, Color color)
+    {
+        if (cowboyFlash != null)
+            Object.Destroy(cowboyFlash);
+
+        GameObject flash = new("RIFTIX_CowboyFlash");
+        flash.transform.position = position;
+
+        Light light = flash.AddComponent<Light>();
+        light.type      = LightType.Point;
+        light.color     = color;
+        light.range     = range;
+        light.intensity = intensity;
+        light.shadows   = LightShadows.None;
+
+        cowboyFlash      = flash;
+        cowboyFlashUntil = Time.time + duration;
+    }
+
+    private static void CowboySpark(Vector3 point) =>
+            SpawnCowboyFlash(point, 2.5f, 5f, 0.05f, new Color(1f, 0.9f, 0.7f));
+
+    // A hit, staged on this client only: the rig is laid out where it
+    // stood (the pose is forced every pass - the network drives the rig
+    // every frame, exactly how the Ripper's hides re-assert), then hidden
+    // for half a minute, then put back as it was. Nothing goes over the
+    // network; the room and the player see no change at all.
+    private static IEnumerator CowboyKill(VRRig victim)
+    {
+        if (victim == null || victim.isLocal || cowboyKills.Contains(victim))
+            yield break;
+
+        int epoch = cowboyKillEpoch;
+        cowboyKills.Add(victim);
+
+        Renderer[] renderers = victim.GetComponentsInChildren<Renderer>(true);
+
+        Transform anchor = victim.headMesh != null ? victim.headMesh.transform : victim.transform;
+        Vector3   feet   = victim.transform.position;
+
+        float groundY = feet.y;
+
+        if (Physics.Raycast(anchor.position + Vector3.up * 0.5f, Vector3.down, out RaycastHit ground,
+                40f, ConsoleUtils.NoInvisLayerMask()))
+            groundY = ground.point.y;
+
+        // Face-down flat: tipped over on X, keeping the yaw they were
+        // facing, resting a little above the floor so limbs do not clip.
+        Quaternion lay = Quaternion.Euler(90f, victim.transform.eulerAngles.y, 0f);
+        Vector3   rest = new(feet.x, groundY + 0.25f, feet.z);
+
+        float until = Time.time + 2.5f;
+
+        while (Time.time < until && victim != null && epoch == cowboyKillEpoch)
+        {
+            victim.transform.position = rest;
+            victim.transform.rotation = lay;
+            yield return null;
+        }
+
+        // Out of sight: GT re-enables the renderers on its own sync, so the
+        // hide is re-asserted every pass while it lasts.
+        foreach (Renderer renderer in renderers)
+            if (renderer != null)
+                renderer.enabled = false;
+
+        until = Time.time + 30f;
+
+        while (Time.time < until && victim != null && epoch == cowboyKillEpoch)
+        {
+            foreach (Renderer renderer in renderers)
+                if (renderer != null && renderer.enabled)
+                    renderer.enabled = false;
+
+            yield return null;
+        }
+
+        // Back to normal: the sync kept the rig true underneath the hide,
+        // so letting go shows them exactly where they really are.
+        foreach (Renderer renderer in renderers)
+            if (renderer != null)
+                renderer.enabled = true;
+
+        cowboyKills.Remove(victim);
+    }
+
+    // The set comes off mid-kill: stand everyone back up right now. The
+    // epoch ends the running sequence before its own restore does, so the
+    // hide cannot re-apply after this.
+    private static void RestoreCowboyKills()
+    {
+        cowboyKillEpoch++;
+
+        foreach (VRRig victim in cowboyKills)
+        {
+            if (victim == null)
+                continue;
+
+            foreach (Renderer renderer in victim.GetComponentsInChildren<Renderer>(true))
+                renderer.enabled = true;
+        }
+
+        cowboyKills.Clear();
     }
 
     // ---------------------------------------------------------------------
@@ -5819,6 +6270,7 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Holy Picture");
         SetSwitchOff("Big TV");
         SetSwitchOff("Thor Hammer");
+        SetSwitchOff("Cowboy Set");
         SetSwitchOff("Travis");
         SetSwitchOff("Steam Icon");
         SetSwitchOff("Jurassic Logo");
@@ -5832,6 +6284,14 @@ public abstract class ConsoleAssetPages
         travisAssetId  = -1;
         logoAssetId    = -1;
         minosAssetId   = -1;
+
+        // The room going away takes the hat and the gun with it, so the
+        // bullet and the flash go too - and any rig this client was
+        // staging gets stood back up and unhidden.
+        cowboyHatAssetId = -1;
+        cowboyGunAssetId = -1;
+        DropCowboyFX();
+        RestoreCowboyKills();
 
         // Cancels a Big TV spawn still waiting on a teleport, then forgets
         // the set that the room just took with it.

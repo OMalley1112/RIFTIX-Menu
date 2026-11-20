@@ -1160,6 +1160,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Cowboy Set",
+                    enableMethod  = ConsoleAssetPages.SpawnCowboy,
+                    disableMethod = ConsoleAssetPages.RemoveCowboy,
+                    displayText   = ConsoleAssetPages.CowboyDisplay,
+                    toolTip       = "Puts a cowboy hat on your head and a Schofield on your right hand (networked - the whole room sees the outfit). The gun twirls on your finger; pull the trigger to stop it and fire - a hit lays a player out on the ground, drops them out of sight for 30 seconds, then puts them back (your view only).",
+            },
+
+            new()
+            {
                     buttonText    = "Travis",
                     enableMethod  = ConsoleAssetPages.SpawnTravis,
                     disableMethod = ConsoleAssetPages.RemoveTravis,
