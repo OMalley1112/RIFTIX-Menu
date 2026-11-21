@@ -3,6 +3,7 @@ using BepInEx;
 using GorillaLocomotion;
 using Photon.Pun;
 using StupidTemplate.Classes;
+using StupidTemplate.Menu;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR;
@@ -114,7 +115,7 @@ public abstract class Movement
     }
     public static void TeleportGun()
     {
-        (RaycastHit ray, GameObject pointer) = RenderGun();
+        (RaycastHit ray, GameObject pointer) = GunLib.Render();
 
         // Either hand can hold the gun now, same as the rest of the gunlib.
         if (!GunHelper.Trigger || pointer == null)

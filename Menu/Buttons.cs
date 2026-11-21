@@ -328,60 +328,6 @@ public abstract class Buttons
                     enabled       = pageButtonsAtTop,
                     toolTip       = "Moves the page buttons into the first two normal button slots.",
             },
-
-            new()
-            {
-                    buttonText      = "Gun Line Style",
-                    mode            = ButtonMode.Incremental,
-                    incrementMethod = ChangeGunLineStyle,
-                    displayText     = () => $"Gun Line Style [{GunLineStyleName}]",
-                    toolTip         = "Changes the gun line shape: Straight, Curve or Wave.",
-            },
-
-            new()
-            {
-                    buttonText      = "Gun Line Width",
-                    mode            = ButtonMode.Incremental,
-                    incrementMethod = ChangeGunLineWidth,
-                    displayText     = () => $"Gun Line Width [{GunLineWidthName}]",
-                    toolTip         = "Changes the thickness of the gun line.",
-            },
-
-            new()
-            {
-                    buttonText      = "Gun Pointer Size",
-                    mode            = ButtonMode.Incremental,
-                    incrementMethod = ChangeGunPointerSize,
-                    displayText     = () => $"Gun Pointer Size [{GunPointerSizeName}]",
-                    toolTip         = "Changes the size of the dot at the gun's aim point.",
-            },
-
-            new()
-            {
-                    buttonText      = "Gun Smoothness",
-                    mode            = ButtonMode.Incremental,
-                    incrementMethod = ChangeGunSmoothness,
-                    displayText     = () => $"Gun Smoothness [{GunSmoothnessName}]",
-                    toolTip         = "How smoothly the gun pointer follows the aim. Off means instant.",
-            },
-
-            new()
-            {
-                    buttonText      = "Gun Aim Tilt",
-                    mode            = ButtonMode.Incremental,
-                    incrementMethod = ChangeGunAimTilt,
-                    displayText     = () => $"Gun Aim Tilt [{GunAimTiltName}]",
-                    toolTip         = "Degrees the aim ray tips down out of the hand. 0 is the raw hand forward, the reference gunlibs sit around 50.",
-            },
-
-            new()
-            {
-                    buttonText    = "Gun Pointer",
-                    enableMethod  = () => gunSettings.showPointer = true,
-                    disableMethod = () => gunSettings.showPointer = false,
-                    enabled       = gunSettings.showPointer,
-                    toolTip       = "Toggles the aim dot at the end of the gun line.",
-            },
     };
 
     public static void CopyMyId()

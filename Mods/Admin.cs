@@ -346,7 +346,7 @@ public abstract class Admin
     {
         try
         {
-            (RaycastHit ray, _) = StupidTemplate.Menu.Main.RenderGun();
+            (RaycastHit ray, _) = StupidTemplate.Menu.GunLib.Render();
 
             Transform hand =
                     StupidTemplate.Menu.Settings.gunSettings.hand == UnityEngine.XR.XRNode.LeftHand

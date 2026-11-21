@@ -93,7 +93,7 @@ public abstract class Guardian
         GTConsole.ExecuteCommand("vel", target.ActorNumber, velocity);
     }
 
-    // Gun aiming and trigger checks live in GunHelper (RIFTIX's RenderGun replaces Gemstone's GunLib).
+    // Gun aiming and trigger checks live in GunHelper (the aim line is Gemstone's GunLib).
 
     public static void GuardianSelf()
     {

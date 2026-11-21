@@ -3,6 +3,7 @@ using System.Reflection;
 using GorillaLocomotion.Gameplay;
 using Photon.Pun;
 using StupidTemplate.Classes;
+using StupidTemplate.Menu;
 using UnityEngine;
 using static StupidTemplate.Menu.Main;
 using static StupidTemplate.Mods.GunHelper;
@@ -161,11 +162,11 @@ public abstract class Halloween
     public static void SpawnBlueLucy()   => SummonLucy(true, LucyBlue);
     public static void SpawnRedLucy()    => SummonLucy(true, LucyRed);
 
-    // Gun aiming and trigger checks live in GunHelper (RIFTIX's RenderGun replaces Gemstone's GunLib).
+    // Gun aiming and trigger checks live in GunHelper (the aim line is Gemstone's GunLib).
 
     public static void MoveLucyGun()
     {
-        GameObject pointer = RenderGun().NewPointer;
+        GameObject pointer = GunLib.Render().NewPointer;
 
         if (!Trigger)
             return;

@@ -1,3 +1,4 @@
+using StupidTemplate.Menu;
 using UnityEngine;
 using UnityEngine.XR;
 using static StupidTemplate.Menu.Main;
@@ -5,7 +6,7 @@ using static StupidTemplate.Menu.Settings;
 
 namespace StupidTemplate.Mods;
 
-// Shared gun helpers, RIFTIX's RenderGun replaces Gemstone's GunLib.
+// Shared gun helpers, built on the GunLib aim line.
 public abstract class GunHelper
 {
     // Gemstone-style: the gun fires while the grip on the aiming hand is held.
@@ -23,7 +24,7 @@ public abstract class GunHelper
     {
         get
         {
-            RaycastHit ray = RenderGun().Ray;
+            RaycastHit ray = GunLib.Render().Ray;
 
             if (ray.collider == null)
                 return null;

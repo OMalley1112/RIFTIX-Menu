@@ -1,12 +1,13 @@
 using System.Collections.Generic;
 using GorillaLocomotion;
+using StupidTemplate.Menu;
 using UnityEngine;
 using static StupidTemplate.Menu.Main;
 using static StupidTemplate.Mods.GunHelper;
 
 namespace StupidTemplate.Mods;
 
-// Gun mods that ride the shared aim line in Main.RenderGun(). Everything in
+// Gun mods that ride the shared aim line in GunLib.Render(). Everything in
 // here is local only: the ray, the dot and whatever the gun drops belong to
 // your own game and no network command goes out.
 public abstract class Guns
@@ -40,7 +41,7 @@ public abstract class Guns
 
     // ---- shared aim -----------------------------------------------------
 
-    // RenderGun() is called first on purpose: it is what picks the active
+    // GunLib.Render() is called first on purpose: it is what picks the active
     // hand, so Trigger (the grip on that hand) is only read once the hand is
     // up to date. The ray and dot it hands back are then resolved to a
     // single aim point, preferring the dot the player can actually see.
@@ -103,7 +104,7 @@ public abstract class Guns
     // the wall. Releases stop you dead a couple of metres short of it.
     public static void GrappleGun()
     {
-        (RaycastHit ray, GameObject pointer) = RenderGun();
+        (RaycastHit ray, GameObject pointer) = GunLib.Render();
 
         if (!AimTrigger || !AimFrom(ray, pointer, out Vector3 target))
             return;
@@ -132,7 +133,7 @@ public abstract class Guns
     // up. Grip fires, same as every other gun in the menu.
     public static void ConfettiGun()
     {
-        (RaycastHit ray, GameObject pointer) = RenderGun();
+        (RaycastHit ray, GameObject pointer) = GunLib.Render();
 
         if (!Trigger)
             return;
@@ -209,7 +210,7 @@ public abstract class Guns
     // without painting over everything, like Teleport Gun.
     public static void PaintGun()
     {
-        (RaycastHit ray, GameObject pointer) = RenderGun();
+        (RaycastHit ray, GameObject pointer) = GunLib.Render();
 
         if (!AimTrigger || Time.time < nextPaintAt)
             return;
@@ -272,7 +273,7 @@ public abstract class Guns
     // One balloon per grip press. It drifts up, sways, then pops.
     public static void BalloonGun()
     {
-        (RaycastHit ray, GameObject pointer) = RenderGun();
+        (RaycastHit ray, GameObject pointer) = GunLib.Render();
 
         bool grip = Trigger;
 
@@ -360,7 +361,7 @@ public abstract class Guns
     // them all.
     public static void BeaconGun()
     {
-        (RaycastHit ray, GameObject pointer) = RenderGun();
+        (RaycastHit ray, GameObject pointer) = GunLib.Render();
 
         bool grip = Trigger;
 
