@@ -1115,69 +1115,6 @@ public abstract class Buttons
 
             new()
             {
-                    buttonText    = "Barret",
-                    enableMethod  = () => ConsoleAssetPages.SpawnWowGun(0),
-                    disableMethod = () => ConsoleAssetPages.RemoveWowGun(0),
-                    displayText   = () => ConsoleAssetPages.WowDisplay("Barret"),
-                    toolTip       = "Puts the Barret .50 on your right hand (networked - the whole room sees it). Pull the trigger: recoil animation, shot sound, muzzle flash and a bullet that sparks where it lands.",
-            },
-
-            new()
-            {
-                    buttonText    = "Desert Eagle",
-                    enableMethod  = () => ConsoleAssetPages.SpawnWowGun(1),
-                    disableMethod = () => ConsoleAssetPages.RemoveWowGun(1),
-                    displayText   = () => ConsoleAssetPages.WowDisplay("Desert Eagle"),
-                    toolTip       = "Puts the Desert Eagle on your right hand (networked). Trigger fires it with recoil, shot sound and a muzzle flash - one shot per squeeze.",
-            },
-
-            new()
-            {
-                    buttonText    = "PKP",
-                    enableMethod  = () => ConsoleAssetPages.SpawnWowGun(2),
-                    disableMethod = () => ConsoleAssetPages.RemoveWowGun(2),
-                    displayText   = () => ConsoleAssetPages.WowDisplay("PKP"),
-                    toolTip       = "Puts the PKP on your right hand (networked). Full-auto - hold the trigger and it keeps firing with recoil, shot sound and muzzle flash.",
-            },
-
-            new()
-            {
-                    buttonText    = "RPG7",
-                    enableMethod  = () => ConsoleAssetPages.SpawnWowGun(3),
-                    disableMethod = () => ConsoleAssetPages.RemoveWowGun(3),
-                    displayText   = () => ConsoleAssetPages.WowDisplay("RPG7"),
-                    toolTip       = "Puts the RPG-7 on your right hand (networked). Pull the trigger: recoil, boom and a muzzle flash down the warhead's end.",
-            },
-
-            new()
-            {
-                    buttonText    = "Tripod",
-                    enableMethod  = ConsoleAssetPages.SpawnWowTripod,
-                    disableMethod = ConsoleAssetPages.RemoveWowTripod,
-                    displayText   = () => ConsoleAssetPages.WowDisplay("Tripod"),
-                    toolTip       = "Plants the giant War of the Worlds tripod out of the map, a hundred metres up beside the sky over Wooden Man's old spot (networked - the whole room sees it standing over the forest).",
-            },
-
-            new()
-            {
-                    buttonText    = "Jet",
-                    enableMethod  = ConsoleAssetPages.SpawnWowJet,
-                    disableMethod = ConsoleAssetPages.RemoveWowJet,
-                    displayText   = () => ConsoleAssetPages.WowDisplay("Jet"),
-                    toolTip       = "An F-35 flies in from the back of the map, banks into a circle around the tripod and fires tracers down at it (networked - the whole room watches the run). Turn it off to break off.",
-            },
-
-            new()
-            {
-                    buttonText    = "Chinook",
-                    enableMethod  = ConsoleAssetPages.SpawnWowChinook,
-                    disableMethod = ConsoleAssetPages.RemoveWowChinook,
-                    displayText   = () => ConsoleAssetPages.WowDisplay("Chinook"),
-                    toolTip       = "A Chinook circles the tripod overhead with its rotors thumping (networked - the whole room sees and hears it). Turn it off to send it away.",
-            },
-
-            new()
-            {
                     buttonText    = "Travis",
                     enableMethod  = ConsoleAssetPages.SpawnTravis,
                     disableMethod = ConsoleAssetPages.RemoveTravis,

@@ -333,7 +333,6 @@ public class Console : MonoBehaviour
         Menu.ConsoleAssetPages.CountdownTick();
         Menu.ConsoleAssetPages.CountdownFinaleTick();
         Menu.ConsoleAssetPages.CowboyTick();
-        Menu.ConsoleAssetPages.WowTick();
         Menu.ConsoleAssetPages.RipperTick();
         Mods.Rat.Tick();
         SanitizeConsoleAssets();
