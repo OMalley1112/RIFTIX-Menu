@@ -2946,10 +2946,7 @@ public abstract class ConsoleAssetPages
         }
 
         cowboyHatAssetId = GTConsole.GetFreeAssetID();
-        SendCowboyAnchor(cowboyHatAssetId, CowboyHatAnchor, CowboyHatAsset, Vector3.zero);
-
         cowboyGunAssetId = GTConsole.GetFreeAssetID();
-        SendCowboyAnchor(cowboyGunAssetId, CowboyGunAnchor, CowboyGunAsset, Vector3.zero);
 
         cowboySpinAngle      = 0f;
         cowboySpinResumeAt   = float.NegativeInfinity;
@@ -2957,8 +2954,31 @@ public abstract class ConsoleAssetPages
 
         NotifiLib.SendNotification("Cowboy set on: hat on your head, Schofield in your right hand.");
 
+        // Both pieces live in one bundle, so they are spawned in turn: two
+        // asset-spawns at once make Console download the same bytes twice
+        // and the second LoadFromMemory is rejected ("another AssetBundle
+        // with the same files is already loaded"), which can lose the race
+        // to the pool and drop the gun. The gun starts only once the hat
+        // has instantiated, so it loads out of the bundle the hat put
+        // there instead of racing it.
+        CoroutineManager.Instance.StartCoroutine(SpawnCowboyPieces());
         CoroutineManager.Instance.StartCoroutine(ResendCowboy());
         CoroutineManager.Instance.StartCoroutine(FitCowboyHat(cowboyHatAssetId));
+    }
+
+    // Hat first, Schofield the moment the hat has come up. Ten seconds is
+    // Console's own wait - if the hat never appears the gun still gets its
+    // turn instead of hanging behind it.
+    private static IEnumerator SpawnCowboyPieces()
+    {
+        SendCowboyAnchor(cowboyHatAssetId, CowboyHatAnchor, CowboyHatAsset, Vector3.zero);
+
+        float giveUp = Time.time + 10f;
+
+        while (!Alive(cowboyHatAssetId) && Time.time < giveUp)
+            yield return null;
+
+        SendCowboyAnchor(cowboyGunAssetId, CowboyGunAnchor, CowboyGunAsset, Vector3.zero);
     }
 
     // The full spawn/anchor/pose run for one piece: spawn, colliders out
@@ -6101,15 +6121,52 @@ public abstract class ConsoleAssetPages
         // lands both in world space once they exist. The head cat carries
         // the song: baked AudioSource playing on awake, with asset-playsound
         // as the backstop for anyone the first pass missed.
-        SendCat(CatHandAsset, catHandAssetId, CatHandAnchor);
-        SendCat(CatHeadAsset, catHeadAssetId, CatHeadAnchor);
-        GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, catHeadAssetId, CatsSound,
-                CatsClip);
+        //
+        // Both cats share one bundle, so they go out in turn: firing the two
+        // asset-spawns at once makes Console download the same bytes twice
+        // and LoadFromMemory the second copy is rejected ("another
+        // AssetBundle with the same files is already loaded"), which can
+        // drop a piece on the floor of the race. The head cat starts only
+        // once the hand cat has instantiated - by then the bundle sits in
+        // the pool and the second spawn reuses it.
+        CoroutineManager.Instance.StartCoroutine(SpawnCatsPieces());
 
         NotifiLib.SendNotification("Cats on: one spinning on your left hand, one on your head - the room hears the song.");
 
         CoroutineManager.Instance.StartCoroutine(ResendCats());
         CoroutineManager.Instance.StartCoroutine(FitCats());
+    }
+
+    // Hand cat first, then the head cat (and its song) the moment the first
+    // has come up. Ten seconds is Console's own wait: if the hand never
+    // appears the head still gets its turn instead of hanging behind it.
+    private static IEnumerator SpawnCatsPieces()
+    {
+        SendCat(CatHandAsset, catHandAssetId, CatHandAnchor);
+
+        float giveUp = Time.time + 10f;
+
+        while (!Alive(catHandAssetId) && Time.time < giveUp)
+            yield return null;
+
+        if (!Alive(catHandAssetId))
+        {
+            // The bundle never arrived (host unreachable, or the file not
+            // published yet). Clear the ids and flip the switch so the next
+            // press is a clean retry: otherwise the allocated id makes
+            // SpawnCats return early and the button sits ON doing nothing.
+            catHandAssetId = -1;
+            catHeadAssetId = -1;
+            SetSwitchOff("Cats");
+
+            NotifiLib.SendNotification("Cats: the bundle did not download - press again to retry.");
+
+            yield break;
+        }
+
+        SendCat(CatHeadAsset, catHeadAssetId, CatHeadAnchor);
+        GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, catHeadAssetId, CatsSound,
+                CatsClip);
     }
 
     // The full spawn/anchor/pose run for one cat: spawn, colliders out,
@@ -6134,15 +6191,27 @@ public abstract class ConsoleAssetPages
     // lands the same whichever way the anchor's axes point.
     private static IEnumerator FitCats()
     {
+        // Each cat is fitted the moment its own copy exists: one piece
+        // failing to download must not leave the other sitting at its
+        // anchor's origin - the head anchor would park a cat inside your
+        // head, where you cannot see it at all.
+        yield return FitOneCatWhenReady(catHandAssetId, true);
+        yield return FitOneCatWhenReady(catHeadAssetId, false);
+    }
+
+    // Wait for one cat to exist, then place it. onHand picks the palm lift
+    // (hand cat) or the crown fit (head cat).
+    private static IEnumerator FitOneCatWhenReady(int assetId, bool onHand)
+    {
+        if (assetId < 0)
+            yield break;
+
         float giveUp = Time.time + 15f;
 
-        while (Time.time < giveUp &&
-               (catHandAssetId < 0 || catHeadAssetId < 0 ||
-                !Alive(catHandAssetId) || !Alive(catHeadAssetId)))
+        while (!Alive(assetId) && Time.time < giveUp)
             yield return null;
 
-        if (catHandAssetId < 0 || catHeadAssetId < 0 ||
-            !Alive(catHandAssetId) || !Alive(catHeadAssetId))
+        if (!Alive(assetId))
             yield break;
 
         // Let the anchor commands land first: the pose commands below go
@@ -6167,14 +6236,19 @@ public abstract class ConsoleAssetPages
 
         float yaw = head.eulerAngles.y;
 
-        FitOneCat(catHandAssetId, hand,
-                hand.position + Vector3.up * (LocalHeight(catHandAssetId) * 0.425f),
-                Quaternion.Euler(0f, yaw, 0f));
-
-        FitOneCat(catHeadAssetId, head,
-                new Vector3(head.position.x, headTop + (LocalHeight(catHeadAssetId) * 0.375f),
-                        head.position.z),
-                Quaternion.Euler(0f, yaw, 0f));
+        if (onHand)
+        {
+            FitOneCat(assetId, hand,
+                    hand.position + Vector3.up * (LocalHeight(assetId) * 0.425f),
+                    Quaternion.Euler(0f, yaw, 0f));
+        }
+        else
+        {
+            FitOneCat(assetId, head,
+                    new Vector3(head.position.x, headTop + (LocalHeight(assetId) * 0.375f),
+                            head.position.z),
+                    Quaternion.Euler(0f, yaw, 0f));
+        }
     }
 
     // Send one cat's pose against an anchor transform: the local position
