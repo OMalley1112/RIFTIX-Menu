@@ -6038,6 +6038,248 @@ public abstract class ConsoleAssetPages
     }
 
     // ---------------------------------------------------------------------
+    // Cats: the two lowpoly cats from the asset template project - one
+    // spinning on your left hand, one spinning on your head - with the
+    // song baked into the head cat's looping AudioSource. Built by
+    // Assets/Build Cats Bundle in the 2022.3.2f1 bundle project and
+    // committed to this repo under bundles/riftix_cats (ServerData has no
+    // room for it, so Console falls back to RiftixAssetsURL). The spin is
+    // a baked yaw Animator on each cat's Spin child, so every client turns
+    // its own copy from its own instantiate with no frames on the wire,
+    // and the pose is fitted in world space (the trick FitCowboyHat uses
+    // for the hat) so placement never depends on which way an anchor's
+    // local axes happen to point.
+    // ---------------------------------------------------------------------
+
+    private const string CatsBundle   = "riftix_cats";
+    private const string CatHandAsset = "CatHandRiftix";
+    private const string CatHeadAsset = "CatHeadRiftix";
+    private const string CatsSound    = "Song";
+    private const string CatsClip     = "catsong";
+
+    // BindObject's anchor slots: 0 head, 1 left hand, 2 right hand, 3 body.
+    private const int CatHandAnchor = 1;
+    private const int CatHeadAnchor = 0;
+
+    private static int catHandAssetId = -1;
+    private static int catHeadAssetId = -1;
+
+    public static string CatsDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Cats");
+
+        return
+                $"Cats: {(button != null && button.enabled
+                                  ? "<color=green>ON</color>"
+                                  : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnCats()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("Cats");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        if (catHandAssetId >= 0)
+            return;
+
+        catHandAssetId = GTConsole.GetFreeAssetID();
+        catHeadAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds). Hand cat on your left
+        // hand, head cat on your crown; colliders out (hands must not climb
+        // their own cats). The zero pose is only a placeholder - FitCats
+        // lands both in world space once they exist. The head cat carries
+        // the song: baked AudioSource playing on awake, with asset-playsound
+        // as the backstop for anyone the first pass missed.
+        SendCat(CatHandAsset, catHandAssetId, CatHandAnchor);
+        SendCat(CatHeadAsset, catHeadAssetId, CatHeadAnchor);
+        GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, catHeadAssetId, CatsSound,
+                CatsClip);
+
+        NotifiLib.SendNotification("Cats on: one spinning on your left hand, one on your head - the room hears the song.");
+
+        CoroutineManager.Instance.StartCoroutine(ResendCats());
+        CoroutineManager.Instance.StartCoroutine(FitCats());
+    }
+
+    // The full spawn/anchor/pose run for one cat: spawn, colliders out,
+    // anchor, then the placeholder zero pose - anchor before pose because
+    // BindObject re-parents and would carry the pose away with it.
+    private static void SendCat(string assetName, int assetId, int anchorSlot)
+    {
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, CatsBundle, assetName, assetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, assetId);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, assetId, anchorSlot,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, assetId, Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, assetId,
+                Quaternion.identity);
+    }
+
+    // Where each cat sits, in world space: the hand cat a little over the
+    // palm (its origin is its own centre, so the lift puts its belly on
+    // the hand), the head cat centred on the crown exactly the way the
+    // cowboy hat is fitted - both turned to face where you face. The local
+    // values are derived from the anchor's own transform, so the pose
+    // lands the same whichever way the anchor's axes point.
+    private static IEnumerator FitCats()
+    {
+        float giveUp = Time.time + 15f;
+
+        while (Time.time < giveUp &&
+               (catHandAssetId < 0 || catHeadAssetId < 0 ||
+                !Alive(catHandAssetId) || !Alive(catHeadAssetId)))
+            yield return null;
+
+        if (catHandAssetId < 0 || catHeadAssetId < 0 ||
+            !Alive(catHandAssetId) || !Alive(catHeadAssetId))
+            yield break;
+
+        // Let the anchor commands land first: the pose commands below go
+        // out after them and Console runs commands in order.
+        yield return null;
+        yield return null;
+
+        VRRig localRig = VRRig.LocalRig;
+
+        if (localRig == null || localRig.headMesh == null ||
+            localRig.leftHandTransform == null || localRig.leftHandTransform.parent == null)
+            yield break;
+
+        Transform head = localRig.headMesh.transform;
+        Transform hand = localRig.leftHandTransform.parent;
+
+        // Top of the head's renderer bounds, the way the hat finds it.
+        Renderer headRenderer = localRig.headMesh.GetComponentInChildren<Renderer>();
+        float    headTop      = headRenderer != null
+                                        ? headRenderer.bounds.max.y
+                                        : head.position.y + 0.12f;
+
+        float yaw = head.eulerAngles.y;
+
+        FitOneCat(catHandAssetId, hand,
+                hand.position + Vector3.up * (LocalHeight(catHandAssetId) * 0.425f),
+                Quaternion.Euler(0f, yaw, 0f));
+
+        FitOneCat(catHeadAssetId, head,
+                new Vector3(head.position.x, headTop + (LocalHeight(catHeadAssetId) * 0.375f),
+                        head.position.z),
+                Quaternion.Euler(0f, yaw, 0f));
+    }
+
+    // Send one cat's pose against an anchor transform: the local position
+    // is the world point re-expressed in the anchor's space and the local
+    // rotation is whatever takes the anchor's frame to the wanted world
+    // facing - both immune to how the anchor happens to be oriented.
+    private static void FitOneCat(int assetId, Transform anchor, Vector3 worldCentre,
+            Quaternion worldRotation)
+    {
+        if (!Alive(assetId))
+            return;
+
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, assetId,
+                anchor.InverseTransformPoint(worldCentre));
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, assetId,
+                Quaternion.Inverse(anchor.rotation) * worldRotation);
+    }
+
+    // The asset's own height along its local up axis: a world-space AABB
+    // would lie while the anchor is tilted (the hand hangs at spawn), and
+    // the lift needs the true half-height either way.
+    private static float LocalHeight(int assetId)
+    {
+        if (!Alive(assetId))
+            return 0.14f;
+
+        Transform t = GTConsole.ConsoleAssets[assetId].AssetObject.transform;
+
+        bool  has = false;
+        float min = 0f;
+        float max = 0f;
+
+        foreach (Renderer renderer in t.GetComponentsInChildren<Renderer>(true))
+        {
+            Bounds b = renderer.bounds;
+
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 corner = b.center + new Vector3((i & 1) == 0 ? -b.extents.x : b.extents.x,
+                                                        (i & 2) == 0 ? -b.extents.y : b.extents.y,
+                                                        (i & 4) == 0 ? -b.extents.z : b.extents.z);
+
+                float y = t.InverseTransformPoint(corner).y;
+
+                if (!has)
+                {
+                    min = max = y;
+                    has       = true;
+                }
+                else
+                {
+                    min = Mathf.Min(min, y);
+                    max = Mathf.Max(max, y);
+                }
+            }
+        }
+
+        return has ? max - min : 0.14f;
+    }
+
+    // Anyone still downloading the bundle when the spawn went out would drop
+    // the follow-ups (Console waits ten seconds per asset), so re-send both
+    // cats once everyone has had twelve seconds to catch up - the fit runs
+    // again after the re-anchor (the pose must land after BindObject has
+    // re-parented it), and the song resend skips a source already playing.
+    private static IEnumerator ResendCats()
+    {
+        int handId = catHandAssetId;
+        int headId = catHeadAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (handId == catHandAssetId && Alive(handId))
+        {
+            GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, handId);
+            GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, handId, CatHandAnchor,
+                    PhotonNetwork.LocalPlayer.ActorNumber);
+        }
+
+        if (headId == catHeadAssetId && Alive(headId))
+        {
+            GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, headId);
+            GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, headId, CatHeadAnchor,
+                    PhotonNetwork.LocalPlayer.ActorNumber);
+            GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, headId, CatsSound,
+                    CatsClip);
+        }
+
+        if (handId == catHandAssetId && headId == catHeadAssetId && Alive(handId) && Alive(headId))
+            yield return FitCats();
+    }
+
+    public static void RemoveCats()
+    {
+        if (Alive(catHandAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, catHandAssetId);
+
+        if (Alive(catHeadAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, catHeadAssetId);
+
+        catHandAssetId = -1;
+        catHeadAssetId = -1;
+    }
+
+    // ---------------------------------------------------------------------
     // Big TV: the console bundle's TV, sized up and dropped into the
     // Critters map five metres in front of you, playing the full video off
     // this repo's releases. The file is 295 MB - far past raw.githubusercontent's
@@ -6271,6 +6513,7 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Big TV");
         SetSwitchOff("Thor Hammer");
         SetSwitchOff("Cowboy Set");
+        SetSwitchOff("Cats");
         SetSwitchOff("Travis");
         SetSwitchOff("Steam Icon");
         SetSwitchOff("Jurassic Logo");
@@ -6284,6 +6527,8 @@ public abstract class ConsoleAssetPages
         travisAssetId  = -1;
         logoAssetId    = -1;
         minosAssetId   = -1;
+        catHandAssetId = -1;
+        catHeadAssetId = -1;
 
         // The room going away takes the hat and the gun with it, so the
         // bullet and the flash go too - and any rig this client was

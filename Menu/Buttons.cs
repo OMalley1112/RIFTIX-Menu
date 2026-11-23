@@ -1115,6 +1115,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "Cats",
+                    enableMethod  = ConsoleAssetPages.SpawnCats,
+                    disableMethod = ConsoleAssetPages.RemoveCats,
+                    displayText   = ConsoleAssetPages.CatsDisplay,
+                    toolTip       = "Two lowpoly cats: one spins on your left hand, one spins on your head, with their song looping from the head cat (networked - the whole room sees the cats and hears the song).",
+            },
+
+            new()
+            {
                     buttonText    = "Travis",
                     enableMethod  = ConsoleAssetPages.SpawnTravis,
                     disableMethod = ConsoleAssetPages.RemoveTravis,
