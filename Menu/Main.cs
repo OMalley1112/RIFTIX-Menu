@@ -58,23 +58,24 @@ public class Main : MonoBehaviour
             0.3f,
             0.3825f);
 
-    // The layout: a mockup-style header across the top (centred title,
-    // the accent hairline, then the version + live "N ON" line with the
-    // ping readout on its right, and two round icon buttons flanking the
-    // title) over a single column of full width rows - each row a dark
+    // The layout: a header bar across the top (glow-ringed logo, gradient
+    // wordmark, version + live "N ON" line, clock and three round icon
+    // buttons) over a single column of full width rows - each row a dark
     // plate with a violet hairline down its left edge and its ON / OFF
-    // word set inside a chip beside the chevron - with the bottom bar
-    // [U] [< PREV] PAGE [NEXT >] [S] and the Rejoin / Leave pills floating
-    // above the panel. All numbers are in menu-local units where +Y is the
-    // left side of the screen and +Z is up; text helpers take world units,
-    // so multiply by MenuScale to convert.
-    private const float LogoZ         = 0.477f;   // centred title, up the panel
-    private const float StatusZ       = 0.395f;   // version / ping line, up the panel
-    private const float ClockEdgeY    = -0.41f;   // right edge of the ping readout
-    private const float IconsZ        = 0.47f;    // favorites / close circles
+    // word set inside a chip beside the chevron - with the pager pills,
+    // a PAGE counter and the ping readout on the bottom bar. All numbers
+    // are in menu-local units where +Y is the left side of the screen and
+    // +Z is up; text helpers take world units, so multiply by MenuScale to
+    // convert.
+    private const float LogoY         = 0.365f;   // logo disc centre, across the panel
+    private const float LogoZ         = 0.477f;   // logo disc centre, up the panel
+    private const float TitleStartY   = 0.295f;   // where the wordmark starts
+    private const float ClockEdgeY    = -0.41f;   // right edge of the time / date block
+    private const float IconsZ        = 0.432f;   // search / favorites / exit circles
     private const float IconDiameter  = 0.08f;
-    private const float IconRightY    = -0.418f;  // rightmost (close) circle centre
-    private const float DividerZ      = 0.425f;   // hairline under the title
+    private const float IconSpacing   = 0.09f;
+    private const float IconRightY    = -0.418f;  // rightmost (exit) circle centre
+    private const float DividerZ      = 0.385f;   // rule under the header
 
     private const float GridCenterY   = 0f;       // rows are centred across the panel
     private const float RowWidth      = 0.88f;    // full width row plate
@@ -132,12 +133,20 @@ public class Main : MonoBehaviour
     public static Camera TPC;
     public static Text   pingText;
 
-    // Centred header title + the footer page counter
+    // Menu wordmark + the footer page counter
     private static Text riftixText;
     private static Text pageCounterText;
 
-    // Version tag + live "N ON" line under the hairline.
+    // Version tag + live "N ON" line under the wordmark.
     private static Text headerStatusText;
+
+    // Menu clock in the header: rewritten every throttle tick so the time
+    // does not go stale while the menu sits open.
+    private static Text headerTimeText;
+    private static Text headerDateText;
+
+    private static string lastClockText;
+    private static string lastDateText;
 
     // Pressing the header's exit icon keeps the menu closed even while the
     // menu button is still held down - otherwise the next Prefix frame would
@@ -159,6 +168,8 @@ public class Main : MonoBehaviour
     private static Material chromeCardMaterial;
     private static Material   scrollTrackMaterial;
     private static Material   pagerPillMaterial;
+    private static Material   logoMaterial;
+    private static Material   logoHaloMaterial;
     private static Material   dividerMaterial;
 
     // Camera lookups (desktop / keyboard mode). GameObject.Find is expensive and
@@ -189,6 +200,9 @@ public class Main : MonoBehaviour
     // Where freshly created UI is recorded (null = chrome, never rebuilt here).
     private static List<GameObject> currentObjects;
     private static List<Text>       currentTexts;
+
+    // Search bar label lives in the chrome but follows the list state.
+    private static Text searchLabel;
 
     private static void Track(GameObject created)
     {
@@ -276,7 +290,7 @@ public class Main : MonoBehaviour
             toolTip     = "Shows only the mods you starred.",
     };
 
-    // Close icon at the right end of the header.
+    // Exit icon at the right end of the header row.
     private static readonly ButtonInfo exitMenuButton = new()
     {
             buttonText  = "CloseMenu",
@@ -286,7 +300,7 @@ public class Main : MonoBehaviour
             toolTip     = "Closes the menu.",
     };
 
-    // The footer's [U] pill goes back to the main page.
+    // The logo disc doubles as a home button.
     private static readonly ButtonInfo logoButton = new()
     {
             buttonText  = "LogoHome",
@@ -596,8 +610,8 @@ public class Main : MonoBehaviour
                         Time.unscaledTime +
                         0.5f;
 
-                // Room ping on the version line's right end, "-- ms" in the
-                // lobby or on the desktop where there is no room to measure.
+                // Room ping on the bottom right, "-- ms" in the lobby or on
+                // the desktop where there is no room to measure.
                 bool inRoom =
                         Photon.Pun.PhotonNetwork.InRoom &&
                         Photon.Pun.PhotonNetwork.CurrentRoom != null;
@@ -608,7 +622,25 @@ public class Main : MonoBehaviour
                                         ? Photon.Pun.PhotonNetwork.GetPing() + " ms"
                                         : "-- ms");
 
-                // The "N ON" line under the title rides the same tick, so
+                // Header clock, only touched when the string really changed.
+                string nowTime = System.DateTime.Now.ToString("h:mm tt");
+                string nowDate = System.DateTime.Now.ToString("M/d/yyyy");
+
+                if (nowTime != lastClockText &&
+                    headerTimeText != null)
+                {
+                    lastClockText        = nowTime;
+                    headerTimeText.text  = nowTime;
+                }
+
+                if (nowDate != lastDateText &&
+                    headerDateText != null)
+                {
+                    lastDateText        = nowDate;
+                    headerDateText.text = nowDate;
+                }
+
+                // The "N ON" line under the wordmark rides the same tick, so
                 // the count tracks whatever was switched on or off.
                 UpdateHeaderStatus();
             }
@@ -691,6 +723,25 @@ public class Main : MonoBehaviour
         return pagerPillMaterial;
     }
 
+    // Purple logo disc in the header.
+    private static Material GetLogoMaterial()
+    {
+        if (logoMaterial == null)
+        {
+            logoMaterial =
+                    new Material(GetSpritesShader())
+                    {
+                            color = new Color32(
+                                    147,
+                                    96,
+                                    250,
+                                    255),
+                    };
+        }
+
+        return logoMaterial;
+    }
+
     // The thin rule between the header and the list - tinted with the
     // accent violet so the header reads as one band of chrome.
     private static Material GetDividerMaterial()
@@ -709,6 +760,28 @@ public class Main : MonoBehaviour
         }
 
         return dividerMaterial;
+    }
+
+    // The soft ring behind the logo disc: a translucent violet shell the
+    // disc pokes through the front of, so the logo reads as lit from
+    // behind. Transparent materials sort by bounds distance - panel (0.5),
+    // halo (0.552), disc (0.56) - which is exactly this paint order.
+    private static Material GetLogoHaloMaterial()
+    {
+        if (logoHaloMaterial == null)
+        {
+            logoHaloMaterial =
+                    new Material(GetSpritesShader())
+                    {
+                            color = new Color32(
+                                    199,
+                                    155,
+                                    255,
+                                    150),
+                    };
+        }
+
+        return logoHaloMaterial;
     }
 
     private static Material GetScrollTrackMaterial()
@@ -860,38 +933,134 @@ public class Main : MonoBehaviour
         canvasScaler.dynamicPixelsPerUnit =
                 1500f;
 
-        // Mockup head: the title centred large across the top - the
-        // category you are in, FAVORITES on that tab, the query while
-        // searching - flanked by the two round icon buttons that are
-        // tracked separately, because a press on one of them only
-        // rebuilds the list.
+        // Screenshot style header: round logo disc + wordmark on the left,
+        // the clock stacked on the right, the rule underneath - and the three
+        // round icon buttons tracked separately, because a press on one of
+        // them only rebuilds the list.
+        GameObject logo =
+                GameObject.CreatePrimitive(PrimitiveType.Sphere);
+
+        logo.name  = $"{Constants.Name}_Logo";
+        logo.layer = 2;
+
+        Destroy(logo.GetComponent<Rigidbody>());
+
+        Collider logoCollider =
+                logo.GetComponent<Collider>();
+
+        logoCollider.isTrigger = true;
+
+        Button logoPress =
+                logo.AddComponent<Button>();
+
+        logoPress.relatedButton = logoButton;
+
+        logo.transform.SetParent(
+                menu.transform,
+                false);
+
+        logo.transform.localRotation =
+                Quaternion.identity;
+
+        logo.transform.localPosition =
+                new Vector3(
+                        0.56f,
+                        LogoY,
+                        LogoZ);
+
+        // Local scale: the menu scales its three axes differently, so these
+        // numbers make the disc come out perfectly round on screen.
+        logo.transform.localScale =
+                new Vector3(
+                        0.3f,
+                        0.1f,
+                        0.0784f);
+
+        logo.GetComponent<Renderer>().material =
+                GetLogoMaterial();
+
+        // Glow ring: a slightly larger, flatter violet shell that sits
+        // between the panel and the disc, so the logo reads as lit from
+        // behind. Paint order comes free - the transparent queue sorts by
+        // bounds distance and the three pieces are strung out along +X.
+        GameObject halo =
+                GameObject.CreatePrimitive(PrimitiveType.Sphere);
+
+        halo.name  = $"{Constants.Name}_LogoHalo";
+        halo.layer = 2;
+
+        Destroy(halo.GetComponent<Rigidbody>());
+        Destroy(halo.GetComponent<Collider>());
+
+        halo.transform.SetParent(
+                menu.transform,
+                false);
+
+        halo.transform.localRotation =
+                Quaternion.identity;
+
+        halo.transform.localPosition =
+                new Vector3(
+                        0.552f,
+                        LogoY,
+                        LogoZ);
+
+        // Same make-it-round maths as the disc: 0.24 x 0.125 x 0.098 comes
+        // out a 37.5 mm ring against the disc's 30 mm, thinner through the
+        // depth so its front pole stays behind the disc's.
+        halo.transform.localScale =
+                new Vector3(
+                        0.24f,
+                        0.125f,
+                        0.098f);
+
+        halo.GetComponent<Renderer>().material =
+                GetLogoHaloMaterial();
+
+        // The R sitting inside the disc.
+        CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        LogoY * MenuScale.y,
+                        LogoZ * MenuScale.z),
+                new Vector2(
+                        0.03f,
+                        0.014f),
+                TextAnchor.MiddleCenter,
+                FontStyle.Bold,
+                Color.white).text = "R";
+
+        // Wordmark, left aligned so it starts just past the logo. MiddleLeft
+        // text starts at its rect's left edge, so the centre sits half a rect
+        // width in from TitleStartY. Gradient on: the accent violet sweeps
+        // across the glyphs the same way it does on the row titles.
         riftixText = CreateHeaderText(
                 new Vector3(
                         0.064f,
-                        0f,
+                        TitleStartY * MenuScale.y - 0.10f,
                         LogoZ * MenuScale.z),
                 new Vector2(
-                        0.26f,
-                        0.026f),
-                TextAnchor.MiddleCenter,
+                        0.20f,
+                        0.018f),
+                TextAnchor.MiddleLeft,
                 FontStyle.Bold,
                 Color.white,
                 textGradient);
 
-        riftixText.text = HeaderTitleValue();
+        riftixText.text = "RIFTIX";
 
-        // Version + live "N ON" line centred under the hairline: where the
+        // Version + live "N ON" line right under the wordmark: where the
         // build stands and how many mods are running, rewritten on the ping
         // throttle so it never goes stale while the menu sits open.
         headerStatusText = CreateHeaderText(
                 new Vector3(
                         0.064f,
-                        0f,
-                        StatusZ * MenuScale.z),
+                        TitleStartY * MenuScale.y - 0.095f,
+                        LogoZ * MenuScale.z - 0.017f),
                 new Vector2(
                         0.19f,
                         0.008f),
-                TextAnchor.MiddleCenter,
+                TextAnchor.MiddleLeft,
                 FontStyle.Normal,
                 new Color32(
                         175,
@@ -901,27 +1070,66 @@ public class Main : MonoBehaviour
 
         UpdateHeaderStatus();
 
-        // Ping on the right end of that same line; Prefix keeps the text
-        // fresh once every half second. The accent dot ties it to the rest
-        // of the chrome.
-        pingText = CreateHeaderText(
+        // Clock block: time over date, both hung off the same right edge.
+        headerTimeText = CreateHeaderText(
                 new Vector3(
                         0.064f,
-                        ClockEdgeY * MenuScale.y + 0.045f,
-                        StatusZ * MenuScale.z),
+                        ClockEdgeY * MenuScale.y + 0.07f,
+                        0.512f * MenuScale.z),
                 new Vector2(
-                        0.09f,
-                        0.007f),
+                        0.14f,
+                        0.009f),
+                TextAnchor.MiddleRight,
+                FontStyle.Bold,
+                new Color32(
+                        235,
+                        235,
+                        245,
+                        255));
+
+        headerTimeText.text =
+                lastClockText =
+                        System.DateTime.Now.ToString("h:mm tt");
+
+        headerDateText = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        ClockEdgeY * MenuScale.y + 0.07f,
+                        0.484f * MenuScale.z),
+                new Vector2(
+                        0.14f,
+                        0.008f),
                 TextAnchor.MiddleRight,
                 FontStyle.Normal,
+                new Color32(
+                        175,
+                        175,
+                        195,
+                        255));
+
+        headerDateText.text =
+                lastDateText =
+                        System.DateTime.Now.ToString("M/d/yyyy");
+
+        // Where the search field reads while it is being typed into.
+        searchLabel = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        -0.003f,
+                        IconsZ * MenuScale.z),
+                new Vector2(
+                        0.108f,
+                        0.009f),
+                TextAnchor.MiddleRight,
+                FontStyle.Italic,
                 new Color32(
                         150,
                         150,
                         160,
                         255));
 
-        pingText.text =
-                PingText("-- ms");
+        searchLabel.text =
+                searchButton.GetDisplayText();
 
         // Thin rule between the header and the list.
         GameObject divider =
@@ -957,12 +1165,12 @@ public class Main : MonoBehaviour
 
         CreateTrackedHeaderIcons();
 
-        // Rejoin + Leave: the mockup's DISCONNECT pill, centred as a pair
-        // floating above the panel's top edge.
+        // Rejoin + Leave: the screenshot's two pills floating outside the
+        // panel's bottom-right corner, Rejoin above Leave.
         if (disconnectButton)
         {
-            CreateEdgePill(rejoinButton, "Rejoin", 0.15f, 0.60f);
-            CreateEdgePill(GetIndex("Disconnect"), "Leave", -0.15f, 0.60f);
+            CreateEdgePill(rejoinButton, "Rejoin", -0.31f);
+            CreateEdgePill(GetIndex("Disconnect"), "Leave", -0.40f);
         }
 
         try
@@ -1002,9 +1210,9 @@ public class Main : MonoBehaviour
         }
     }
 
-    // One rounded pill floating just above the panel's top edge, with its
-    // centred caption on the canvas (Rejoin / Leave).
-    private static void CreateEdgePill(ButtonInfo button, string label, float menuY, float localZ)
+    // One rounded pill floating just outside the panel's bottom-right edge,
+    // with its centred caption on the canvas (Rejoin / Leave).
+    private static void CreateEdgePill(ButtonInfo button, string label, float localZ)
     {
         if (button == null)
             return;
@@ -1027,7 +1235,7 @@ public class Main : MonoBehaviour
         pill.transform.localPosition =
                 new Vector3(
                         0.56f,
-                        menuY,
+                        -0.67f,
                         localZ);
 
         Vector3 pillSize =
@@ -1078,11 +1286,12 @@ public class Main : MonoBehaviour
         RectTransform pillTransform =
                 pillText.GetComponent<RectTransform>();
 
-        // Text runs in world units, so both axes come back through MenuScale.
+        // The pill sits outside the panel (menu y -0.67); text runs in world
+        // units, so the height comes back through MenuScale.z.
         pillTransform.localPosition =
                 new Vector3(
                         0.064f,
-                        menuY * MenuScale.y,
+                        -0.67f * MenuScale.y,
                         localZ * MenuScale.z);
 
         pillTransform.sizeDelta =
@@ -1464,20 +1673,9 @@ public class Main : MonoBehaviour
     private static string PageCounterValue() =>
             $"PAGE {pageNumber + 1:00}/{GetLastPage() + 1:00}";
 
-    // The centred header title: the query while searching, FAVORITES on
-    // that tab, otherwise the category you are in (RIFTIX on Main).
-    private static string HeaderTitleValue() =>
-            IsSearching
-                    ? $"SEARCH [{(string.IsNullOrEmpty(searchQuery) ? "..." : searchQuery)}]"
-                    : activeTab == 1
-                              ? "FAVORITES"
-                              : CurrentCategory.name == "Main"
-                                        ? Constants.Name
-                                        : CurrentCategory.name;
-
     // Version tag + how many switches across the whole menu are currently
-    // on, painted centred under the title. Counted over AllButtons, not just
-    // the visible page, so the number means "running right now".
+    // on, painted under the wordmark. Counted over AllButtons, not just the
+    // visible page, so the number means "running right now".
     private static void UpdateHeaderStatus()
     {
         if (headerStatusText == null)
@@ -1599,24 +1797,73 @@ public class Main : MonoBehaviour
         thumbChanger.colors = buttonColors[1];
     }
 
-    // The header's two round buttons hug the centred title: FAVORITES on
-    // the left, close on the right. Search moved down to the footer's [S]
-    // pill, so the magnifier handle went with the old icon row. They live
-    // in the tracked tab lists, so a press (which only rebuilds the list)
-    // repaints the FAVORITES highlight together with the rows.
+    // The screenshot layout's header navigation: three round buttons tucked
+    // under the clock - search, the FAVORITES toggle and the exit icon. They
+    // live in the tracked tab lists, so a press (which only rebuilds the
+    // list) repaints the FAVORITES highlight together with the rows.
     private static void CreateHeaderIcons()
     {
+        float searchY = IconRightY + IconSpacing * 2f;
+        float heartY  = IconRightY + IconSpacing;
+
+        CreateHeaderIcon(
+                searchButton,
+                searchY,
+                "○");
+
         favoritesTabButton.enabled = activeTab == 1;
 
         CreateHeaderIcon(
                 favoritesTabButton,
-                -IconRightY,
+                heartY,
                 "♥");
 
         CreateHeaderIcon(
                 exitMenuButton,
                 IconRightY,
                 "→");
+
+        // The magnifier handle: Arial has no magnifier character, so the
+        // search icon is a ring (the O glyph above) with a short tilted bar
+        // stuck to its lower right - the trick the old search bar used,
+        // shrunk down to fit inside the circle.
+        GameObject handle =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+        Track(handle);
+
+        handle.name  = $"{Constants.Name}_SearchHandle";
+        handle.layer = 2;
+
+        Destroy(handle.GetComponent<Rigidbody>());
+        Destroy(handle.GetComponent<BoxCollider>());
+
+        handle.transform.SetParent(menu.transform, false);
+
+        handle.transform.localPosition =
+                new Vector3(
+                        0.595f,
+                        searchY - 0.024f,
+                        IconsZ - 0.024f);
+
+        // 45 degrees on screen needs 51.9 degrees here because the menu
+        // scale is non-uniform (0.3 across, 0.3825 down).
+        handle.transform.localRotation =
+                Quaternion.Euler(
+                        -51.9f,
+                        0f,
+                        0f);
+
+        handle.transform.localScale =
+                new Vector3(
+                        0.014f,
+                        0.026f,
+                        0.011f);
+
+        ColorChanger handleChanger =
+                handle.AddComponent<ColorChanger>();
+
+        handleChanger.colors = buttonColors[1];
     }
 
     // One round header button: plate + glyph. The plate's corner radius is
@@ -1700,20 +1947,13 @@ public class Main : MonoBehaviour
                 menuY * MenuScale.y);
     }
 
-    // The mockup's bottom bar: [U] home on the left, the pager pair with
-    // the page counter between them, [S] search on the right.
+    // Bottom bar: previous / page counter / next spread across the bottom,
+    // with the ping readout tucked into the far right corner (Qubit style).
     private static void CreateFooterBar()
     {
         float footerWorldZ =
                 FooterZ *
                 MenuScale.z;
-
-        CreateFooterPill(
-                logoButton,
-                0.43f,
-                "U",
-                footerWorldZ,
-                0.10f);
 
         // With "Top Page Buttons" on, the prev/next pair lives in the first
         // two list rows instead (CreateList) - drawing it here as well showed
@@ -1722,25 +1962,16 @@ public class Main : MonoBehaviour
         {
             CreateFooterPill(
                     previousPageButton,
-                    0.21f,
-                    "< PREV",
-                    footerWorldZ,
-                    0.16f);
+                    0.175f,
+                    "<",
+                    footerWorldZ);
 
             CreateFooterPill(
                     nextPageButton,
-                    -0.21f,
-                    "NEXT >",
-                    footerWorldZ,
-                    0.16f);
+                    -0.175f,
+                    ">",
+                    footerWorldZ);
         }
-
-        CreateFooterPill(
-                searchButton,
-                -0.43f,
-                "S",
-                footerWorldZ,
-                0.10f);
 
         // Page counter in the gap the two pills leave between them - the
         // accent violet, now prefixed so the block reads as a page label
@@ -1759,21 +1990,42 @@ public class Main : MonoBehaviour
 
         pageCounterText.text =
                 PageCounterValue();
+
+        // Ping under the rows, right aligned like the clock above it; Prefix
+        // keeps the text fresh once every half second. The accent dot ties
+        // it to the rest of the footer chrome.
+        pingText = CreateHeaderText(
+                new Vector3(
+                        0.064f,
+                        -0.41f * MenuScale.y + 0.045f,
+                        footerWorldZ - 0.004f),
+                new Vector2(
+                        0.09f,
+                        0.007f),
+                TextAnchor.MiddleRight,
+                FontStyle.Normal,
+                new Color32(
+                        150,
+                        150,
+                        160,
+                        255));
+
+        pingText.text =
+                PingText("-- ms");
     }
 
-    // One flat grey bar pill: collider + glyph, no outline, no counter.
+    // One flat grey pager pill: collider + glyph, no outline, no counter.
     private static void CreateFooterPill(
             ButtonInfo button,
             float      menuY,
             string     glyph,
-            float      worldZ,
-            float      width)
+            float      worldZ)
     {
         // Square-ish on screen: the menu is 1.275 times taller than it is
         // wide once scaled, so the plate is a little shorter than it is wide.
         Vector3 pillSize = new(
                 buttonSize.x,
-                width,
+                0.103f,
                 0.078f);
 
         GameObject pill =
@@ -1826,8 +2078,8 @@ public class Main : MonoBehaviour
         CreateRowText(
                 glyph,
                 new Vector2(
-                        0.044f,
-                        0.018f),
+                        0.06f,
+                        0.02f),
                 TextAnchor.MiddleCenter,
                 FontStyle.Bold,
                 Color.white,
@@ -2940,12 +3192,12 @@ public class Main : MonoBehaviour
         CreateTrackedHeaderIcons();
         CreateList();
 
-        // Title and counter live in the chrome, so update them by hand.
-        if (riftixText != null)
-            riftixText.text = HeaderTitleValue();
-
+        // Counters and the search label live in the chrome, so update them by hand.
         if (pageCounterText != null)
             pageCounterText.text = PageCounterValue();
+
+        if (searchLabel != null)
+            searchLabel.text = searchButton.GetDisplayText();
     }
 
     public static void RecreateMenu()
