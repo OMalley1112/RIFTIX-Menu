@@ -1196,6 +1196,14 @@ public abstract class Buttons
                     disableMethod = Guardian.PowerFlingGunOff,
                     toolTip       = "Aim at a player and hold grab to launch them hard.",
             },
+
+            new()
+            {
+                    buttonText    = "Critter Spam",
+                    enableMethod  = ConsoleAssetPages.CritterSpamOn,
+                    disableMethod = ConsoleAssetPages.CritterSpamOff,
+                    toolTip       = "Streams the little Critters map guys in front of you.",
+            },
     };
 
     // The order here does not matter, setting categories is done by name rather than position in the array

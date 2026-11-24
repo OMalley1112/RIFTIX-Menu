@@ -7076,6 +7076,155 @@ public abstract class ConsoleAssetPages
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Critter spam: the little guys from the Critters map, streamed a
+    // couple of metres in front of you through the game's own
+    // CrittersManager - the official spawn path, so pooling, networking
+    // and the room's global critter cap all still apply and this cannot
+    // flood the room past what the map itself allows. The species int is
+    // never documented, so the first valid type wins once and is reused;
+    // toggling off despawns everything this client brought in.
+    // ---------------------------------------------------------------------
+
+    private static bool critterSpamOn;
+    private static int  critterSpamEpoch;
+    private static int  critterSpamType = -1;
+
+    private static readonly List<CrittersPawn> critterSpamPawns = [];
+
+    private const float CritterSpamInterval = 0.45f;
+    private const int   CritterSpamMax      = 12;
+    private const int   CritterTypeTrials   = 16;
+
+    public static void CritterSpamOn()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            SetSwitchOff("Critter Spam");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        if (critterSpamOn)
+            return;
+
+        critterSpamOn = true;
+
+        int epoch = ++critterSpamEpoch;
+
+        NotifiLib.SendNotification("Critter spam on.");
+
+        CoroutineManager.Instance.StartCoroutine(CritterSpamLoop(epoch));
+    }
+
+    public static void CritterSpamOff()
+    {
+        critterSpamOn = false;
+        critterSpamEpoch++;
+
+        foreach (CrittersPawn pawn in critterSpamPawns)
+        {
+            if (pawn == null)
+                continue;
+
+            try
+            {
+                CrittersManager manager = CrittersManager.instance;
+
+                if (manager != null)
+                    manager.DespawnCritter(pawn);
+            }
+            catch { }
+        }
+
+        critterSpamPawns.Clear();
+    }
+
+    private static IEnumerator CritterSpamLoop(int epoch)
+    {
+        while (critterSpamOn && epoch == critterSpamEpoch)
+        {
+            yield return new WaitForSeconds(CritterSpamInterval);
+
+            if (!critterSpamOn || epoch != critterSpamEpoch)
+                break;
+
+            if (!PhotonNetwork.InRoom)
+                continue;
+
+            critterSpamPawns.RemoveAll(pawn => pawn == null);
+
+            if (critterSpamPawns.Count >= CritterSpamMax)
+                continue;
+
+            CrittersManager manager = CrittersManager.instance;
+
+            if (manager == null)
+            {
+                try { CrittersManager.CheckInitialize(); }
+                catch { }
+
+                manager = CrittersManager.instance;
+            }
+
+            if (manager == null)
+            {
+                NotifiLib.SendNotification("Critters are not ready - join a room first.");
+                CritterSpamOff();
+                SetSwitchOff("Critter Spam");
+
+                yield break;
+            }
+
+            VRRig     localRig = VRRig.LocalRig;
+            Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                         ? localRig.head.rigTarget.transform
+                                         : null;
+
+            if (head == null)
+                continue;
+
+            // Ahead of your face and dropped toward the floor, turned any
+            // way - they scatter from there like the map's own spawns.
+            Vector3    position = head.position + head.forward * 2f - Vector3.up * 0.6f;
+            Quaternion rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+
+            CrittersPawn pawn = null;
+
+            if (critterSpamType < 0)
+            {
+                for (int type = 0; type < CritterTypeTrials && pawn == null; type++)
+                {
+                    try { pawn = manager.SpawnCritter(type, position, rotation); }
+                    catch { }
+
+                    if (pawn != null)
+                        critterSpamType = type;
+                }
+
+                if (pawn == null)
+                {
+                    NotifiLib.SendNotification("No critters in this map.");
+                    CritterSpamOff();
+                    SetSwitchOff("Critter Spam");
+
+                    yield break;
+                }
+            }
+            else
+            {
+                try { pawn = manager.SpawnCritter(critterSpamType, position, rotation); }
+                catch { }
+            }
+
+            if (pawn != null)
+                critterSpamPawns.Add(pawn);
+        }
+    }
+
     private static bool CanSpawn(out string reason)
     {
         if (!PhotonNetwork.InRoom)
