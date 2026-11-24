@@ -6729,6 +6729,12 @@ public abstract class ConsoleAssetPages
     private const float SwingReach        = 1.05f;
     private const float SwingKickCooldown = 2.5f;
 
+    // How far the grip sits up the held item's own shaft from its bottom
+    // (the wrapper origin is the model's centre, so the fit lifts the
+    // origin until the grip lands in the palm instead of the wrist).
+    private const float PortalGripFromBottom = 0.025f;
+    private const float ScytheGripFromBottom = 0.28f;
+
     private static int portalGunAssetId = -1;
     private static int portalAssetId    = -1;
     private static int scytheAssetId    = -1;
@@ -6791,6 +6797,7 @@ public abstract class ConsoleAssetPages
 
         CoroutineManager.Instance.StartCoroutine(PortalTrigger());
         CoroutineManager.Instance.StartCoroutine(ResendPortalGun());
+        CoroutineManager.Instance.StartCoroutine(FitPortalGun());
     }
 
     public static void RemovePortalGun()
@@ -6884,8 +6891,47 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
         GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, id, PortalGunAnchor,
                 PhotonNetwork.LocalPlayer.ActorNumber);
-        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, id, Vector3.zero);
-        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, id, Quaternion.identity);
+        CoroutineManager.Instance.StartCoroutine(FitPortalGun());
+    }
+
+    // World-space fit for the held gun: a wrist bone's "zero" is never
+    // level, so the pose is computed in world space and re-expressed
+    // against the anchor - the trick FitOneCat uses. The origin is lifted
+    // until the grip (which sits gripFromBottom up the model) lands in the
+    // palm, and the yaw follows your head so the barrel points where you
+    // look. One shot: the anchor keeps the pose afterwards as the hand
+    // moves.
+    private static IEnumerator FitPortalGun()
+    {
+        int assetId = portalGunAssetId;
+
+        float giveUp = Time.time + 15f;
+
+        while (!Alive(assetId) && Time.time < giveUp)
+            yield return null;
+
+        if (!Alive(assetId) || portalGunAssetId != assetId)
+            yield break;
+
+        // Anchor commands land first (Console runs commands in order).
+        yield return null;
+        yield return null;
+
+        VRRig localRig = VRRig.LocalRig;
+
+        if (localRig == null || localRig.headMesh == null ||
+            localRig.leftHandTransform == null || localRig.leftHandTransform.parent == null)
+            yield break;
+
+        Transform hand = localRig.leftHandTransform.parent;
+        Transform head = localRig.headMesh.transform;
+
+        // Barrel down +Z, grip down: level in the world, aimed where you look.
+        Quaternion worldRotation = Quaternion.Euler(0f, head.eulerAngles.y, 0f);
+        Vector3    worldCentre   = hand.position +
+                                   Vector3.up * (LocalHeight(assetId) * 0.5f - PortalGripFromBottom);
+
+        FitOneCat(assetId, hand, worldCentre, worldRotation);
     }
 
     public static void SpawnScythe()
@@ -6925,6 +6971,7 @@ public abstract class ConsoleAssetPages
 
         CoroutineManager.Instance.StartCoroutine(WatchScytheSwing(scytheAssetId));
         CoroutineManager.Instance.StartCoroutine(ResendScythe());
+        CoroutineManager.Instance.StartCoroutine(FitScythe());
     }
 
     public static void RemoveScythe()
@@ -6947,8 +6994,43 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
         GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, id, ScytheAnchor,
                 PhotonNetwork.LocalPlayer.ActorNumber);
-        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, id, Vector3.zero);
-        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, id, Quaternion.identity);
+        CoroutineManager.Instance.StartCoroutine(FitScythe());
+    }
+
+    // Same world-space fit as the gun: lift the origin until the grip
+    // (ScytheGripFromBottom up the shaft) sits in the palm, and turn the
+    // blade to face where you look - the hook points -Z in the wrapper, so
+    // the extra 180 of yaw swings it forward like an axe head instead of
+    // trailing behind your wrist.
+    private static IEnumerator FitScythe()
+    {
+        int assetId = scytheAssetId;
+
+        float giveUp = Time.time + 15f;
+
+        while (!Alive(assetId) && Time.time < giveUp)
+            yield return null;
+
+        if (!Alive(assetId) || scytheAssetId != assetId)
+            yield break;
+
+        yield return null;
+        yield return null;
+
+        VRRig localRig = VRRig.LocalRig;
+
+        if (localRig == null || localRig.headMesh == null ||
+            localRig.leftHandTransform == null || localRig.leftHandTransform.parent == null)
+            yield break;
+
+        Transform hand = localRig.leftHandTransform.parent;
+        Transform head = localRig.headMesh.transform;
+
+        Quaternion worldRotation = Quaternion.Euler(0f, head.eulerAngles.y + 180f, 0f);
+        Vector3    worldCentre   = hand.position +
+                                   Vector3.up * (LocalHeight(assetId) * 0.5f - ScytheGripFromBottom);
+
+        FitOneCat(assetId, hand, worldCentre, worldRotation);
     }
 
     // The blade kicks whoever it touches: every frame the scythe's origin
