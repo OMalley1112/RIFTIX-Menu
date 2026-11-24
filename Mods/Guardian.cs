@@ -497,7 +497,7 @@ public abstract class Guardian
             return;
         }
 
-        VRRig gunRig = Rig;
+        VRRig gunRig = AimRig;
 
         // The launch fires a beat after the check so the mark gets seen.
         if (powerFlingPending && Time.time >= powerFlingAt)

@@ -7225,6 +7225,131 @@ public abstract class ConsoleAssetPages
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Snowball spam: keeps throwing snowballs from both hands through the
+    // game's own seasonal SnowballMaker - the same create + throw path
+    // your hands use, so the maker's cooldown and the game's pooling and
+    // networking all still apply. Only maps with the snowball cosmetic
+    // have a maker; toggling off just stops the stream.
+    // ---------------------------------------------------------------------
+
+    private static bool snowballSpamOn;
+    private static int  snowballSpamEpoch;
+
+    private const float SnowballSpamInterval = 0.3f;
+
+    public static void SnowballSpamOn()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            SetSwitchOff("Snowball Spam");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        if (snowballSpamOn)
+            return;
+
+        if (SnowballMaker.leftHandInstance == null && SnowballMaker.rightHandInstance == null)
+        {
+            SetSwitchOff("Snowball Spam");
+
+            NotifiLib.SendNotification("Snowballs are not available in this map.");
+
+            return;
+        }
+
+        snowballSpamOn = true;
+
+        int epoch = ++snowballSpamEpoch;
+
+        NotifiLib.SendNotification("Snowball spam on.");
+
+        CoroutineManager.Instance.StartCoroutine(SnowballSpamLoop(epoch));
+    }
+
+    public static void SnowballSpamOff()
+    {
+        snowballSpamOn = false;
+        snowballSpamEpoch++;
+    }
+
+    private static IEnumerator SnowballSpamLoop(int epoch)
+    {
+        while (snowballSpamOn && epoch == snowballSpamEpoch)
+        {
+            yield return new WaitForSeconds(SnowballSpamInterval);
+
+            if (!snowballSpamOn || epoch != snowballSpamEpoch)
+                break;
+
+            if (!PhotonNetwork.InRoom)
+                continue;
+
+            // The makers come and go with the seasonal cosmetic.
+            if (SnowballMaker.leftHandInstance == null && SnowballMaker.rightHandInstance == null)
+            {
+                NotifiLib.SendNotification("Snowballs are not available in this map.");
+                SnowballSpamOff();
+                SetSwitchOff("Snowball Spam");
+
+                yield break;
+            }
+
+            ThrowSnowball(SnowballMaker.leftHandInstance);
+            ThrowSnowball(SnowballMaker.rightHandInstance);
+        }
+    }
+
+    // One throw per hand: ask the maker for a fresh snowball (it applies its own
+    // creation cooldown) and throw it with the game's own authority call. If the
+    // maker is still holding one from last tick, relaunch that instead so the
+    // stream never stalls.
+    private static void ThrowSnowball(SnowballMaker maker)
+    {
+        if (maker == null)
+            return;
+
+        try
+        {
+            if (maker.TryCreateSnowball(0, out SnowballThrowable snowball) && snowball != null)
+            {
+                snowball.PerformSnowballThrowAuthority();
+
+                return;
+            }
+
+            SnowballThrowable[] held = maker.snowballs;
+
+            if (held == null)
+                return;
+
+            VRRig     localRig = VRRig.LocalRig;
+            Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                         ? localRig.head.rigTarget.transform
+                                         : null;
+
+            Vector3 forward = head != null ? head.forward : maker.transform.forward;
+            Vector3 velocity = forward * 12f + Vector3.up * 1.5f;
+
+            for (int i = 0; i < held.Length; i++)
+            {
+                SnowballThrowable existing = held[i];
+
+                if (existing == null || !existing.gameObject.activeInHierarchy)
+                    continue;
+
+                existing.LaunchSnowballLocal(maker.transform.position, velocity, 1f, true, Color.white);
+
+                return;
+            }
+        }
+        catch { }
+    }
+
     private static bool CanSpawn(out string reason)
     {
         if (!PhotonNetwork.InRoom)

@@ -1204,6 +1204,14 @@ public abstract class Buttons
                     disableMethod = ConsoleAssetPages.CritterSpamOff,
                     toolTip       = "Streams the little Critters map guys in front of you.",
             },
+
+            new()
+            {
+                    buttonText    = "Snowball Spam",
+                    enableMethod  = ConsoleAssetPages.SnowballSpamOn,
+                    disableMethod = ConsoleAssetPages.SnowballSpamOff,
+                    toolTip       = "Throws snowballs from both hands as fast as the game allows.",
+            },
     };
 
     // The order here does not matter, setting categories is done by name rather than position in the array

@@ -540,7 +540,7 @@ public abstract class Movement
 
     public static void TagGun()
     {
-        VRRig target = GunHelper.Rig;
+        VRRig target = GunHelper.AimRig;
 
         if (!GunHelper.Trigger || target == null || target.Creator == null ||
             GorillaGameModes.GameMode.LocalIsTagged(target.Creator))

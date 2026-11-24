@@ -12,10 +12,11 @@ namespace StupidTemplate.Menu;
 //   GunLib.GetInput(false)   is the gun equipped? (grip in VR, right mouse on PC)
 //   GunLib.GetInput(true)    is the gun firing?   (trigger in VR, left mouse on PC)
 //   GunLib.HoveredRig        the player the gun is currently pointing at (or null).
-//   GunLib.LockedRig         the player the gun is locked on to (or null). The gun only locks on
-//                            while the trigger is held; hovering over a player without pulling the
-//                            trigger does nothing. A purple tracer runs from your right hand to the
-//                            locked body, and only then.
+//   GunLib.LockedRig         the player the gun is locked on to (or null). Grip + trigger over a
+//                            player locks on; the lock then follows that player wherever they go
+//                            until BOTH grip and trigger are let go. A purple tracer runs from
+//                            your hand to the locked body while locked.
+//   GunLib.ClearLock()       drops the lock right away.
 //   GunLib.BodyPoint(rig)    chest position of a rig, used for the lock end and the tracer.
 //   GunLib.EndFrame()        called once per frame by Main, hides the gun when nobody rendered it.
 //
@@ -63,6 +64,11 @@ public static class GunLib
     private static bool    previousFire;
     private static float   clickPulse;
     private static int     appliedWidthStyle = -1;
+
+    // Lock-on (ported from Zeno's GunLib): the player we are locked onto. Stays set until
+    // grip AND trigger are both released, so the gun keeps tracking them while you aim away.
+    private static VRRig   lockRig;
+    private static bool    wasLocked;
 
     // rope
     private static readonly Vector3[] ropePos  = new Vector3[RopePoints];
@@ -145,15 +151,36 @@ public static class GunLib
 
         HoveredRig = hoveredRig;
 
-        // The gun only locks on while the trigger is held. Hovering over a player with the grip
-        // alone never locks (and never draws the tracer).
         bool fireHeld = GetInput(true, settings);
+        bool gripHeld = GetInput(false, settings);
 
-        VRRig lockedRig = fireHeld ? hoveredRig : null;
+        // Lock-on: grip + trigger over a player locks onto them. The lock then follows that
+        // player no matter how they move or what you aim at, and only ends once grip AND
+        // trigger are both released (also checked every frame in EndFrame).
+        if (lockRig != null && (!lockRig.gameObject.activeInHierarchy || lockRig.isLocal))
+            ClearLock();
+
+        if (!gripHeld && !fireHeld)
+            ClearLock();
+        else if (lockRig == null && gripHeld && fireHeld && hoveredRig != null)
+            lockRig = hoveredRig;
+
+        VRRig lockedRig = lockRig;
 
         LockedRig = lockedRig;
 
         bool locked = lockedRig != null;
+
+        // A short buzz the moment the lock catches.
+        if (locked && !wasLocked && GorillaTagger.Instance != null)
+        {
+            GorillaTagger.Instance.StartVibration(
+                    settings.hand == XRNode.LeftHand,
+                    GorillaTagger.Instance.tapHapticStrength,
+                    GorillaTagger.Instance.tapHapticDuration);
+        }
+
+        wasLocked = locked;
 
         Vector3 end;
 
@@ -322,6 +349,18 @@ public static class GunLib
         if (line    != null && line.gameObject.activeSelf) line.gameObject.SetActive(false);
         if (ring    != null && ring.gameObject.activeSelf) ring.gameObject.SetActive(false);
         if (tracer  != null && tracer.gameObject.activeSelf) tracer.gameObject.SetActive(false);
+
+        // Runs every frame: once grip AND trigger are both let go, the lock is dropped.
+        if (lockRig != null && !GetInput(false) && !GetInput(true))
+            ClearLock();
+    }
+
+    // Drops the lock-on immediately (target gone, or the gun put away).
+    public static void ClearLock()
+    {
+        lockRig   = null;
+        LockedRig = null;
+        wasLocked = false;
     }
 
     public static void Hide()
@@ -338,6 +377,8 @@ public static class GunLib
         clickPulse   = 0f;
         HoveredRig   = null;
         LockedRig    = null;
+        lockRig      = null;
+        wasLocked    = false;
 
         HideTracer();
     }

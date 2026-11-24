@@ -37,4 +37,23 @@ public abstract class GunHelper
             return rig;
         }
     }
+
+    // The lock target: once grip AND trigger were held over a player the gun stays locked
+    // onto them until both are released (Zeno-style lock-on), so aim drift never breaks
+    // the shot. Falls back to the plain aim ray when nothing is locked.
+    public static VRRig AimRig
+    {
+        get
+        {
+            // Refreshes HoveredRig/LockedRig for this frame first.
+            GunLib.Render();
+
+            VRRig locked = GunLib.LockedRig;
+
+            if (locked != null && !locked.isLocal && locked.gameObject.activeInHierarchy)
+                return locked;
+
+            return Rig;
+        }
+    }
 }
