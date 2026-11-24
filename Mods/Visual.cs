@@ -11,6 +11,33 @@ namespace StupidTemplate.Mods;
 
 public abstract class Visual
 {
+    
+    public static void Metersfromtheplayer()
+    {
+        if (VRRig.LocalRig == null || VRRig.LocalRig.headConstraint == null)
+            return;
+        Vector3 playerPos = VRRig.LocalRig.headConstraint.position;
+        IReadOnlyList<VRRig> rigs = VRRigCache.ActiveRigs;
+        for (int i = 0; i < rigs.Count; i++)
+        {
+            VRRig rig = rigs[i];
+            if (rig == null || rig.isLocal || !rig.gameObject.activeInHierarchy)
+                continue;
+            int id = rig.GetInstanceID();
+            Transform target = rig.headMesh != null ? rig.headMesh.transform : rig.transform;
+            float distance = Vector3.Distance(playerPos, target.position);
+            if (distance >= 100f)
+                continue;
+            string distanceText = $"<color=#66DD66>{distance:F1}m</color>";
+            if (ActiveNametags.TryGetValue(id, out NametagData data) && data != null && data.TextComponent != null)
+            {
+                string[] lines = data.TextComponent.text.Split('\n');
+                if (lines.Length > 0)
+                    lines[0] += " " + distanceText;
+                data.TextComponent.text = string.Join("\n", lines);
+            }
+        }
+    }
     private static readonly Vector3 sphereScaleHand = new(0.1f, 0.1f, 0.1f);
     private static readonly Vector3 sphereScaleHead = new(0.2f, 0.2f, 0.2f);
     private static readonly Vector3 boxEspScale     = new(0.2f, 0.4f, 0.2f);
@@ -615,5 +642,10 @@ public abstract class Visual
                 Object.Destroy(line.gameObject);
 
         tracerLines.Clear();
+    }
+
+    internal static void DisableMetersfromtheplayer()
+    {
+        throw new System.NotImplementedException();
     }
 }

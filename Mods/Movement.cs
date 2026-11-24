@@ -13,7 +13,7 @@ namespace StupidTemplate.Mods;
 
 public abstract class Movement
 {
-
+    
     private static GameObject platl;
     private static GameObject platr;
 
@@ -625,6 +625,70 @@ public abstract class Movement
         else if (!VRRig.LocalRig.enabled)
         {
             VRRig.LocalRig.enabled = true;
+        }
+    }
+
+    public static void tagBot()
+    {
+        IReadOnlyList<VRRig> rigs = VRRigCache.ActiveRigs;
+        if (!GorillaGameModes.GameMode.LocalIsTagged(PhotonNetwork.LocalPlayer))
+        {
+            VRRig hunterRig = null;
+            for (int i = 0; i < rigs.Count; i++)
+            {
+                if (!rigs[i].isLocal && GorillaGameModes.GameMode.LocalIsTagged(rigs[i].Creator))
+                {
+                    hunterRig = rigs[i];
+                    break;
+                }
+            }
+            if (hunterRig != null)
+            {
+                VRRig.LocalRig.enabled = false;
+                VRRig.LocalRig.transform.position = hunterRig.leftHand.rigTarget.position;
+            }
+            else if (!VRRig.LocalRig.enabled)
+            {
+                VRRig.LocalRig.enabled = true;
+            }
+            return;
+        }
+        for (int i = 0; i < rigs.Count; i++)
+        {
+            if (!rigs[i].isLocal && !GorillaGameModes.GameMode.LocalIsTagged(rigs[i].Creator))
+                GorillaGameModes.GameMode.ReportTag(rigs[i].Creator);
+        }
+    }   
+
+    public static void InstantTagall()
+    {
+        IReadOnlyList<VRRig> rigs = VRRigCache.ActiveRigs;
+        if (!GorillaGameModes.GameMode.LocalIsTagged(PhotonNetwork.LocalPlayer))
+        {
+            VRRig hunterRig = null;
+            for (int i = 0; i < rigs.Count; i++)
+            {
+                if (!rigs[i].isLocal && GorillaGameModes.GameMode.LocalIsTagged(rigs[i].Creator))
+                {
+                    hunterRig = rigs[i];
+                    break;
+                }
+            }
+            if (hunterRig != null)
+            {
+                VRRig.LocalRig.enabled = false;
+                VRRig.LocalRig.transform.position = hunterRig.leftHand.rigTarget.position;
+            }
+            else if (!VRRig.LocalRig.enabled)
+            {
+                VRRig.LocalRig.enabled = true;
+            }
+            return;
+        }
+        for (int i = 0; i < rigs.Count; i++)
+        {
+            if (!rigs[i].isLocal && !GorillaGameModes.GameMode.LocalIsTagged(rigs[i].Creator))
+                GorillaGameModes.GameMode.ReportTag(rigs[i].Creator);
         }
     }
 

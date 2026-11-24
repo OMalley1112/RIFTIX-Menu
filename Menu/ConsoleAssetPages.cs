@@ -225,7 +225,7 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, pictureAssetId, ScreenChild,
                 PictureVideoUrl);
 
-        NotifiLib.SendNotification("Picture is up in front of you - the whole room sees it.");
+        NotifiLib.SendNotification("Picture is up.");
 
         CoroutineManager.Instance.StartCoroutine(ResendPicture());
     }
@@ -1981,7 +1981,7 @@ public abstract class ConsoleAssetPages
             // The world is already dark and half-hidden: take it back
             // rather than leave the player standing in a dead show.
             StopFinale();
-            NotifiLib.SendNotification("Lost your head across the teleport - finale rolled back.");
+            NotifiLib.SendNotification("Finale rolled back.");
             yield break;
         }
 
@@ -2839,7 +2839,7 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, hammerAssetId,
                 Quaternion.identity);
 
-        NotifiLib.SendNotification("Thor hammer on your left hand - raise it up to call lightning.");
+        NotifiLib.SendNotification("Thor hammer on.");
 
         CoroutineManager.Instance.StartCoroutine(ResendHammer());
         CoroutineManager.Instance.StartCoroutine(WatchForRaise(hammerAssetId));
@@ -2952,7 +2952,7 @@ public abstract class ConsoleAssetPages
         cowboySpinResumeAt   = float.NegativeInfinity;
         cowboyTriggerWasDown = false;
 
-        NotifiLib.SendNotification("Cowboy set on: hat on your head, Schofield in your right hand.");
+        NotifiLib.SendNotification("Cowboy set on.");
 
         // Both pieces live in one bundle, so they are spawned in turn: two
         // asset-spawns at once make Console download the same bytes twice
@@ -3440,7 +3440,7 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, travisAssetId, rotation);
         GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, travisAssetId, TravisScale);
 
-        NotifiLib.SendNotification("Travis is standing in front of you - the whole room sees it.");
+        NotifiLib.SendNotification("Travis spawned.");
 
         CoroutineManager.Instance.StartCoroutine(ResendTravis());
     }
@@ -3574,7 +3574,7 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, minosAssetId, rotation);
         GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, minosAssetId, MinosSound, MinosClip);
 
-        NotifiLib.SendNotification("King Minos stands before you - the whole room sees and hears him.");
+        NotifiLib.SendNotification("King Minos spawned.");
 
         CoroutineManager.Instance.StartCoroutine(ResendKingMinos());
         CoroutineManager.Instance.StartCoroutine(MinosSongWatcher(minosAssetId));
@@ -6018,7 +6018,7 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, logoAssetId, LogoRootScale);
         GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, logoAssetId, LogoSound, LogoClip);
 
-        NotifiLib.SendNotification("The Jurassic logo is on your left hand - the whole room sees and hears it.");
+        NotifiLib.SendNotification("Jurassic logo on your hand.");
 
         CoroutineManager.Instance.StartCoroutine(ResendJpLogo());
     }
@@ -6131,7 +6131,7 @@ public abstract class ConsoleAssetPages
         // the pool and the second spawn reuses it.
         CoroutineManager.Instance.StartCoroutine(SpawnCatsPieces());
 
-        NotifiLib.SendNotification("Cats on: one spinning on your left hand, one on your head - the room hears the song.");
+        NotifiLib.SendNotification("Cats on.");
 
         CoroutineManager.Instance.StartCoroutine(ResendCats());
         CoroutineManager.Instance.StartCoroutine(FitCats());
@@ -6159,7 +6159,7 @@ public abstract class ConsoleAssetPages
             catHeadAssetId = -1;
             SetSwitchOff("Cats");
 
-            NotifiLib.SendNotification("Cats: the bundle did not download - press again to retry.");
+            NotifiLib.SendNotification("Cats failed to download - press again.");
 
             yield break;
         }
@@ -6544,7 +6544,7 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setvideo", ReceiverGroup.All, tvAssetId, TvVideoObject,
                 TvVideoUrl);
 
-        NotifiLib.SendNotification("Big TV is up in Critters - the whole room sees it.");
+        NotifiLib.SendNotification("Big TV is up.");
 
         CoroutineManager.Instance.StartCoroutine(ResendBigTV());
     }
@@ -6694,6 +6694,304 @@ public abstract class ConsoleAssetPages
 
         if (button != null)
             button.enabled = false;
+    }
+
+    // ---------------------------------------------------------------------
+    // Rick & Morty portal gun and the Scythe of the Dark Doom, both built
+    // by Assets/Build Portal Bundle in the 2022.3.2f1 bundle project and
+    // committed to this repo under bundles/riftix_portalgun (gun + portal
+    // together) and bundles/riftix_scythe - ServerData has no room for
+    // them, so Console falls back to RiftixAssetsURL when the download
+    // there misses. Both ride your left hand. Grip on the gun's hand opens
+    // the green portal a couple of metres in front of your face (its +Z
+    // points back at you, the way the show's disc faces its shooter) with
+    // the baked whoosh, grip again closes it. Swinging the scythe into
+    // another player's head runs the same networked silkick the admin gun
+    // uses: moderation only, and every spawn here is behind CanSpawn, so a
+    // non-admin gets the refusal toast instead of the bundle.
+    // ---------------------------------------------------------------------
+
+    private const string PortalGunBundle = "riftix_portalgun";
+    private const string PortalGunAsset  = "PortalGunRiftix";
+    private const string PortalAsset     = "PortalRiftix";
+
+    private const string ScytheBundle = "riftix_scythe";
+    private const string ScytheAsset  = "ScytheRiftix";
+
+    // BindObject's anchor slots: 0 head, 1 left hand, 2 right hand, 3 body.
+    private const int PortalGunAnchor = 1;
+    private const int ScytheAnchor    = 1;
+
+    // How far in front of your face the portal opens, how close the blade
+    // must get to a head to count as a swing, and the pause between kicks
+    // (a blade resting near someone cannot machine-gun the room out).
+    private const float PortalDistance    = 2.2f;
+    private const float SwingReach        = 1.05f;
+    private const float SwingKickCooldown = 2.5f;
+
+    private static int portalGunAssetId = -1;
+    private static int portalAssetId    = -1;
+    private static int scytheAssetId    = -1;
+
+    public static string PortalGunDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Portal Gun");
+
+        return
+                $"Portal Gun: {(button != null && button.enabled
+                                              ? "<color=green>ON</color>"
+                                              : "<color=red>OFF</color>")}";
+    }
+
+    public static string ScytheDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Scythe");
+
+        return
+                $"Scythe: {(button != null && button.enabled
+                                            ? "<color=green>ON</color>"
+                                            : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnPortalGun()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists
+            // (a real press gets the reason).
+            SetSwitchOff("Portal Gun");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        if (portalGunAssetId >= 0)
+            return;
+
+        portalGunAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds). Left hand, colliders
+        // out - a held collider lets you climb your own gear. The portal
+        // waits for the grip because it shares this bundle: two asset-spawns
+        // from one bundle at once race LoadFromMemory (the cats' lesson).
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, PortalGunBundle, PortalGunAsset,
+                portalGunAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, portalGunAssetId);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, portalGunAssetId,
+                PortalGunAnchor, PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, portalGunAssetId,
+                Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, portalGunAssetId,
+                Quaternion.identity);
+
+        NotifiLib.SendNotification("Portal gun on. Grip to open the portal.");
+
+        CoroutineManager.Instance.StartCoroutine(PortalTrigger());
+        CoroutineManager.Instance.StartCoroutine(ResendPortalGun());
+    }
+
+    public static void RemovePortalGun()
+    {
+        if (Alive(portalAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, portalAssetId);
+
+        if (Alive(portalGunAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, portalGunAssetId);
+
+        portalAssetId    = -1;
+        portalGunAssetId = -1;
+    }
+
+    // Only the owner drives the portal: grip edges toggle it, and every
+    // position command goes out with ReceiverGroup.All so the room sees the
+    // same disc at the same spot. The loop dies with the gun or the room.
+    private static IEnumerator PortalTrigger()
+    {
+        bool  wasDown   = false;
+        float nextEdge  = 0f;
+
+        while (Alive(portalGunAssetId))
+        {
+            bool down = ControllerInputPoller.instance.leftGrab;
+
+            if (down && !wasDown && Time.time >= nextEdge)
+            {
+                nextEdge = Time.time + 0.8f;
+
+                if (Alive(portalAssetId))
+                {
+                    GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, portalAssetId);
+                    portalAssetId = -1;
+                }
+                else
+                {
+                    VRRig     localRig = VRRig.LocalRig;
+                    Transform head     = localRig != null && localRig.head != null &&
+                                         localRig.head.rigTarget != null
+                                                 ? localRig.head.rigTarget.transform
+                                                 : null;
+
+                    if (head != null)
+                    {
+                        portalAssetId = GTConsole.GetFreeAssetID();
+
+                        Vector3    forward = head.forward;
+                        Vector3    pos     = head.position + forward * PortalDistance;
+                        Quaternion rot     = Quaternion.LookRotation(-forward);
+
+                        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, PortalGunBundle,
+                                PortalAsset, portalAssetId);
+                        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All,
+                                portalAssetId);
+                        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All,
+                                portalAssetId, pos);
+                        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All,
+                                portalAssetId, rot);
+                    }
+                }
+            }
+
+            wasDown = down;
+
+            yield return null;
+        }
+
+        // Gun gone (or toggle off): take the portal with it.
+        if (Alive(portalAssetId))
+        {
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, portalAssetId);
+            portalAssetId = -1;
+        }
+    }
+
+    // Anyone still downloading the bundle when the spawn went out would drop
+    // the follow-up commands (Console waits ten seconds for the asset), so
+    // re-send the grip once everyone has had twelve seconds to catch up. The
+    // anchor goes first: BindObject re-parents, so the zero pose must land
+    // after it rather than be re-parented away.
+    private static IEnumerator ResendPortalGun()
+    {
+        int id = portalGunAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (!Alive(id) || portalGunAssetId != id)
+            yield break;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, id, PortalGunAnchor,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, id, Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, id, Quaternion.identity);
+    }
+
+    public static void SpawnScythe()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            SetSwitchOff("Scythe");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        if (scytheAssetId >= 0)
+            return;
+
+        scytheAssetId = GTConsole.GetFreeAssetID();
+
+        // Same run as the hammer: spawn, colliders out, left-hand anchor,
+        // placeholder zero pose (FitCats' trick - the anchored zero lands
+        // in the palm). The lightning loop is baked on the wrapper playing
+        // on awake, with asset-playsound as the backstop for anyone the
+        // first pass missed.
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ScytheBundle, ScytheAsset,
+                scytheAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, scytheAssetId);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, scytheAssetId, ScytheAnchor,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, scytheAssetId,
+                Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, scytheAssetId,
+                Quaternion.identity);
+        GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, scytheAssetId, "Sound", null);
+
+        NotifiLib.SendNotification("Scythe on. Swing it at a player to kick them.");
+
+        CoroutineManager.Instance.StartCoroutine(WatchScytheSwing(scytheAssetId));
+        CoroutineManager.Instance.StartCoroutine(ResendScythe());
+    }
+
+    public static void RemoveScythe()
+    {
+        if (Alive(scytheAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, scytheAssetId);
+
+        scytheAssetId = -1;
+    }
+
+    private static IEnumerator ResendScythe()
+    {
+        int id = scytheAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (!Alive(id) || scytheAssetId != id)
+            yield break;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, id, ScytheAnchor,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, id, Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, id, Quaternion.identity);
+    }
+
+    // The blade kicks whoever it touches: every frame the scythe's origin
+    // is measured against every other rig's head, and a hit inside the
+    // reach runs the networked silkick - the exact command the admin kick
+    // gun uses, so receivers apply Console's own rules (an admin target is
+    // protected unless the sender is a super admin). The gate is CanSpawn
+    // at spawn time plus this admin re-check: this is moderation, not a
+    // toy for everyone, and the 2.5 s cooldown stops a blade held against
+    // someone from sweeping the whole room.
+    private static IEnumerator WatchScytheSwing(int assetId)
+    {
+        float nextKick = 0f;
+
+        while (Alive(assetId) && HamburburData.LocalAdminAccess)
+        {
+            if (Time.time >= nextKick)
+            {
+                Transform blade = GTConsole.ConsoleAssets[assetId].AssetObject.transform;
+
+                foreach (VRRig rig in VRRigCache.ActiveRigs)
+                {
+                    if (rig == null || rig == VRRig.LocalRig || rig.Creator == null)
+                        continue;
+
+                    Vector3 target = rig.headMesh != null
+                                             ? rig.headMesh.transform.position
+                                             : rig.transform.position;
+
+                    if ((blade.position - target).sqrMagnitude > SwingReach * SwingReach)
+                        continue;
+
+                    nextKick = Time.time + SwingKickCooldown;
+
+                    GTConsole.ExecuteCommand("silkick", ReceiverGroup.All, rig.Creator.UserId);
+                    NotifiLib.SendNotification("Swing kicked " + rig.Creator.NickName);
+
+                    break;
+                }
+            }
+
+            yield return null;
+        }
     }
 
     private static bool CanSpawn(out string reason)

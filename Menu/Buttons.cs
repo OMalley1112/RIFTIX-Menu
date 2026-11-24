@@ -97,13 +97,7 @@ public abstract class Buttons
                     toolTip    = "Opens the fun mods tab.",
             },
 
-            new()
-            {
-                    buttonText = "Guns",
-                    method     = () => SetCategory("Guns"),
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Opens the guns tab.",
-            },
+       
 
             new()
             {
@@ -143,6 +137,14 @@ public abstract class Buttons
                     method     = () => SetCategory("Console Assets"),
                     mode       = ButtonMode.Action,
                     toolTip    = "Opens the small Console Assets page (TikTok picture spawn).",
+            },
+
+            new()
+            {
+                    buttonText = "Overpower Mods",
+                    method     = () => SetCategory("Overpower Mods"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Opens the overpower mods tab (admin only).",
             },
     };
 
@@ -499,10 +501,17 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText = "Tag Gun",
+                    method     = Mods.Movement.TagGun,
+                    toolTip    = "Points at a player and presses trigger to tag them.",
+            },
+
+            new()
+            {
                     buttonText    = "DabUp",
                     method        = Mods.DabUp.Tick,
                     disableMethod = Mods.DabUp.Disable,
-                    toolTip       = "Touch someone's hand and press a grip to dap — loud clap, steam, hand locks to theirs until you let go.",
+                    toolTip       = "Touch a hand and press grip to dap up.",
             },
     };
 
@@ -515,6 +524,14 @@ public abstract class Buttons
                     mode       = ButtonMode.Action,
                     toolTip    = "Returns to the main page of the menu.",
             },
+
+            new()
+            {
+                    buttonText = "Metersfromtheplayer",
+                    method     = Visual.Metersfromtheplayer,
+                    disableMethod = Visual.DisableMetersfromtheplayer,
+                    toolTip    = "Shows how far away other players are from you.",
+             },
 
             new()
             {
@@ -681,70 +698,6 @@ public abstract class Buttons
             },
     };
 
-    private static readonly ButtonInfo[] GunsButtons =
-    {
-            new()
-            {
-                    buttonText = "Return to Main",
-                    method     = () => SetCategory("Main"),
-                    mode       = ButtonMode.Action,
-                    toolTip    = "Returns to the main page.",
-            },
-
-            new()
-            {
-                    buttonText = "Teleport Gun",
-                    method     = Mods.Movement.TeleportGun,
-                    toolTip    = "Grip to bring the gun up, then press trigger to teleport to the dot.",
-            },
-
-            new()
-            {
-                    buttonText = "Tag Gun",
-                    method     = Mods.Movement.TagGun,
-                    toolTip    = "Points at a player and holds grip to tag them when you get close.",
-            },
-
-            new()
-            {
-                    buttonText = "Grapple Gun",
-                    method     = Mods.Guns.GrappleGun,
-                    toolTip    = "Grip to aim, hold trigger to reel yourself in along the line.",
-            },
-
-            new()
-            {
-                    buttonText    = "Confetti Gun",
-                    method        = Mods.Guns.ConfettiGun,
-                    disableMethod = Mods.Guns.DisableConfettiGun,
-                    toolTip       = "Holding the grip sprays a cloud of confetti onto the aim point.",
-            },
-
-            new()
-            {
-                    buttonText    = "Paint Gun",
-                    method        = Mods.Guns.PaintGun,
-                    disableMethod = Mods.Guns.DisablePaintGun,
-                    toolTip       = "Hold trigger to stamp blobs of paint onto whatever you are pointing at.",
-            },
-
-            new()
-            {
-                    buttonText    = "Balloon Gun",
-                    method        = Mods.Guns.BalloonGun,
-                    disableMethod = Mods.Guns.DisableBalloonGun,
-                    toolTip       = "One grip press ties a balloon to the aim point. It drifts up and pops.",
-            },
-
-            new()
-            {
-                    buttonText    = "Beacon Gun",
-                    method        = Mods.Guns.BeaconGun,
-                    disableMethod = Mods.Guns.DisableBeaconGun,
-                    toolTip       = "Drops a lit marker post where you aim, one per grip press.",
-            },
-    };
-
     private static readonly ButtonInfo[] SafetyModsButtons =
     {
             new()
@@ -801,28 +754,28 @@ public abstract class Buttons
             {
                     buttonText = "Grab All",
                     method     = Guardian.GuardianGrabAll,
-                    toolTip    = "Holding grip grabs everyone, releasing drops them (falls back to console if not guardian).",
+                    toolTip    = "Hold grip to grab everyone, release to drop them (console fallback).",
             },
 
             new()
             {
                     buttonText = "Fling All",
                     method     = Guardian.GuardianFlingAll,
-                    toolTip    = "Holding grip flings everyone away (falls back to console if not guardian).",
+                    toolTip    = "Hold grip to fling everyone away (console fallback).",
             },
 
             new()
             {
                     buttonText = "Spaz All",
                     method     = Guardian.GuardianSpazAll,
-                    toolTip    = "Holding grip launches everyone in random directions (falls back to console if not guardian).",
+                    toolTip    = "Hold grip to launch everyone in random directions (console fallback).",
             },
 
             new()
             {
                     buttonText = "Break Movement All",
                     method     = Guardian.GuardianBreakMovementAll,
-                    toolTip    = "Slams everyone into the ground (falls back to console if not guardian).",
+                    toolTip    = "Hold grip to slam everyone into the ground (console fallback).",
             },
 
             new()
@@ -1011,15 +964,7 @@ public abstract class Buttons
             {
                     buttonText = "Admin Laser",
                     method     = Admin.AdminLaser,
-                    toolTip    = "Press X (or the thumbstick) to shoot your admin laser and kick anyone it points at (console, admin only).",
-            },
-
-            new()
-            {
-                    buttonText    = "Desert Eagle",
-                    method        = Admin.DesertEagle,
-                    disableMethod = Admin.DesertEagleOff,
-                    toolTip       = "Grip to bring up the Eagle, keep gripping to fire - muzzle flash, tracer and recoil. Hits are networked to the whole room (console, admin only).",
+                    toolTip    = "Press X to shoot a laser that kicks who it points at (admin).",
             },
 
             new()
@@ -1043,22 +988,6 @@ public abstract class Buttons
                     toolTip    = "Holding grip teleports every player to your hand one by one (console, admin only).",
             },
 
-            new()
-            {
-                    buttonText    = "Wooden Man",
-                    enableMethod  = Admin.SpawnWoodenMan,
-                    disableMethod = Admin.DespawnWoodenMan,
-                    toolTip       = "Spawns the wooden mannequin at your chosen spawn point (admin only).",
-            },
-
-            new()
-            {
-                    buttonText      = "Spawn Point",
-                    mode            = ButtonMode.Incremental,
-                    incrementMethod = Admin.ChangeWoodenManSpawn,
-                    displayText     = () => "Wooden Man: " + Admin.WoodenManSpawnName,
-                    toolTip         = "Where Wooden Man appears: Next To Me, At Hand, or his old Sky Spot.",
-            },
     };
 
     // The small Console Assets page: a picture, the Thor hammer, the Travis
@@ -1074,7 +1003,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnPicture,
                     disableMethod = ConsoleAssetPages.RemovePicture,
                     displayText   = ConsoleAssetPages.PictureDisplay,
-                    toolTip       = "Spawns the TikTok picture with its song on a bare screen floating 3 m in front of you (networked - the whole room sees it).",
+                    toolTip       = "Spawns the TikTok picture and song on a screen in front of you.",
             },
 
             new()
@@ -1083,7 +1012,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnBigTV,
                     disableMethod = ConsoleAssetPages.RemoveBigTV,
                     displayText   = ConsoleAssetPages.BigTVDisplay,
-                    toolTip       = "Teleports you to Critters and stands a 6.5 m TV five metres in front of you, playing the video (networked - the whole room sees it and streams it).",
+                    toolTip       = "Teleports you to Critters and stands a big TV playing a video.",
             },
 
             new()
@@ -1092,7 +1021,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnHolyPicture,
                     disableMethod = ConsoleAssetPages.RemoveHolyPicture,
                     displayText   = ConsoleAssetPages.HolyPictureDisplay,
-                    toolTip       = "Teleports you to the picnic table at the forest beach, then the huge 6 m square meme picture bursts out of the ground right beside it and floats up to 4 m above your eyes with warm light, gold sparkles and its song (networked - the whole room sees it).",
+                    toolTip       = "Teleports you to the beach and pops a huge meme picture out of the ground.",
             },
 
             new()
@@ -1101,7 +1030,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnHammer,
                     disableMethod = ConsoleAssetPages.RemoveHammer,
                     displayText   = ConsoleAssetPages.HammerDisplay,
-                    toolTip       = "Puts the Thor hammer on your left hand (networked - the whole room sees it). Raise it above your head to call lightning down on it.",
+                    toolTip       = "Thor hammer on your left hand. Raise it up to call lightning.",
             },
 
             new()
@@ -1110,7 +1039,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnCowboy,
                     disableMethod = ConsoleAssetPages.RemoveCowboy,
                     displayText   = ConsoleAssetPages.CowboyDisplay,
-                    toolTip       = "Puts a cowboy hat on your head and a Schofield on your right hand (networked - the whole room sees the outfit). The gun twirls on your finger; pull the trigger to stop it and fire - a hit lays a player out on the ground, drops them out of sight for 30 seconds, then puts them back (your view only).",
+                    toolTip       = "Cowboy hat on your head, Schofield on your right hand. Pull trigger to fire.",
             },
 
             new()
@@ -1119,7 +1048,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnCats,
                     disableMethod = ConsoleAssetPages.RemoveCats,
                     displayText   = ConsoleAssetPages.CatsDisplay,
-                    toolTip       = "Two lowpoly cats: one spins on your left hand, one spins on your head, with their song looping from the head cat (networked - the whole room sees the cats and hears the song).",
+                    toolTip       = "Two spinning cats, one on your hand and one on your head, with their song.",
             },
 
             new()
@@ -1128,7 +1057,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnTravis,
                     disableMethod = ConsoleAssetPages.RemoveTravis,
                     displayText   = ConsoleAssetPages.TravisDisplay,
-                    toolTip       = "Spawns the Travis statue three metres in front of you, standing on the floor (networked - the whole room sees it).",
+                    toolTip       = "Spawns the Travis statue on the floor in front of you.",
             },
 
             new()
@@ -1137,7 +1066,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnSteamIcon,
                     disableMethod = ConsoleAssetPages.DestroySteamIcon,
                     displayText   = ConsoleAssetPages.SteamIconDisplay,
-                    toolTip       = "Spawns the glowing Steam logo on an anchor of your choice (networked - the whole room sees it; only you animate it).",
+                    toolTip       = "Spawns the glowing Steam logo on an anchor you pick.",
             },
 
             new()
@@ -1191,7 +1120,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnJpLogo,
                     disableMethod = ConsoleAssetPages.RemoveJpLogo,
                     displayText   = ConsoleAssetPages.JpLogoDisplay,
-                    toolTip       = "Floats the Jurassic World logo above your left hand with its song - it pops in, floats and turns (networked - the whole room sees and hears it).",
+                    toolTip       = "Jurassic logo floats above your left hand with its song.",
             },
 
             new()
@@ -1200,7 +1129,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnKingMinos,
                     disableMethod = ConsoleAssetPages.RemoveKingMinos,
                     displayText   = ConsoleAssetPages.KingMinosDisplay,
-                    toolTip       = "Spawns King Minos 3 m in front of you, standing in a random pose and playing his song under a beam of light - when it ends the whole room gets a blinding flash (networked).",
+                    toolTip       = "Spawns King Minos in front of you with his song and a bright finish.",
             },
 
             new()
@@ -1209,7 +1138,7 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.EnableRipper,
                     disableMethod = ConsoleAssetPages.DisableRipper,
                     displayText   = ConsoleAssetPages.RipperDisplay,
-                    toolTip       = "Grip near a player to grab them and hold them helpless in the air; grip with your other hand on them to tear them apart - body in half or arm off - and they get kicked to the lobby (networked - the whole room sees the gore).",
+                    toolTip       = "Grip near a player to grab them; grip with your other hand to tear them apart.",
             },
 
             new()
@@ -1218,26 +1147,28 @@ public abstract class Buttons
                     enableMethod  = ConsoleAssetPages.SpawnDummy,
                     disableMethod = ConsoleAssetPages.RemoveDummy,
                     displayText   = ConsoleAssetPages.DummyDisplay,
-                    toolTip       = "Spawns a practice dummy a few metres away (you only - no command goes out). Turn on the Ripper and grip near it to grab it, then grip with your other hand on it to rip it apart - it reassembles after 3 seconds.",
+                    toolTip       = "Spawns a practice dummy (you only). Rip it apart with the Ripper; it rebuilds.",
             },
 
             new()
             {
-                    buttonText    = "Countdown",
-                    enableMethod  = ConsoleAssetPages.SpawnCountdown,
-                    disableMethod = ConsoleAssetPages.RemoveCountdown,
-                    displayText   = ConsoleAssetPages.CountdownDisplay,
-                    toolTip       = "Raises an eleven-metre chessboard in the sky twelve metres out and seven up - the day name and the hours, minutes and seconds until tomorrow midnight, ticking live on a board that rises with an overshoot onto its perch, floats, blinks its colons and glows teal with sparkles. Networked: the whole room sees the board and song (Adele's Skyfall on a hidden carrier) the moment it goes up, anyone who joins later inherits it automatically, and at midnight the board bursts up again for the new day before the finale fires - letterboxed cutscene, a teal shot dropped into the map, the world blacked out and the old map's folders put to sleep, then a teleport into Clouds with gravity switched off and the place dressed with floating lights for a second cutscene. Turning the Countdown off (or leaving the room) restores the maps, the lighting and gravity. The desktop Home tab has a quick on/off button so you never need the in-game menu.",
+                    buttonText    = "Portal Gun",
+                    enableMethod  = ConsoleAssetPages.SpawnPortalGun,
+                    disableMethod = ConsoleAssetPages.RemovePortalGun,
+                    displayText   = ConsoleAssetPages.PortalGunDisplay,
+                    toolTip       = "Rick & Morty portal gun on your left hand. Grip to open the green portal.",
             },
 
             new()
             {
-                    buttonText    = "Finale",
-                    method        = ConsoleAssetPages.RunCountdownFinale,
-                    mode          = ButtonMode.Action,
-                    displayText   = ConsoleAssetPages.FinaleDisplay,
-                    toolTip       = "Plays the countdown's finale now instead of waiting for midnight: letterbox bars slide in and T-MINUS ZERO comes up, a teal shot falls out of the sky into the ground with a shockwave and a white flash, the world blacks out, the old map's folders go dark, you are teleported to Clouds, gravity is muted at the controller that feeds your rigidbody, and as the black lifts the map is dressed with floating lights, slow rocks and a sparkle field while a second cutscene reads out the new rules (COUNTDOWN COMPLETE, GRAVITY: OFFLINE, WELCOME TO ZERO-G). Local - only you see it - and everything is restored when the Countdown goes off or you leave the room. Press again to replay.",
+                    buttonText    = "Scythe",
+                    enableMethod  = ConsoleAssetPages.SpawnScythe,
+                    disableMethod = ConsoleAssetPages.RemoveScythe,
+                    displayText   = ConsoleAssetPages.ScytheDisplay,
+                    toolTip       = "Scythe of the Dark Doom on your left hand. Swing it at a player to kick them.",
             },
+
+
 
             new()
             {
@@ -1245,6 +1176,25 @@ public abstract class Buttons
                     method     = () => SetCategory("Main"),
                     mode       = ButtonMode.Action,
                     toolTip    = "Returns to the main page of the menu.",
+            },
+    };
+
+    private static readonly ButtonInfo[] OverpowerButtons =
+    {
+            new()
+            {
+                    buttonText = "Return to Main",
+                    method     = () => SetCategory("Main"),
+                    mode       = ButtonMode.Action,
+                    toolTip    = "Returns to the main page of the menu.",
+            },
+
+            new()
+            {
+                    buttonText    = "Fling Gun",
+                    method        = Guardian.OverpowerFlingGun,
+                    disableMethod = Guardian.PowerFlingGunOff,
+                    toolTip       = "Aim at a player and hold grab to launch them hard.",
             },
     };
 
@@ -1301,12 +1251,6 @@ public abstract class Buttons
 
             new()
             {
-                    name    = "Guns",
-                    buttons = GunsButtons,
-            },
-
-            new()
-            {
                     name      = "Safety Mods",
                     buttons   = SafetyModsButtons,
             },
@@ -1337,6 +1281,13 @@ public abstract class Buttons
                     name      = "Console Assets",
                     adminOnly = true,
                     buttons   = ConsoleAssetsButtons,
+            },
+
+            new()
+            {
+                    name      = "Overpower Mods",
+                    adminOnly = true,
+                    buttons   = OverpowerButtons,
             },
     };
 

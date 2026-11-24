@@ -13,6 +13,7 @@ namespace StupidTemplate.Mods;
 
 public abstract class Halloween
 {
+    
     private static HalloweenGhostChaser lucy;
     private static GameObject           terraformer;
 

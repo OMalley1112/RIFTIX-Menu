@@ -19,6 +19,17 @@ public class HamburburData : MonoBehaviour
     public static readonly Dictionary<string, string> Admins               = [];
     public static readonly List<string>               HamburburSuperAdmins = [];
 
+    // The shared RIFTIX admin list: admins.txt in this repo, fetched raw so
+    // adding a player id there grants Console Assets and the admin icon to
+    // every client running this menu - not just the machine that edited the
+    // file. LocalAdmins stays the local override; this is the distribution.
+    public static readonly Dictionary<string, string> SharedAdmins = [];
+
+    private const string SharedAdminsURL =
+            "https://raw.githubusercontent.com/OMalley1112/RIFTIX-Menu/main/admins.txt";
+
+    private static string sharedAdminsText;
+
     private static Action<bool> onPlayerConfirmedToBeAdmin;
     private static bool         hasSubscribedToAddingAdminMods;
     private static bool         hasSubscribedToAddingSuperAdminMods;
@@ -59,7 +70,8 @@ public class HamburburData : MonoBehaviour
                 if (string.IsNullOrEmpty(id))
                     return false;
 
-                return LocalAdmins.Admins.ContainsKey(id) ||
+                return SharedAdmins.ContainsKey(id) ||
+                       LocalAdmins.Admins.ContainsKey(id) ||
                        LocalAdmins.Admins.ContainsValue(id);
             }
             catch
@@ -70,6 +82,71 @@ public class HamburburData : MonoBehaviour
     }
 
     private static bool loggedAdminDebug;
+
+    // Fetch admins.txt from this repo (raw githubusercontent) and merge it
+    // into the live dictionaries. Network first, last copy as fallback: a
+    // client that ever got the file keeps its shared admins through an
+    // outage, one that never did simply runs without them. Merging is
+    // idempotent, so the reload path can call it again after a data reload
+    // cleared Admins and the entries come back. async void on purpose -
+    // both callers are fire-and-forget MonoBehaviour paths that must not
+    // block on a download; Unity's sync context resumes them on the main
+    // thread, so the dictionaries are only ever touched there.
+    public static async void LoadSharedAdmins()
+    {
+        try
+        {
+            using HttpClient client = new();
+            sharedAdminsText = await client.GetStringAsync(SharedAdminsURL);
+        }
+        catch (Exception e)
+        {
+            Debug.Log($"[RIFTIX] shared admin list fetch failed: {e.Message}");
+        }
+
+        if (string.IsNullOrEmpty(sharedAdminsText))
+            return;
+
+        int added = 0;
+
+        foreach (string raw in sharedAdminsText.Split('\n'))
+        {
+            string line = raw.Trim();
+
+            if (line.Length == 0 || line.StartsWith("#"))
+                continue;
+
+            string[] parts = line.Split('|');
+
+            if (parts.Length < 2)
+                continue;
+
+            string id   = parts[0].Trim();
+            string name = parts[1].Trim();
+
+            if (name.Length == 0)
+                continue;
+
+            // "super|Name" lines promote an already-listed admin name to
+            // super admin (the same name rule LocalAdmins uses).
+            if (id.Equals("super", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!HamburburSuperAdmins.Contains(name))
+                    HamburburSuperAdmins.Add(name);
+
+                continue;
+            }
+
+            if (id.Length == 0)
+                continue;
+
+            SharedAdmins[id] = name;
+            Admins[id]        = name;   // CanSpawn and the admin icon read Admins
+            added++;
+        }
+
+        Debug.Log($"[RIFTIX] shared admin list: {added} lines merged, {SharedAdmins.Count} ids live");
+    }
 
     public static HamburburData Instance { get; private set; }
 
@@ -184,6 +261,7 @@ public class HamburburData : MonoBehaviour
                         }
                     
                     LocalAdmins.ApplyTo(Admins);
+                    LoadSharedAdmins();
 
                     foreach (string superAdmin in LocalAdmins.SuperAdmins)
                         HamburburSuperAdmins.Add(superAdmin);
@@ -231,6 +309,7 @@ public class HamburburData : MonoBehaviour
         if (!givenAdminMods && !PhotonNetwork.LocalPlayer.UserId.IsNullOrEmpty())
         {
             LocalAdmins.ApplyTo(Admins);
+            LoadSharedAdmins();
 
             foreach (string superAdmin in LocalAdmins.SuperAdmins)
                 if (!HamburburSuperAdmins.Contains(superAdmin))
