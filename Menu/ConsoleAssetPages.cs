@@ -2956,6 +2956,8 @@ public abstract class ConsoleAssetPages
 
         NotifiLib.SendNotification("Cowboy set on.");
 
+        UnityEngine.Debug.Log($"[RIFTIX] Cowboy: spawn requested hat={cowboyHatAssetId} gun={cowboyGunAssetId}");
+
         // Both pieces live in one bundle, so they are spawned in turn: two
         // asset-spawns at once make Console download the same bytes twice
         // and the second LoadFromMemory is rejected ("another AssetBundle
@@ -2979,6 +2981,11 @@ public abstract class ConsoleAssetPages
 
         while (!Alive(cowboyHatAssetId) && Time.time < giveUp)
             yield return null;
+
+        // The one line that answers "why can't I see it": if the hat
+        // never came up, the log will say so (Console logs the download
+        // and load failures on its side of this).
+        UnityEngine.Debug.Log($"[RIFTIX] Cowboy: hat {(Alive(cowboyHatAssetId) ? "spawned" : "MISSING after 10s")} - starting gun");
 
         SendCowboyAnchor(cowboyGunAssetId, CowboyGunAnchor, CowboyGunAsset, Vector3.zero);
     }
@@ -3011,12 +3018,20 @@ public abstract class ConsoleAssetPages
             yield return null;
 
         if (!Alive(assetId))
+        {
+            UnityEngine.Debug.Log("[RIFTIX] Cowboy: hat never appeared - no fit");
+
             yield break;
+        }
 
         VRRig localRig = VRRig.LocalRig;
 
         if (localRig == null || localRig.headMesh == null)
+        {
+            UnityEngine.Debug.Log("[RIFTIX] Cowboy: no local head mesh - no fit");
+
             yield break;
+        }
 
         Transform headMesh = localRig.headMesh.transform;
 
@@ -3032,9 +3047,12 @@ public abstract class ConsoleAssetPages
         // Centre of the hat a little under the top of the head's bounds, so
         // the crown sinks in a touch and the brim clears the brow.
         Vector3 world = new(headMesh.position.x, headTop + (hatHalf * 0.75f), headMesh.position.z);
+        Vector3 local = headMesh.InverseTransformPoint(world);
 
-        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, assetId,
-                headMesh.InverseTransformPoint(world));
+        UnityEngine.Debug.Log($"[RIFTIX] Cowboy: hat fitted headTop={headTop:F3} " +
+                              $"hatHalf={hatHalf:F3} local={local}");
+
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, assetId, local);
     }
 
     // Anyone still downloading the bundle when the spawn went out would drop
