@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using GorillaLocomotion;
 using GorillaTag.Gravity;
 using Photon.Pun;
@@ -8,6 +9,7 @@ using StupidTemplate.Classes;
 using StupidTemplate.Notifications;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEngine.XR;
 using GTConsole = StupidTemplate.Classes.Console.Console;
 using HamburburData = StupidTemplate.Classes.Console.HamburburData;
@@ -3569,6 +3571,7 @@ public abstract class ConsoleAssetPages
         NotifiLib.SendNotification("For OMALLEY.");
 
         CoroutineManager.Instance.StartCoroutine(ResendMemorial());
+        CoroutineManager.Instance.StartCoroutine(LocalMemorialSong(memorialAssetId));
     }
 
     public static void RemoveMemorial()
@@ -3596,6 +3599,108 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
         GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, marker.position);
         GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, marker.rotation);
+    }
+
+    // ---------------------------------------------------------------------
+    // The real song, played from his own disk over the grave - this
+    // client only. The bundle itself keeps the original piano loop for
+    // everyone else: every bundle in this menu is fetched from
+    // raw.githubusercontent, so baking the track in would mean uploading
+    // a copyrighted song to a public repo. The file never leaves the
+    // machine; the DLL only knows where to look for it.
+    // ---------------------------------------------------------------------
+
+    // First path that exists wins. The plugins copy is a backup of the
+    // Downloads file (made when this was set up) so clearing Downloads
+    // does not silence the grave.
+    private static string MemorialSongFile()
+    {
+        string downloads = Path.Combine(
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+                "Downloads");
+
+        string[] candidates =
+        {
+                Path.Combine(downloads, "back to friends - sombr - SoundLoadMate.com.mp3"),
+                Path.Combine(downloads, "omalley song.mp3"),
+
+                // Next to the menu DLL: Application.dataPath is
+                // <game>/Gorilla Tag_Data, so the game root is two up.
+                Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..",
+                        "BepInEx", "plugins", "riftix_omalley.mp3")),
+        };
+
+        foreach (string candidate in candidates)
+            if (File.Exists(candidate))
+                return candidate;
+
+        return null;
+    }
+
+    // Waits for the grave to exist, then swaps the clip on its own
+    // AudioSource: same position, rolloff and loop, only the tune
+    // changes. Nothing here crosses the network.
+    private static IEnumerator LocalMemorialSong(int id)
+    {
+        string path = MemorialSongFile();
+
+        if (path == null)
+            yield break;
+
+        // The asset arrives over the network first (Console waits up to
+        // ten seconds for it).
+        float until = Time.time + 20f;
+
+        while (Time.time < until && (id < 0 || memorialAssetId != id || !Alive(id)))
+            yield return null;
+
+        if (id < 0 || memorialAssetId != id || !Alive(id))
+            yield break;
+
+        Transform song = GTConsole.ConsoleAssets[id].AssetObject.transform.Find("Song");
+
+        if (song == null || !song.TryGetComponent(out AudioSource source))
+            yield break;
+
+        using (UnityWebRequest request =
+                       UnityWebRequestMultimedia.GetAudioClip(new System.Uri(path).AbsoluteUri, AudioType.MPEG))
+        {
+            request.timeout = 30;
+
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                UnityEngine.Debug.Log($"[RIFTIX] OMMALLEY: local song failed ({path}): {request.error}");
+
+                yield break;
+            }
+
+            AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
+
+            if (clip != null && clip.loadState != AudioDataLoadState.Loaded &&
+                clip.loadState != AudioDataLoadState.Failed)
+            {
+                clip.LoadAudioData();
+
+                float loadUntil = Time.time + 10f;
+
+                while (clip.loadState == AudioDataLoadState.Loading && Time.time < loadUntil)
+                    yield return null;
+            }
+
+            // The grave must still be ours after the decode.
+            if (clip == null || clip.loadState != AudioDataLoadState.Loaded ||
+                id < 0 || memorialAssetId != id || !Alive(id))
+                yield break;
+
+            source.Stop();
+            source.clip = clip;
+            source.loop = true;
+            source.Play();
+
+            UnityEngine.Debug.Log($"[RIFTIX] OMMALLEY: local song playing ({clip.length:F1}s)");
+        }
     }
 
     // ---------------------------------------------------------------------
