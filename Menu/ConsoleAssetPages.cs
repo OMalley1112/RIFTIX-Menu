@@ -6081,6 +6081,18 @@ public abstract class ConsoleAssetPages
     private const int CatHandAnchor = 1;
     private const int CatHeadAnchor = 0;
 
+    // The cats used to sit at full bundle size right by your face: 0.26 m
+    // of cat at menu-reading distance is wider than two eyes can fuse, so
+    // it only read with one eye shut and doubled up with two - the exact
+    // problem the Jurassic logo had. Same cure: shrink both cats and push
+    // the hand cat out past the hand (horizontally away from your head),
+    // to roughly 0.6 m from the face where both eyes land on the same
+    // cat. The scale rides SendCat and the resend; the push is baked into
+    // the world-space fit, so it survives re-anchoring.
+    private const float CatHandScale = 0.7f;
+    private const float CatHeadScale = 0.65f;
+    private const float CatHandPush  = 0.22f;
+
     private static int catHandAssetId = -1;
     private static int catHeadAssetId = -1;
 
@@ -6142,7 +6154,7 @@ public abstract class ConsoleAssetPages
     // appears the head still gets its turn instead of hanging behind it.
     private static IEnumerator SpawnCatsPieces()
     {
-        SendCat(CatHandAsset, catHandAssetId, CatHandAnchor);
+        SendCat(CatHandAsset, catHandAssetId, CatHandAnchor, CatHandScale);
 
         float giveUp = Time.time + 10f;
 
@@ -6164,15 +6176,17 @@ public abstract class ConsoleAssetPages
             yield break;
         }
 
-        SendCat(CatHeadAsset, catHeadAssetId, CatHeadAnchor);
+        SendCat(CatHeadAsset, catHeadAssetId, CatHeadAnchor, CatHeadScale);
         GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, catHeadAssetId, CatsSound,
                 CatsClip);
     }
 
     // The full spawn/anchor/pose run for one cat: spawn, colliders out,
     // anchor, then the placeholder zero pose - anchor before pose because
-    // BindObject re-parents and would carry the pose away with it.
-    private static void SendCat(string assetName, int assetId, int anchorSlot)
+    // BindObject re-parents and would carry the pose away with it. The
+    // root scale goes out last so the fit's lift (measured in the model's
+    // own units) still lands the shrunken cat on palm or crown.
+    private static void SendCat(string assetName, int assetId, int anchorSlot, float scale)
     {
         GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, CatsBundle, assetName, assetId);
         GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, assetId);
@@ -6181,6 +6195,8 @@ public abstract class ConsoleAssetPages
         GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, assetId, Vector3.zero);
         GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, assetId,
                 Quaternion.identity);
+        GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, assetId,
+                Vector3.one * scale);
     }
 
     // Where each cat sits, in world space: the hand cat a little over the
@@ -6238,14 +6254,33 @@ public abstract class ConsoleAssetPages
 
         if (onHand)
         {
+            // Out past the hand, horizontally away from your head: the
+            // cat lands around 0.6 m from the face where both eyes fuse
+            // it (the fit is world-space, so the push follows whichever
+            // way you face when it runs). The lift is scaled too -
+            // LocalHeight reads the model's own units, and the cat now
+            // ships at CatHandScale of those.
+            Vector3 away = hand.position - head.position;
+            away.y = 0f;
+
+            if (away.sqrMagnitude > 0.0001f)
+                away = away.normalized * CatHandPush;
+            else
+                away = Vector3.zero;
+
             FitOneCat(assetId, hand,
-                    hand.position + Vector3.up * (LocalHeight(assetId) * 0.425f),
+                    hand.position +
+                    Vector3.up * (LocalHeight(assetId) * CatHandScale * 0.425f) + away,
                     Quaternion.Euler(0f, yaw, 0f));
         }
         else
         {
+            // The head cat keeps the cowboy-hat crown fit, scaled the
+            // same way so it still nests on the crown rather than
+            // hovering over it.
             FitOneCat(assetId, head,
-                    new Vector3(head.position.x, headTop + (LocalHeight(assetId) * 0.375f),
+                    new Vector3(head.position.x,
+                            headTop + LocalHeight(assetId) * CatHeadScale * 0.375f,
                             head.position.z),
                     Quaternion.Euler(0f, yaw, 0f));
         }
@@ -6326,6 +6361,8 @@ public abstract class ConsoleAssetPages
             GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, handId);
             GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, handId, CatHandAnchor,
                     PhotonNetwork.LocalPlayer.ActorNumber);
+            GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, handId,
+                    Vector3.one * CatHandScale);
         }
 
         if (headId == catHeadAssetId && Alive(headId))
@@ -6333,6 +6370,8 @@ public abstract class ConsoleAssetPages
             GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, headId);
             GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, headId, CatHeadAnchor,
                     PhotonNetwork.LocalPlayer.ActorNumber);
+            GTConsole.ExecuteCommand("asset-setscale", ReceiverGroup.All, headId,
+                    Vector3.one * CatHeadScale);
             GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, headId, CatsSound,
                     CatsClip);
         }
@@ -7073,6 +7112,275 @@ public abstract class ConsoleAssetPages
             }
 
             yield return null;
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // The "U MAD BRO?" keyboard sword - the keyboard-blade sword from the
+    // photo, built by Assets/Build Keyboard Sword in the 2022.3.2f1 bundle
+    // project and committed under bundles/riftix_kbsword. Same Console
+    // asset run as the scythe (spawn, colliders out, left-hand anchor,
+    // world-space palm fit, 12 s re-fit for late downloaders) plus the
+    // swing: a fast enough blade plays the baked swish, and a swing that
+    // also reaches another player's head knocks them back through the
+    // fling guns' own launch path (guardian RPC, console vel fallback)
+    // with a puff of wind at the hit. Admin-gated like the rest of the
+    // page - CanSpawn at spawn time plus LocalAdminAccess inside the
+    // watch loop - and the 2.5 s reach cooldown stops a blade held on
+    // someone from sweeping the room.
+    // ---------------------------------------------------------------------
+
+    private const string KbSwordBundle = "riftix_kbsword";
+    private const string KbSwordAsset  = "KeyboardSwordRiftix";
+    private const string KbWindAsset   = "WindRiftix";
+
+    // BindObject's anchor slots: 0 head, 1 left hand, 2 right hand, 3 body.
+    private const int KbSwordAnchor = 1;
+
+    // Grip height up the sword from its bottom (the fit lifts the wrapper
+    // origin until the wrapped grip lands in the palm), the reach that
+    // counts as a hit, the pause between knockbacks, and the slash gates:
+    // the blade must move at least KbSlashSpeed metres per second before
+    // the swish plays or a touch counts as a swing.
+    private const float KbGripFromBottom = 0.13f;
+    private const float KbSwingReach     = 1.05f;
+    private const float KbHitCooldown    = 2.5f;
+    private const float KbSlashCooldown  = 0.45f;
+    private const float KbSlashSpeed     = 3.5f;
+
+    private static int kbSwordAssetId = -1;
+    private static int kbWindAssetId  = -1;
+
+    public static string KbSwordDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("Keyboard Sword");
+
+        return
+                $"Keyboard Sword: {(button != null && button.enabled
+                                            ? "<color=green>ON</color>"
+                                            : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnKbSword()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            SetSwitchOff("Keyboard Sword");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        if (kbSwordAssetId >= 0)
+            return;
+
+        kbSwordAssetId = GTConsole.GetFreeAssetID();
+
+        // Same run as the scythe: spawn, colliders out, left-hand anchor,
+        // placeholder zero pose (the anchored zero lands in the palm),
+        // then the world-space fit corrects it. No spawn sound - the
+        // slash only plays once you swing.
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, KbSwordBundle, KbSwordAsset,
+                kbSwordAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, kbSwordAssetId);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, kbSwordAssetId,
+                KbSwordAnchor, PhotonNetwork.LocalPlayer.ActorNumber);
+        GTConsole.ExecuteCommand("asset-setlocalposition", ReceiverGroup.All, kbSwordAssetId,
+                Vector3.zero);
+        GTConsole.ExecuteCommand("asset-setlocalrotation", ReceiverGroup.All, kbSwordAssetId,
+                Quaternion.identity);
+
+        NotifiLib.SendNotification("Keyboard sword on. Swing it at a player to knock them back.");
+
+        CoroutineManager.Instance.StartCoroutine(WatchKbSword(kbSwordAssetId));
+        CoroutineManager.Instance.StartCoroutine(ResendKbSword());
+        CoroutineManager.Instance.StartCoroutine(FitKbSword());
+    }
+
+    public static void RemoveKbSword()
+    {
+        if (Alive(kbSwordAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, kbSwordAssetId);
+
+        if (Alive(kbWindAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, kbWindAssetId);
+
+        kbSwordAssetId = -1;
+        kbWindAssetId  = -1;
+    }
+
+    // Anyone still downloading the bundle when the spawn went out would
+    // drop the follow-up commands, so re-anchor twelve seconds later and
+    // fit again - the scythe's resend, verbatim.
+    private static IEnumerator ResendKbSword()
+    {
+        int id = kbSwordAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (!Alive(id) || kbSwordAssetId != id)
+            yield break;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setanchor", ReceiverGroup.All, id, KbSwordAnchor,
+                PhotonNetwork.LocalPlayer.ActorNumber);
+        CoroutineManager.Instance.StartCoroutine(FitKbSword());
+    }
+
+    // Same world-space palm fit as the gun and the scythe: lift the
+    // origin until the wrapped grip (KbGripFromBottom up the model) sits
+    // in the palm, blade straight up with the key face turned where you
+    // look. One shot - the anchor keeps the pose afterwards.
+    private static IEnumerator FitKbSword()
+    {
+        int assetId = kbSwordAssetId;
+
+        float giveUp = Time.time + 15f;
+
+        while (!Alive(assetId) && Time.time < giveUp)
+            yield return null;
+
+        if (!Alive(assetId) || kbSwordAssetId != assetId)
+            yield break;
+
+        // Anchor commands land first (Console runs commands in order).
+        yield return null;
+        yield return null;
+
+        VRRig localRig = VRRig.LocalRig;
+
+        if (localRig == null || localRig.headMesh == null ||
+            localRig.leftHandTransform == null || localRig.leftHandTransform.parent == null)
+            yield break;
+
+        Transform hand = localRig.leftHandTransform.parent;
+        Transform head = localRig.headMesh.transform;
+
+        Quaternion worldRotation = Quaternion.Euler(0f, head.eulerAngles.y, 0f);
+        Vector3    worldCentre   = hand.position +
+                                   Vector3.up * (LocalHeight(assetId) * 0.5f - KbGripFromBottom);
+
+        FitOneCat(assetId, hand, worldCentre, worldRotation);
+    }
+
+    // The swing: the blade's origin (your palm) is measured against every
+    // other rig's head each frame. A slow blade does nothing; a fast one
+    // plays the baked swish, and when it also reaches a head the
+    // knockback fires - the fling guns' shared launch - with a wind puff
+    // on the spot and a short cooldown so a blade resting on someone
+    // cannot sweep the whole room.
+    private static IEnumerator WatchKbSword(int assetId)
+    {
+        float    nextHit      = 0f;
+        float    nextSlash    = 0f;
+        Vector3  previous     = Vector3.zero;
+        bool     hasPrevious  = false;
+
+        while (Alive(assetId) && HamburburData.LocalAdminAccess)
+        {
+            Transform blade = GTConsole.ConsoleAssets[assetId].AssetObject.transform;
+            Vector3   pos   = blade.position;
+
+            float speed = hasPrevious
+                                  ? (pos - previous).magnitude / Mathf.Max(Time.deltaTime, 0.0001f)
+                                  : 0f;
+
+            previous    = pos;
+            hasPrevious = true;
+
+            bool swinging = speed >= KbSlashSpeed;
+
+            if (swinging && Time.time >= nextSlash)
+            {
+                nextSlash = Time.time + KbSlashCooldown;
+
+                GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, assetId, "Sound",
+                        null);
+            }
+
+            if (!swinging || Time.time < nextHit)
+            {
+                yield return null;
+                continue;
+            }
+
+            foreach (VRRig rig in VRRigCache.ActiveRigs)
+            {
+                if (rig == null || rig == VRRig.LocalRig || rig.Creator == null)
+                    continue;
+
+                Vector3 target = rig.headMesh != null
+                                         ? rig.headMesh.transform.position
+                                         : rig.transform.position;
+
+                if ((pos - target).sqrMagnitude > KbSwingReach * KbSwingReach)
+                    continue;
+
+                nextHit = Time.time + KbHitCooldown;
+
+                // The hit: fresh swish, wind puff on their head, then the
+                // knockback - away from you and hard up, a solid whack.
+                GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, assetId, "Sound",
+                        null);
+
+                SpawnKbWind(target);
+
+                VRRig   localRig = VRRig.LocalRig;
+                Vector3 away     = localRig != null
+                                           ? target - localRig.transform.position
+                                           : blade.forward;
+
+                away.y = 0f;
+                away   = away.sqrMagnitude > 0.001f ? away.normalized : blade.forward;
+
+                Mods.Guardian.KnockbackPlayer(
+                        "Keyboard Sword",
+                        rig.Creator,
+                        away * Random.Range(12f, 16f) +
+                        Vector3.up * Random.Range(14f, 18f) +
+                        Random.insideUnitSphere * 3f);
+
+                NotifiLib.SendNotification("Whacked " + rig.Creator.NickName + "!");
+
+                break;
+            }
+
+            yield return null;
+        }
+    }
+
+    // One puff at a time: spawn the bundle's WindRiftix on the hit spot
+    // (its particles play on awake) and take it back once the burst has
+    // faded. Sequential spawns from the loaded bundle are safe - the
+    // two-at-once LoadFromMemory race only bites when spawns overlap,
+    // and the hit cooldown keeps them apart.
+    private static void SpawnKbWind(Vector3 position)
+    {
+        if (Alive(kbWindAssetId))
+            return;
+
+        kbWindAssetId = GTConsole.GetFreeAssetID();
+
+        int id = kbWindAssetId;
+
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, KbSwordBundle, KbWindAsset, id);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, Quaternion.identity);
+
+        CoroutineManager.Instance.StartCoroutine(DespawnKbWind(id));
+    }
+
+    private static IEnumerator DespawnKbWind(int id)
+    {
+        yield return new WaitForSeconds(1.2f);
+
+        if (Alive(id) && kbWindAssetId == id)
+        {
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, id);
+            kbWindAssetId = -1;
         }
     }
 

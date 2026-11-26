@@ -1168,6 +1168,15 @@ public abstract class Buttons
                     toolTip       = "Scythe of the Dark Doom on your left hand. Swing it at a player to kick them.",
             },
 
+            new()
+            {
+                    buttonText    = "Keyboard Sword",
+                    enableMethod  = ConsoleAssetPages.SpawnKbSword,
+                    disableMethod = ConsoleAssetPages.RemoveKbSword,
+                    displayText   = ConsoleAssetPages.KbSwordDisplay,
+                    toolTip       = "U MAD BRO keyboard sword on your left hand. Swing it at a player to knock them back.",
+            },
+
 
 
             new()

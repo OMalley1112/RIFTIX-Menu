@@ -553,6 +553,19 @@ public abstract class Guardian
                 Vector3.up * Random.Range(26f, 36f) +
                 Random.insideUnitSphere * 5f;
 
+        KnockbackPlayer("Overpower Fling Gun", target, launch);
+    }
+
+    // Shared launch for anything that whacks a player - the fling guns and
+    // the melee weapons all come through here: the guardian RPC when this
+    // client runs guardian in the room, Console's "vel" command otherwise,
+    // so every caller inherits the same rules and fallback notice (`what`
+    // names the caller).
+    public static void KnockbackPlayer(string what, NetPlayer target, Vector3 launch)
+    {
+        if (target == null || !PhotonNetwork.InRoom)
+            return;
+
         var activeHandler = GorillaGameModes.GameMode.ActiveNetworkHandler;
 
         if (IsGuardianLocal() &&
@@ -570,7 +583,7 @@ public abstract class Guardian
             return;
         }
 
-        NotifyFallback("Overpower Fling Gun");
+        NotifyFallback(what);
 
         ConsoleFlingPlayer(target, launch, 0.5f);
     }
@@ -672,3 +685,7 @@ public abstract class Guardian
         skinRenderer.material = skin;
     }
 }
+
+
+
+   
