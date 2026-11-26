@@ -1177,7 +1177,14 @@ public abstract class Buttons
                     toolTip       = "U MAD BRO keyboard sword on your left hand. Swing it at a player to knock them back.",
             },
 
-
+            new()
+            {
+                    buttonText    = "OMALLEY",
+                    enableMethod  = ConsoleAssetPages.SpawnMemorial,
+                    disableMethod = ConsoleAssetPages.RemoveMemorial,
+                    displayText   = ConsoleAssetPages.MemorialDisplay,
+                    toolTip       = "A grave for OMALLEY: his name, your words, a cat beside it and a sad song.",
+            },
 
             new()
             {

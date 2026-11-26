@@ -3474,6 +3474,131 @@ public abstract class ConsoleAssetPages
     }
 
     // ---------------------------------------------------------------------
+    // OMALLEY: the memorial for the user's cat. A grave marker with his
+    // name and the user's own words baked on the plaque, a grey cat
+    // sitting beside it looking at you, a candle, and a sad piano loop
+    // written from scratch (the song he asked for is copyrighted, so an
+    // original tune stands in). Placement is the Travis statue's: three
+    // metres ahead, feet on the floor, turned to face you.
+    // ---------------------------------------------------------------------
+
+    private const string MemorialBundle = "riftix_memorial";
+    private const string MemorialAsset  = "MemorialRiftix";
+    private const string MemorialSound  = "Song";
+
+    private static int memorialAssetId = -1;
+
+    public static string MemorialDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("OMALLEY");
+
+        return
+                $"OMALLEY: {(button != null && button.enabled
+                                     ? "<color=green>ON</color>"
+                                     : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnMemorial()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("OMALLEY");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("OMALLEY");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            return;
+        }
+
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+
+        // Three metres ahead, standing on whatever is under that spot.
+        Vector3 position = head.position + forward * SpawnDistance;
+
+        if (Physics.Raycast(head.position + (forward * SpawnDistance), Vector3.down, out RaycastHit hit, 12f))
+            position.y = hit.point.y;
+        else
+            position.y = head.position.y - 1f;
+
+        Vector3 toPlayer = head.position - position;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            toPlayer = -forward;
+
+        toPlayer.Normalize();
+
+        Quaternion rotation = Quaternion.LookRotation(toPlayer);
+
+        memorialAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to exist
+        // (Console gives each one up to ten seconds). The sound rides the
+        // spawn: baked AudioSource plays on awake on every client, with
+        // asset-playsound as the backstop (Console skips a source that is
+        // already playing, so it never restarts the loop).
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, MemorialBundle, MemorialAsset, memorialAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, memorialAssetId);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, memorialAssetId, position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, memorialAssetId, rotation);
+        GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, memorialAssetId, MemorialSound, null);
+
+        NotifiLib.SendNotification("For OMALLEY.");
+
+        CoroutineManager.Instance.StartCoroutine(ResendMemorial());
+    }
+
+    public static void RemoveMemorial()
+    {
+        if (Alive(memorialAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, memorialAssetId);
+
+        memorialAssetId = -1;
+    }
+
+    // Re-send the placement at twelve seconds for anyone still pulling
+    // the bundle. The sound is left out: the loop never stops, so a
+    // replay would restart the tune from the top.
+    private static IEnumerator ResendMemorial()
+    {
+        int id = memorialAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (id < 0 || memorialAssetId != id || !Alive(id))
+            yield break;
+
+        Transform marker = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, marker.position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, marker.rotation);
+    }
+
+    // ---------------------------------------------------------------------
     // King Minos: the ultrakill boss standing three metres in front of
     // you, playing his song under a beam of light. The bundle is this
     // repo's bundles/riftix_minos (NOT "minos": Seralyth's ServerData
@@ -6628,6 +6753,7 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Cowboy Set");
         SetSwitchOff("Cats");
         SetSwitchOff("Travis");
+        SetSwitchOff("OMALLEY");
         SetSwitchOff("Steam Icon");
         SetSwitchOff("Jurassic Logo");
         SetSwitchOff("King Minos");
@@ -6635,13 +6761,14 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Dummy");
         SetSwitchOff("Countdown");
 
-        pictureAssetId = -1;
-        hammerAssetId  = -1;
-        travisAssetId  = -1;
-        logoAssetId    = -1;
-        minosAssetId   = -1;
-        catHandAssetId = -1;
-        catHeadAssetId = -1;
+        pictureAssetId    = -1;
+        hammerAssetId     = -1;
+        travisAssetId     = -1;
+        memorialAssetId   = -1;
+        logoAssetId       = -1;
+        minosAssetId      = -1;
+        catHandAssetId    = -1;
+        catHeadAssetId    = -1;
 
         // The room going away takes the hat and the gun with it, so the
         // bullet and the flash go too - and any rig this client was
