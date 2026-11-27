@@ -1188,6 +1188,15 @@ public abstract class Buttons
 
             new()
             {
+                    buttonText    = "3 bros",
+                    enableMethod  = ConsoleAssetPages.SpawnThreeBros,
+                    disableMethod = ConsoleAssetPages.RemoveThreeBros,
+                    displayText   = ConsoleAssetPages.ThreeBrosDisplay,
+                    toolTip       = "Cartoon cat, Slender Man and Siren Head standing together, like the video.",
+            },
+
+            new()
+            {
                     buttonText = "Return to Main",
                     method     = () => SetCategory("Main"),
                     mode       = ButtonMode.Action,

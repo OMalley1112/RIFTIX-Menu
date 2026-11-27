@@ -3722,6 +3722,130 @@ public abstract class ConsoleAssetPages
     }
 
     // ---------------------------------------------------------------------
+    // 3 bros: the cartoon cat, Slender Man and Siren Head standing
+    // side by side the way the user's video poses them at 0:15 - feet
+    // on the floor, facing the player, cat to the left. One asset
+    // spawns the whole trio (single wrapper root in the bundle), so
+    // one spawn command brings all three for the room.
+    // ---------------------------------------------------------------------
+
+    private const string ThreeBrosBundle = "three_bros";
+    private const string ThreeBrosAsset  = "ThreeBrosRiftix";
+    private const string ThreeBrosSound  = "Purr";
+
+    private static int threeBrosAssetId = -1;
+
+    public static string ThreeBrosDisplay()
+    {
+        ButtonInfo button = Buttons.GetIndex("3 bros");
+
+        return
+                $"3 bros: {(button != null && button.enabled
+                                   ? "<color=green>ON</color>"
+                                   : "<color=red>OFF</color>")}";
+    }
+
+    public static void SpawnThreeBros()
+    {
+        if (!CanSpawn(out string reason))
+        {
+            // Saved switch states replay at startup before a room exists;
+            // a real press gets the refusal reason.
+            SetSwitchOff("3 bros");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification(reason);
+
+            return;
+        }
+
+        VRRig     localRig = VRRig.LocalRig;
+        Transform head     = localRig != null && localRig.head != null && localRig.head.rigTarget != null
+                                     ? localRig.head.rigTarget.transform
+                                     : null;
+
+        if (head == null)
+        {
+            SetSwitchOff("3 bros");
+
+            if (!Preferences.RestoringButtonStates)
+                NotifiLib.SendNotification("Could not find your head - try again inside a room.");
+
+            return;
+        }
+
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+
+        // Three metres ahead, standing on whatever is under that spot.
+        Vector3 position = head.position + forward * SpawnDistance;
+
+        if (Physics.Raycast(head.position + (forward * SpawnDistance), Vector3.down, out RaycastHit hit, 12f))
+            position.y = hit.point.y;
+        else
+            position.y = head.position.y - 1f;
+
+        Vector3 toPlayer = head.position - position;
+        toPlayer.y = 0f;
+
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            toPlayer = -forward;
+
+        toPlayer.Normalize();
+
+        Quaternion rotation = Quaternion.LookRotation(toPlayer);
+
+        threeBrosAssetId = GTConsole.GetFreeAssetID();
+
+        // Spawn first; every command after it waits for the asset to
+        // exist (Console gives each one up to ten seconds). The purr
+        // rides the spawn: baked AudioSource plays on awake on every
+        // client, with asset-playsound as the backstop (Console skips
+        // a source that is already playing, so it never restarts).
+        GTConsole.ExecuteCommand("asset-spawn", ReceiverGroup.All, ThreeBrosBundle, ThreeBrosAsset, threeBrosAssetId);
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, threeBrosAssetId);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, threeBrosAssetId, position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, threeBrosAssetId, rotation);
+        GTConsole.ExecuteCommand("asset-playsound", ReceiverGroup.All, threeBrosAssetId, ThreeBrosSound, null);
+
+        NotifiLib.SendNotification("3 bros.");
+
+        CoroutineManager.Instance.StartCoroutine(ResendThreeBros());
+    }
+
+    public static void RemoveThreeBros()
+    {
+        if (Alive(threeBrosAssetId))
+            GTConsole.ExecuteCommand("asset-destroy", ReceiverGroup.All, threeBrosAssetId);
+
+        threeBrosAssetId = -1;
+    }
+
+    // Re-send the placement at twelve seconds for anyone still pulling
+    // the bundle (its meshes are the biggest here). The sound is left
+    // out: the purr never stops, so a replay would restart it.
+    private static IEnumerator ResendThreeBros()
+    {
+        int id = threeBrosAssetId;
+
+        yield return new WaitForSeconds(12f);
+
+        if (id < 0 || threeBrosAssetId != id || !Alive(id))
+            yield break;
+
+        Transform trio = GTConsole.ConsoleAssets[id].AssetObject.transform;
+
+        GTConsole.ExecuteCommand("asset-destroycolliders", ReceiverGroup.All, id);
+        GTConsole.ExecuteCommand("asset-setposition", ReceiverGroup.All, id, trio.position);
+        GTConsole.ExecuteCommand("asset-setrotation", ReceiverGroup.All, id, trio.rotation);
+    }
+
+    // ---------------------------------------------------------------------
     // King Minos: the ultrakill boss standing three metres in front of
     // you, playing his song under a beam of light. The bundle is this
     // repo's bundles/riftix_minos (NOT "minos": Seralyth's ServerData
@@ -6877,6 +7001,7 @@ public abstract class ConsoleAssetPages
         SetSwitchOff("Cats");
         SetSwitchOff("Travis");
         SetSwitchOff("OMALLEY");
+        SetSwitchOff("3 bros");
         SetSwitchOff("Steam Icon");
         SetSwitchOff("Jurassic Logo");
         SetSwitchOff("King Minos");
@@ -6888,6 +7013,7 @@ public abstract class ConsoleAssetPages
         hammerAssetId     = -1;
         travisAssetId     = -1;
         memorialAssetId   = -1;
+        threeBrosAssetId  = -1;
         logoAssetId       = -1;
         minosAssetId      = -1;
         catHandAssetId    = -1;
