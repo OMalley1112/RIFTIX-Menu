@@ -572,22 +572,6 @@ public abstract class Buttons
                     disableMethod = Visual.DisableTracers,
                     toolTip       = "Draws lines from your head to every player, red means they are it.",
             },
-
-            new()
-            {
-                    buttonText    = "Sentry Rig",
-                    method        = Sentry.SentryRig,
-                    disableMethod = Sentry.SentryRigOff,
-                    toolTip       = "Sentry: turns your own body solid black with white eyes. Local only.",
-            },
-
-            new()
-            {
-                    buttonText    = "Black Map",
-                    method        = Sentry.BlackMap,
-                    disableMethod = Sentry.BlackMapOff,
-                    toolTip       = "Sentry: repaints the whole map black for you only. Local only.",
-            },
     };
 
     private static readonly ButtonInfo[] FunModsButtons =
